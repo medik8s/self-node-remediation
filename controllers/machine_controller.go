@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	poisonPill "github.com/n1r1/poison-pill/api"
-	machineopenshiftiov1beta1 "github.com/n1r1/poison-pill/api/v1beta1"
 	"io/ioutil"
 	v1 "k8s.io/api/core/v1"
 	"net/http"
@@ -167,6 +166,6 @@ func getRandomNodeAddress(nodes *v1.NodeList) (address string) {
 
 func (r *MachineReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&machineopenshiftiov1beta1.Machine{}).
+		For(&machinev1beta1.Machine{}).
 		Complete(r)
 }
