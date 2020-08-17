@@ -1,7 +1,8 @@
 package main
 
 import (
-	poisonPillApis "github.com/n1r1/poison-pill-op-sdk/api"
+	"context"
+	poisonPillApis "github.com/n1r1/poison-pill/api"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
@@ -31,7 +32,7 @@ func init() {
 }
 
 func isHealthy(machineName string) poisonPillApis.HealthCheckResponse {
-	machine, err := client.Resource(machineRes).Namespace(machineNamespace).Get(machineName, metav1.GetOptions{})
+	machine, err := client.Resource(machineRes).Namespace(machineNamespace).Get(context.TODO(), machineName, metav1.GetOptions{})
 	if err != nil {
 		//todo examine the error, maybe it's 404 etc.
 		return poisonPillApis.ApiError

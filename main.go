@@ -27,8 +27,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	machineopenshiftiov1beta1 "github.com/n1r1/poison-pill-op-sdk/api/v1beta1"
-	"github.com/n1r1/poison-pill-op-sdk/controllers"
+	machineopenshiftiov1beta1 "github.com/n1r1/poison-pill/api/v1beta1"
+	"github.com/n1r1/poison-pill/controllers"
 	// +kubebuilder:scaffold:imports
 )
 
