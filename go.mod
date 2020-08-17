@@ -1,4 +1,4 @@
-module github.com/n1r1/poison-pill-op-sdk
+module github.com/n1r1/poison-pill
 
 go 1.13
 

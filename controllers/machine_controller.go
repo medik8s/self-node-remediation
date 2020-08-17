@@ -21,7 +21,7 @@ import (
 	"errors"
 	"fmt"
 	poisonPill "github.com/n1r1/poison-pill/api"
-	machineopenshiftiov1beta1 "github.com/n1r1/poison-pill-op-sdk/api/v1beta1"
+	machineopenshiftiov1beta1 "github.com/n1r1/poison-pill/api/v1beta1"
 	"io/ioutil"
 	v1 "k8s.io/api/core/v1"
 	"net/http"
