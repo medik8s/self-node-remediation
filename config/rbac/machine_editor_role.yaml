@@ -1,0 +1,24 @@
+# permissions for end users to edit machines.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: machine-editor-role
+rules:
+- apiGroups:
+  - machine.openshift.io.example.com
+  resources:
+  - machines
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - machine.openshift.io.example.com
+  resources:
+  - machines/status
+  verbs:
+  - get
