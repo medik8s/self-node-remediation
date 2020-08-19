@@ -21,7 +21,7 @@ import (
 	"os"
 
 	"github.com/n1r1/poison-pill/controllers"
-	"github.com/n1r1/poison-pill/peer_assistant"
+	"github.com/n1r1/poison-pill/peerassistant"
 	machinev1beta1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -84,5 +84,5 @@ func main() {
 	}
 
 	setupLog.Info("starting web server")
-	peer_assistant.Start()
+	peerassistant.Start()
 }
