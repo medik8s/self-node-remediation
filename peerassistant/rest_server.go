@@ -1,4 +1,4 @@
-package peer_assistant
+package peerassistant
 
 import (
 	"github.com/gorilla/mux"
