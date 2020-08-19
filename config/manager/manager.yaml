@@ -29,6 +29,9 @@ spec:
         - --enable-leader-election
         image: controller:latest
         name: manager
+        env:
+          - name: TBD
+            value: machine1
         resources:
           limits:
             cpu: 100m

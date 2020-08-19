@@ -1,4 +1,4 @@
-package main
+package peer_assistant
 
 import (
 	"context"
