@@ -1,4 +1,4 @@
-package main
+package peer_assistant
 
 import (
 	"github.com/gorilla/mux"
@@ -23,6 +23,6 @@ func handleRequests() {
 	log.Fatal(http.ListenAndServe(":"+string(port), nil))
 }
 
-func main() {
+func Start() {
 	handleRequests()
 }
