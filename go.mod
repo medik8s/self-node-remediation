@@ -4,16 +4,16 @@ go 1.13
 
 require (
 	github.com/go-logr/logr v0.1.0
-	github.com/gorilla/mux v0.0.0-20191024121256-f395758b854c
+	github.com/gorilla/mux v1.7.4
 	github.com/onsi/ginkgo v1.12.1
 	github.com/onsi/gomega v1.10.1
 	github.com/openshift/machine-api-operator v0.2.1-0.20200721125631-d234cceb5de1
+	github.com/prometheus/common v0.7.0
 	k8s.io/api v0.18.6
 
-	k8s.io/apimachinery v0.18.6
+	k8s.io/apimachinery v0.18.8
 	k8s.io/client-go v0.18.6
 	sigs.k8s.io/controller-runtime v0.6.2
-
 )
 
 replace (
