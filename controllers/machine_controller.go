@@ -108,17 +108,21 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 
 	r.Log.Info("Fetching machine...")
 	machine := &machinev1beta1.Machine{}
+
+	//define context with timeout, otherwise this blocks forever
 	ctx, cancelFunc := context.WithTimeout(context.TODO(), apiServerTimeout)
 	defer cancelFunc()
+
+	//we use ApiReader as it doesn't use the cache. Otherwise, the cache returns the object
+	//event though the api server is not available
 	err := r.ApiReader.Get(ctx, request.NamespacedName, machine)
 
 	if err != nil {
-		r.Log.Info("Error...")
 		errCount++
 		r.Log.Error(err, "Failed to retrieve machine from api-server", "error count is now", errCount)
 
 		if errCount > maxFailuresThreshold {
-			log.Info("Errors count exceeds threshold, trying to ask other nodes if I'm healthy")
+			log.Info("Error count exceeds threshold, trying to ask other nodes if I'm healthy")
 			if nodes == nil {
 				if err := r.updateNodesList(); err != nil {
 					r.Log.Error(err, "peers list is empty and couldn't be retrieved from server")
