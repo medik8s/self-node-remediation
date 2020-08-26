@@ -18,18 +18,16 @@ package main
 
 import (
 	"flag"
-	"os"
-
 	"github.com/n1r1/poison-pill/controllers"
-	"github.com/n1r1/poison-pill/peerassistant"
+	pa "github.com/n1r1/poison-pill/peerassistant"
 	machinev1beta1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
+	"os"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	// +kubebuilder:scaffold:imports
 )
 
 var (
@@ -62,27 +60,29 @@ func main() {
 		LeaderElection:     enableLeaderElection,
 		LeaderElectionID:   "c824b086.example.com",
 	})
+
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
 
 	if err = (&controllers.MachineReconciler{
-		Client: mgr.GetClient(),
-		Log:    ctrl.Log.WithName("controllers").WithName("Machine"),
-		Scheme: mgr.GetScheme(),
+		Client:    mgr.GetClient(),
+		Log:       ctrl.Log.WithName("controllers").WithName("Machine"),
+		Scheme:    mgr.GetScheme(),
+		ApiReader: mgr.GetAPIReader(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Machine")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
 
+	setupLog.Info("starting web server")
+	go pa.Start()
+
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
-
-	setupLog.Info("starting web server")
-	peerassistant.Start()
 }
