@@ -21,11 +21,12 @@ import (
 	"errors"
 	"fmt"
 	poisonPill "github.com/n1r1/poison-pill/api"
+	"github.com/prometheus/common/log"
 	"io/ioutil"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"net/http"
 	"os"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"strconv"
 	"time"
 
@@ -39,53 +40,100 @@ import (
 
 const (
 	externalRemediationAnnotation = "host.metal3.io/external-remediation"
-	machineNameEnvVar             = "TBD"
+	nodeNameEnvVar                = "MY_NODE_NAME"
 	maxFailuresThreshold          = 3
 	peersProtocol                 = "http"
 	peersPort                     = 30001
+	machineAnnotationKey          = "machine.openshift.io/machine"
+	reconcileInterval             = 30 * time.Second
 )
 
 //var _ reconcile.Reconciler = &ReconcileMachine{}
 var nodes *v1.NodeList
 var errCount int
-var machineName = os.Getenv(machineNameEnvVar)
+var nodeName = os.Getenv(nodeNameEnvVar)
+var myMachineName string
 
 // MachineReconciler reconciles a Machine object
 type MachineReconciler struct {
 	client.Client
-	Log    logr.Logger
-	Scheme *runtime.Scheme
+	Log       logr.Logger
+	Scheme    *runtime.Scheme
+	ApiReader client.Reader
 }
 
 // +kubebuilder:rbac:groups=machine.openshift.io.example.com,resources=machines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=machine.openshift.io.example.com,resources=machines/status,verbs=get;update;patch
 func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error) {
-	if request.Name != machineName {
-		//we only want to be triggered by the machine this code runs on
-		//later we will watch only the relevant machine
-		return reconcile.Result{}, nil
+	r.Log.Info("Reconciling...")
+
+	// check what's the machine name I'm running on, only if it's not already known
+	if myMachineName == "" {
+		r.Log.Info("Determining machine name ...")
+		nodeNamespacedName := types.NamespacedName{
+			Namespace: "",
+			Name:      nodeName,
+		}
+
+		node := &v1.Node{}
+		if err := r.Get(context.TODO(), nodeNamespacedName, node); err != nil {
+			r.Log.Error(err, "Failed to retrieve node object", "node name", nodeName)
+			return ctrl.Result{RequeueAfter: reconcileInterval}, err
+		}
+
+		if node.Annotations == nil {
+			err := errors.New("No annotations on node. Can't determine machine name")
+			r.Log.Error(err,"")
+			return ctrl.Result{RequeueAfter: reconcileInterval}, err
+		}
+
+		if machine, machineExists := node.Annotations[machineAnnotationKey]; machineExists {
+			myMachineName = machine
+		} else {
+			err := errors.New("machine annotation is not present on the node. can't determine machine name")
+			r.Log.Error(err, "")
+			return ctrl.Result{RequeueAfter: reconcileInterval}, err
+		}
 	}
 
+	//we only want to reconcile the machine this pod runs on
+	request.Name = myMachineName
+	//if request.Name != myMachineName {
+	//	//we only want to be triggered by the machine this code runs on
+	//	//later we will watch only the relevant machine
+	//	return ctrl.Result{RequeueAfter: reconcileInterval}, nil
+	//}
+
+	r.Log.Info("Fetching machine...")
 	machine := &machinev1beta1.Machine{}
-	err := r.Get(context.TODO(), request.NamespacedName, machine)
+	ctx, cancelFunc := context.WithTimeout(context.TODO(), time.Second*5) //todo check for err
+	defer cancelFunc()
+	err := r.ApiReader.Get(ctx, request.NamespacedName, machine)
 
 	if err != nil {
+		r.Log.Info("Error...")
 		errCount++
 		r.Log.Error(err, "Failed to retrieve machine from api-server", "error count is now", errCount)
 
 		if errCount > maxFailuresThreshold {
+			log.Info("Errors count exceeds threshold, trying to ask other nodes if I'm healthy")
 			if nodes == nil {
 				if err := r.updateNodesList(); err != nil {
 					r.Log.Error(err, "peers list is empty and couldn't be retrieved from server")
-					return reconcile.Result{}, err
+					return ctrl.Result{RequeueAfter: reconcileInterval}, err
 				}
 			}
 
-			result, _ := r.getHealthStatusFromPeer(getRandomNodeAddress(nodes))
+			result, err := r.getHealthStatusFromPeer(getRandomNodeAddress(nodes))
+			if err != nil {
+				return ctrl.Result{RequeueAfter: reconcileInterval}, err
+			}
+
+			r.Log.Info("Got response from peer", "response", result)
 			r.doSomethingWithHealthResult(result)
 		}
 
-		return reconcile.Result{}, err
+		return ctrl.Result{RequeueAfter: reconcileInterval}, err
 	}
 
 	errCount = 0
@@ -94,10 +142,10 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 
 	if _, exists := machine.Annotations[externalRemediationAnnotation]; exists {
 		r.stopWatchdogTickle()
-		return reconcile.Result{}, nil
+		return ctrl.Result{RequeueAfter: reconcileInterval}, nil
 	}
 
-	return reconcile.Result{RequeueAfter: time.Minute}, nil
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
 
 func (r *MachineReconciler) updateNodesList() error {
@@ -114,8 +162,14 @@ func (r *MachineReconciler) updateNodesList() error {
 }
 
 func (r *MachineReconciler) getHealthStatusFromPeer(endpointIp string) (poisonPill.HealthCheckResponse, error) {
-	url := fmt.Sprintf("%s://%s:%d/health/%s", peersProtocol, endpointIp, peersPort, machineName)
-	resp, err := http.Get(url)
+	url := fmt.Sprintf("%s://%s:%d/health/%s", peersProtocol, endpointIp, peersPort, myMachineName)
+
+	//todo init only once
+	c := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	resp, err := c.Get(url)
 
 	if err != nil {
 		r.Log.Error(err, "Failed to get health status from peer", "url", url)
@@ -157,8 +211,13 @@ func (r *MachineReconciler) stopWatchdogTickle() {
 }
 
 func getRandomNodeAddress(nodes *v1.NodeList) (address string) {
+	if len(nodes.Items) == 0 {
+		return "" //todo error
+	}
+
 	//todo this should be random, check if address exists, etc.
-	address = nodes.Items[0].Status.Addresses[0].Address
+	nodeIndex := 0 //rand.Intn(len(nodes.Items))
+	address = nodes.Items[nodeIndex].Status.Addresses[0].Address
 	nodes.Items = nodes.Items[1:] //remove this node from the list
 
 	return
