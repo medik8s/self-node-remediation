@@ -45,7 +45,7 @@ const (
 	peersProtocol                 = "http"
 	peersPort                     = 30001
 	machineAnnotationKey          = "machine.openshift.io/machine"
-	reconcileInterval             = 30 * time.Second
+	reconcileInterval             = 15 * time.Second
 	apiServerTimeout              = 5 * time.Second
 	peerTimeout                   = 10 * time.Second
 )
@@ -53,8 +53,12 @@ const (
 //var _ reconcile.Reconciler = &ReconcileMachine{}
 var nodes *v1.NodeList
 var errCount int
-var nodeName = os.Getenv(nodeNameEnvVar)
+var myNodeName = os.Getenv(nodeNameEnvVar)
 var myMachineName string
+var lastReconcileTime time.Time
+var httpClient = &http.Client{
+	Timeout: peerTimeout,
+}
 
 // MachineReconciler reconciles a Machine object
 type MachineReconciler struct {
@@ -67,19 +71,17 @@ type MachineReconciler struct {
 // +kubebuilder:rbac:groups=machine.openshift.io.example.com,resources=machines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=machine.openshift.io.example.com,resources=machines/status,verbs=get;update;patch
 func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error) {
-	r.Log.Info("Reconciling...")
-
 	// check what's the machine name I'm running on, only if it's not already known
 	if myMachineName == "" {
 		r.Log.Info("Determining machine name ...")
 		nodeNamespacedName := types.NamespacedName{
 			Namespace: "",
-			Name:      nodeName,
+			Name:      myNodeName,
 		}
 
 		node := &v1.Node{}
 		if err := r.Get(context.TODO(), nodeNamespacedName, node); err != nil {
-			r.Log.Error(err, "Failed to retrieve node object", "node name", nodeName)
+			r.Log.Error(err, "Failed to retrieve node object", "node name", myNodeName)
 			return ctrl.Result{RequeueAfter: reconcileInterval}, err
 		}
 
@@ -91,6 +93,7 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 
 		if machine, machineExists := node.Annotations[machineAnnotationKey]; machineExists {
 			myMachineName = machine
+			r.Log.Info("Detected machine name", "my machine name", myMachineName)
 		} else {
 			err := errors.New("machine annotation is not present on the node. can't determine machine name")
 			r.Log.Error(err, "")
@@ -106,7 +109,14 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 	//	return ctrl.Result{RequeueAfter: reconcileInterval}, nil
 	//}
 
-	r.Log.Info("Fetching machine...")
+	minTimeToReconcile := lastReconcileTime.Add(reconcileInterval)
+	if !time.Now().After(minTimeToReconcile) {
+		return ctrl.Result{RequeueAfter: minTimeToReconcile.Sub(time.Now())}, nil
+	}
+
+	r.Log.Info("Reconciling...")
+	lastReconcileTime = time.Now()
+
 	machine := &machinev1beta1.Machine{}
 
 	//define context with timeout, otherwise this blocks forever
@@ -123,7 +133,7 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 
 		if errCount > maxFailuresThreshold {
 			log.Info("Error count exceeds threshold, trying to ask other nodes if I'm healthy")
-			if nodes == nil {
+			if nodes == nil || len(nodes.Items) == 0 {
 				if err := r.updateNodesList(); err != nil {
 					r.Log.Error(err, "peers list is empty and couldn't be retrieved from server")
 					return ctrl.Result{RequeueAfter: reconcileInterval}, err
@@ -147,6 +157,7 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 	_ = r.updateNodesList()
 
 	if _, exists := machine.Annotations[externalRemediationAnnotation]; exists {
+		r.Log.Info("Found external remediation annotation. Machine is unhealthy")
 		r.stopWatchdogTickle()
 		return ctrl.Result{RequeueAfter: reconcileInterval}, nil
 	}
@@ -164,18 +175,19 @@ func (r *MachineReconciler) updateNodesList() error {
 
 	//store the node list, so that it will be available if api-server is not accessible at some point
 	nodes = nodeList.DeepCopy()
+	for i, node := range nodes.Items {
+		//remove the node this pod runs on from the list
+		if node.Name == myNodeName {
+			nodes.Items = append(nodes.Items[:i], nodes.Items[i+1:]...)
+		}
+	}
 	return nil
 }
 
 func (r *MachineReconciler) getHealthStatusFromPeer(endpointIp string) (poisonPill.HealthCheckResponse, error) {
 	url := fmt.Sprintf("%s://%s:%d/health/%s", peersProtocol, endpointIp, peersPort, myMachineName)
 
-	//todo init only once
-	c := &http.Client{
-		Timeout: peerTimeout,
-	}
-
-	resp, err := c.Get(url)
+	resp, err := httpClient.Get(url)
 
 	if err != nil {
 		r.Log.Error(err, "Failed to get health status from peer", "url", url)
@@ -200,10 +212,10 @@ func (r *MachineReconciler) doSomethingWithHealthResult(healthStatus poisonPill.
 		r.stopWatchdogTickle()
 		break
 	case poisonPill.Healthy:
-		//do nothing?
+		r.Log.Info("Peer told me I'm healthy. Resetting error count")
+		errCount = 0
 		break
 	case poisonPill.ApiError:
-		//todo ?
 		break
 	default:
 		r.Log.Error(errors.New("got unexpected value from peer while trying to retrieve health status"), "Received value", healthStatus)
@@ -223,8 +235,9 @@ func getRandomNodeAddress(nodes *v1.NodeList) (address string) {
 
 	//todo this should be random, check if address exists, etc.
 	nodeIndex := 0 //rand.Intn(len(nodes.Items))
-	address = nodes.Items[nodeIndex].Status.Addresses[0].Address
-	nodes.Items = nodes.Items[1:] //remove this node from the list
+	chosenNode := nodes.Items[nodeIndex]
+	address = chosenNode.Status.Addresses[0].Address //todo node might have multiple addresses
+	nodes.Items = nodes.Items[1:]                    //remove this node from the list
 
 	return
 }
