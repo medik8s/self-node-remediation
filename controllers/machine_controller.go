@@ -46,6 +46,8 @@ const (
 	peersPort                     = 30001
 	machineAnnotationKey          = "machine.openshift.io/machine"
 	reconcileInterval             = 30 * time.Second
+	apiServerTimeout              = 5 * time.Second
+	peerTimeout                   = 10 * time.Second
 )
 
 //var _ reconcile.Reconciler = &ReconcileMachine{}
@@ -83,7 +85,7 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 
 		if node.Annotations == nil {
 			err := errors.New("No annotations on node. Can't determine machine name")
-			r.Log.Error(err,"")
+			r.Log.Error(err, "")
 			return ctrl.Result{RequeueAfter: reconcileInterval}, err
 		}
 
@@ -106,7 +108,7 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 
 	r.Log.Info("Fetching machine...")
 	machine := &machinev1beta1.Machine{}
-	ctx, cancelFunc := context.WithTimeout(context.TODO(), time.Second*5) //todo check for err
+	ctx, cancelFunc := context.WithTimeout(context.TODO(), apiServerTimeout)
 	defer cancelFunc()
 	err := r.ApiReader.Get(ctx, request.NamespacedName, machine)
 
@@ -166,7 +168,7 @@ func (r *MachineReconciler) getHealthStatusFromPeer(endpointIp string) (poisonPi
 
 	//todo init only once
 	c := &http.Client{
-		Timeout: 5 * time.Second,
+		Timeout: peerTimeout,
 	}
 
 	resp, err := c.Get(url)
