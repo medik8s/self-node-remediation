@@ -68,46 +68,49 @@ type MachineReconciler struct {
 	ApiReader client.Reader
 }
 
+// updates machineName to the machine associated with the myNodeName
+func (r *MachineReconciler) getMachineName() (ctrl.Result, error) {
+	r.Log.Info("Determining machine name ...")
+	nodeNamespacedName := types.NamespacedName{
+		Namespace: "",
+		Name:      myNodeName,
+	}
+
+	node := &v1.Node{}
+	if err := r.Get(context.TODO(), nodeNamespacedName, node); err != nil {
+		r.Log.Error(err, "Failed to retrieve node object", "node name", myNodeName)
+		return ctrl.Result{RequeueAfter: reconcileInterval}, err
+	}
+
+	if node.Annotations == nil {
+		err := errors.New("No annotations on node. Can't determine machine name")
+		r.Log.Error(err, "")
+		return ctrl.Result{RequeueAfter: reconcileInterval}, err
+	}
+
+	machine, machineExists := node.Annotations[machineAnnotationKey]
+
+	if !machineExists {
+		err := errors.New("machine annotation is not present on the node. can't determine machine name")
+		r.Log.Error(err, "")
+		return ctrl.Result{RequeueAfter: reconcileInterval}, err
+	}
+
+	myMachineName = machine
+	r.Log.Info("Detected machine name", "my machine name", myMachineName)
+	return ctrl.Result{RequeueAfter: reconcileInterval}, nil
+}
+
 // +kubebuilder:rbac:groups=machine.openshift.io.example.com,resources=machines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=machine.openshift.io.example.com,resources=machines/status,verbs=get;update;patch
 func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error) {
 	// check what's the machine name I'm running on, only if it's not already known
 	if myMachineName == "" {
-		r.Log.Info("Determining machine name ...")
-		nodeNamespacedName := types.NamespacedName{
-			Namespace: "",
-			Name:      myNodeName,
-		}
-
-		node := &v1.Node{}
-		if err := r.Get(context.TODO(), nodeNamespacedName, node); err != nil {
-			r.Log.Error(err, "Failed to retrieve node object", "node name", myNodeName)
-			return ctrl.Result{RequeueAfter: reconcileInterval}, err
-		}
-
-		if node.Annotations == nil {
-			err := errors.New("No annotations on node. Can't determine machine name")
-			r.Log.Error(err, "")
-			return ctrl.Result{RequeueAfter: reconcileInterval}, err
-		}
-
-		if machine, machineExists := node.Annotations[machineAnnotationKey]; machineExists {
-			myMachineName = machine
-			r.Log.Info("Detected machine name", "my machine name", myMachineName)
-		} else {
-			err := errors.New("machine annotation is not present on the node. can't determine machine name")
-			r.Log.Error(err, "")
-			return ctrl.Result{RequeueAfter: reconcileInterval}, err
-		}
+		return r.getMachineName()
 	}
 
 	//we only want to reconcile the machine this pod runs on
 	request.Name = myMachineName
-	//if request.Name != myMachineName {
-	//	//we only want to be triggered by the machine this code runs on
-	//	//later we will watch only the relevant machine
-	//	return ctrl.Result{RequeueAfter: reconcileInterval}, nil
-	//}
 
 	minTimeToReconcile := lastReconcileTime.Add(reconcileInterval)
 	if !time.Now().After(minTimeToReconcile) {
@@ -142,6 +145,7 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 
 			result, err := r.getHealthStatusFromPeer(getRandomNodeAddress(nodes))
 			if err != nil {
+				//todo if all nodes returned error we should reboot
 				return ctrl.Result{RequeueAfter: reconcileInterval}, err
 			}
 
