@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	poisonPill "github.com/n1r1/poison-pill/api"
-	"github.com/prometheus/common/log"
 	"io/ioutil"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -135,7 +134,7 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 		r.Log.Error(err, "Failed to retrieve machine from api-server", "error count is now", errCount)
 
 		if errCount > maxFailuresThreshold {
-			log.Info("Error count exceeds threshold, trying to ask other nodes if I'm healthy")
+			r.Log.Info("Error count exceeds threshold, trying to ask other nodes if I'm healthy")
 			if nodes == nil || len(nodes.Items) == 0 {
 				if err := r.updateNodesList(); err != nil {
 					r.Log.Error(err, "peers list is empty and couldn't be retrieved from server")
