@@ -144,7 +144,11 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 
 			result, err := r.getHealthStatusFromPeer(getRandomNodeAddress(nodes))
 			if err != nil {
-				//todo if all nodes returned error we should reboot
+				if len(nodes.Items) == 1 {
+					//we got an error from the last node in the list
+					r.Log.Error(err, "Failed to get health status from the last peer in the list. Assuming unhealthy")
+					r.stopWatchdogTickle()
+				}
 				return ctrl.Result{RequeueAfter: reconcileInterval}, err
 			}
 
