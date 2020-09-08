@@ -1,0 +1,107 @@
+package watchdog
+
+import (
+	"errors"
+	"fmt"
+	"syscall"
+	"time"
+	"unsafe"
+)
+import . "golang.org/x/sys/unix"
+
+const (
+	watchdogDevice = "/dev/watchdog"
+
+	WDIOF_SETTIMEOUT = 0x0080 // Supports timeout change
+)
+
+type watchdog struct {
+	fd   int
+	info *watchdogInfo
+}
+
+type watchdogInfo struct {
+	options         uint32
+	firmwareVersion uint32
+	identity        [32]byte
+}
+
+//func isWatchdogAvailable() bool {
+//	_, err := os.Stat(watchdogDevice)
+//	return os.IsExist(err)
+//}
+
+func StartWatchdog() (*watchdog, error) {
+	wdFd, err := openDevice()
+	if err != nil {
+		return nil, fmt.Errorf("failed to open watchdog device %s: %v", watchdogDevice, err)
+	}
+
+	wd := &watchdog{fd: wdFd,
+		info: getInfo(wdFd),
+	}
+
+	return wd, nil
+}
+
+func (wd *watchdog) GetTimeout() (*time.Duration, error) {
+	timeout, err := IoctlGetInt(wd.fd, WDIOC_GETTIMEOUT)
+
+	if err != nil {
+		return nil, err
+	}
+
+	timeoutDuration := time.Duration(timeout) * time.Second
+	return &timeoutDuration, nil
+}
+
+func (wd *watchdog) SetTimeout(seconds time.Duration) error {
+	if !wd.hasFeature(WDIOF_SETTIMEOUT) {
+		return errors.New("watchdog device doesn't support timeout changes")
+	}
+
+	return IoctlSetPointerInt(
+		wd.fd, WDIOC_SETTIMEOUT,
+		int(seconds/time.Second))
+}
+
+func (wd *watchdog) Feed() error {
+	food := []byte("a")
+	_, err := Write(wd.fd, food)
+
+	return err
+}
+
+//Disarm closes the watchdog without triggering reboots, even if the watchdog will not be fed any more
+func (wd *watchdog) Disarm() error {
+	b := []byte("V") // "V" is a special char for signaling watchdog disarm
+	_, err := Write(wd.fd, b)
+
+	if err != nil {
+		return err
+	}
+
+	return Close(wd.fd)
+}
+
+func (wd *watchdog) hasFeature(value uint32) bool {
+	return wd.info != nil && wd.info.options&value == value
+}
+
+func getInfo(fd int) *watchdogInfo {
+	info := watchdogInfo{}
+
+	_, _, errNo := syscall.Syscall(
+		syscall.SYS_IOCTL, uintptr(fd),
+		WDIOC_GETSUPPORT, uintptr(unsafe.Pointer(&info)))
+
+	if errNo != 0 {
+		return nil
+	}
+
+	return &info
+}
+
+func openDevice() (int, error) {
+	return Open(watchdogDevice, O_WRONLY, 0644)
+}
