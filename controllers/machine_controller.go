@@ -49,15 +49,16 @@ const (
 	peerTimeout                   = 10 * time.Second
 )
 
-//var _ reconcile.Reconciler = &ReconcileMachine{}
-var nodes *v1.NodeList
-var errCount int
-var myNodeName = os.Getenv(nodeNameEnvVar)
-var myMachineName string
-var lastReconcileTime time.Time
-var httpClient = &http.Client{
-	Timeout: peerTimeout,
-}
+var (
+	nodes             *v1.NodeList
+	errCount          int
+	myNodeName        = os.Getenv(nodeNameEnvVar)
+	myMachineName     string
+	lastReconcileTime time.Time
+	httpClient        = &http.Client{
+		Timeout: peerTimeout,
+	}
+)
 
 // MachineReconciler reconciles a Machine object
 type MachineReconciler struct {
