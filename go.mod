@@ -9,6 +9,7 @@ require (
 	github.com/onsi/gomega v1.10.1
 	github.com/openshift/machine-api-operator v0.2.1-0.20200721125631-d234cceb5de1
 	github.com/prometheus/common v0.7.0
+	golang.org/x/sys v0.0.0-20200323222414-85ca7c5b95cd
 	k8s.io/api v0.18.6
 
 	k8s.io/apimachinery v0.18.8
