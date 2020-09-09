@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
 	"time"
 
@@ -110,7 +111,11 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 	if shouldReboot {
 		if watchdog == nil {
 			//we couldn't init a watchdog so far but requested to be rebooted. we issue a software reboot
-			//todo reboot
+			if err := softwareReboot(); err != nil {
+				r.Log.Error(err, "failed to run reboot command")
+				return ctrl.Result{RequeueAfter: reconcileInterval}, err
+			}
+			return ctrl.Result{RequeueAfter: reconcileInterval}, nil
 		}
 		//we stop feeding the watchdog and waiting for a reboot
 		return ctrl.Result{}, nil
@@ -265,6 +270,12 @@ func (r *MachineReconciler) stopWatchdogFeeding() {
 	shouldReboot = true
 }
 
+func (r *MachineReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&machinev1beta1.Machine{}).
+		Complete(r)
+}
+
 func getRandomNodeAddress(nodes *v1.NodeList) (address string) {
 	if len(nodes.Items) == 0 {
 		return "" //todo error
@@ -279,8 +290,8 @@ func getRandomNodeAddress(nodes *v1.NodeList) (address string) {
 	return
 }
 
-func (r *MachineReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&machinev1beta1.Machine{}).
-		Complete(r)
+func softwareReboot() error {
+	// hostPID: true and privileged:true reqiuired to run this
+	rebootCmd := exec.Command("/usr/bin/nsenter", "-m/proc/1/ns/mnt", "/bin/systemctl", "reboot")
+	return rebootCmd.Run()
 }
