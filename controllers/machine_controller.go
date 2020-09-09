@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	poisonPill "github.com/n1r1/poison-pill/api"
+	wdt "github.com/n1r1/poison-pill/watchdog"
 	"io/ioutil"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -54,10 +55,12 @@ var (
 	errCount          int
 	myNodeName        = os.Getenv(nodeNameEnvVar)
 	myMachineName     string
+	shouldReboot      bool
 	lastReconcileTime time.Time
 	httpClient        = &http.Client{
 		Timeout: peerTimeout,
 	}
+	watchdog *wdt.Watchdog
 )
 
 // MachineReconciler reconciles a Machine object
@@ -104,9 +107,35 @@ func (r *MachineReconciler) getMachineName() (ctrl.Result, error) {
 // +kubebuilder:rbac:groups=machine.openshift.io.example.com,resources=machines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=machine.openshift.io.example.com,resources=machines/status,verbs=get;update;patch
 func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error) {
+	if shouldReboot {
+		if watchdog == nil {
+			//we couldn't init a watchdog so far but requested to be rebooted. we issue a software reboot
+			//todo reboot
+		}
+		//we stop feeding the watchdog and waiting for a reboot
+		return ctrl.Result{}, nil
+	}
+
 	// check what's the machine name I'm running on, only if it's not already known
 	if myMachineName == "" {
 		return r.getMachineName()
+	}
+
+	//try to create watchdog if not exists
+	if watchdog == nil {
+		if wdt.IsWatchdogAvailable() {
+			var err error
+			watchdog, err = wdt.StartWatchdog()
+			if err != nil {
+				return ctrl.Result{RequeueAfter: reconcileInterval}, err
+			}
+		}
+	} else {
+		err := watchdog.Feed()
+		if err != nil {
+			//todo log
+			return ctrl.Result{RequeueAfter: 1 * time.Second}, err
+		}
 	}
 
 	//we only want to reconcile the machine this pod runs on
@@ -148,7 +177,7 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 				if len(nodes.Items) == 1 {
 					//we got an error from the last node in the list
 					r.Log.Error(err, "Failed to get health status from the last peer in the list. Assuming unhealthy")
-					r.stopWatchdogTickle()
+					r.stopWatchdogFeeding()
 				}
 				return ctrl.Result{RequeueAfter: reconcileInterval}, err
 			}
@@ -166,7 +195,7 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 
 	if _, exists := machine.Annotations[externalRemediationAnnotation]; exists {
 		r.Log.Info("Found external remediation annotation. Machine is unhealthy")
-		r.stopWatchdogTickle()
+		r.stopWatchdogFeeding()
 		return ctrl.Result{RequeueAfter: reconcileInterval}, nil
 	}
 
@@ -217,7 +246,7 @@ func (r *MachineReconciler) getHealthStatusFromPeer(endpointIp string) (poisonPi
 func (r *MachineReconciler) doSomethingWithHealthResult(healthStatus poisonPill.HealthCheckResponse) {
 	switch healthStatus {
 	case poisonPill.Unhealthy:
-		r.stopWatchdogTickle()
+		r.stopWatchdogFeeding()
 		break
 	case poisonPill.Healthy:
 		r.Log.Info("Peer told me I'm healthy. Resetting error count")
@@ -231,9 +260,9 @@ func (r *MachineReconciler) doSomethingWithHealthResult(healthStatus poisonPill.
 }
 
 //this will cause reboot
-func (r *MachineReconciler) stopWatchdogTickle() {
-	r.Log.Info("Rebooting...")
-	//todo implement
+func (r *MachineReconciler) stopWatchdogFeeding() {
+	r.Log.Info("No more food for watchdog... system will be rebooted...")
+	shouldReboot = true
 }
 
 func getRandomNodeAddress(nodes *v1.NodeList) (address string) {
