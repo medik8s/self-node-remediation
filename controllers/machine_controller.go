@@ -53,6 +53,7 @@ const (
 	apiServerTimeout              = 5 * time.Second
 	peerTimeout                   = 10 * time.Second
 	safeTimeToAssumeNodeRebooted  = 90 * time.Second
+	waitingForNode                = "waiting-for-node"
 )
 
 var (
@@ -205,7 +206,7 @@ func (r *MachineReconciler) handleUnhealthyMachine(lastUnhealthyTimeStr string, 
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	if lastUnhealthyTimeStr == "waiting-for-node" {
+	if lastUnhealthyTimeStr == waitingForNode {
 		if _, err := r.getNodeByMachine(machine); err != nil {
 			if apiErrors.IsNotFound(err) {
 				if nodeBackup, nodeBackupExists := machine.Annotations[nodeBackupAnnotation]; nodeBackupExists {
@@ -247,7 +248,7 @@ func (r *MachineReconciler) handleUnhealthyMachine(lastUnhealthyTimeStr string, 
 	node, err := r.getNodeByMachine(machine)
 
 	if apiErrors.IsNotFound(err) {
-		machine.Annotations[externalRemediationAnnotation] = "waiting-for-node"
+		machine.Annotations[externalRemediationAnnotation] = waitingForNode
 
 		if err := r.Client.Update(context.TODO(), machine); err != nil {
 			r.Log.Error(err, "failed to remove external remediation annotation", "machine name", machine.Name)
