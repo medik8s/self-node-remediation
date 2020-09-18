@@ -192,14 +192,39 @@ func (r *MachineReconciler) handleUnhealthyMachine(lastUnhealthyTimeStr string, 
 
 		machine.Annotations[nodeBackupAnnotation] = string(marshaledNode)
 
-		r.Log.Info("Updating machine with node CR backup and updating unhealthy time", "machine name", machine.Name)
+		r.Log.Info("updating machine with node CR backup and updating unhealthy time", "machine name", machine.Name)
 
 		if err := r.Client.Update(context.TODO(), machine); err != nil {
+			if apiErrors.IsConflict(err) {
+				return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
+			}
 			r.Log.Error(err, "failed to update machine with node backup and unhealthy time", "machine name", machine.Name)
 			return ctrl.Result{}, err
 		}
 
 		return ctrl.Result{Requeue: true}, nil
+	}
+
+	if lastUnhealthyTimeStr == "waiting-for-node" {
+		if _, err := r.getNodeByMachine(machine); err != nil {
+			if apiErrors.IsNotFound(err) {
+				if nodeBackup, nodeBackupExists := machine.Annotations[nodeBackupAnnotation]; nodeBackupExists {
+					return r.restoreNode(machine, nodeBackup)
+				}
+			}
+			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+		}
+
+		r.Log.Info("node has been restored. removing unhealthy annotation", "machine name", machine.Name)
+
+		delete(machine.Annotations, externalRemediationAnnotation)
+
+		if err := r.Client.Update(context.TODO(), machine); err != nil {
+			r.Log.Error(err, "failed to remove external remediation annotation", "machine name", machine.Name)
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{Requeue: true}, nil
+
 	}
 
 	lastUnhealthyTime, err := time.Parse(time.RFC3339, lastUnhealthyTimeStr)
@@ -222,7 +247,7 @@ func (r *MachineReconciler) handleUnhealthyMachine(lastUnhealthyTimeStr string, 
 	node, err := r.getNodeByMachine(machine)
 
 	if apiErrors.IsNotFound(err) {
-		delete(machine.Annotations, externalRemediationAnnotation)
+		machine.Annotations[externalRemediationAnnotation] = "waiting-for-node"
 
 		if err := r.Client.Update(context.TODO(), machine); err != nil {
 			r.Log.Error(err, "failed to remove external remediation annotation", "machine name", machine.Name)
@@ -240,12 +265,13 @@ func (r *MachineReconciler) handleUnhealthyMachine(lastUnhealthyTimeStr string, 
 		return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 	}
 
+	r.Log.Info("deleting unhealthy node", "node name", node.Name)
 	if err := r.Client.Delete(context.TODO(), node); err != nil {
 		r.Log.Error(err, "failed to delete the unhealthy node")
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{RequeueAfter: reconcileInterval}, nil
+	return ctrl.Result{Requeue: true}, nil
 }
 
 //handleApiError handles the case where the api server is not responding or responding with an error
@@ -323,13 +349,7 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 		}
 	}
 
-	minTimeToReconcile := lastReconcileTime.Add(reconcileInterval)
-	if !time.Now().After(minTimeToReconcile) {
-		return ctrl.Result{RequeueAfter: minTimeToReconcile.Sub(time.Now())}, nil
-	}
-
-	r.Log.Info("Reconciling...")
-	lastReconcileTime = time.Now()
+	//r.Log.Info("Reconciling...")
 
 	machine := &machinev1beta1.Machine{}
 
@@ -337,11 +357,20 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 	ctx, cancelFunc := context.WithTimeout(context.TODO(), apiServerTimeout)
 	defer cancelFunc()
 
+	//todo we need to make sure we reconile this machine, and not only others. if we requeue after constant interval it doesn't mean we reconcile the correct machine
+
 	//we use ApiReader as it doesn't use the cache. Otherwise, the cache returns the object
 	//event though the api server is not available
 	err := r.ApiReader.Get(ctx, request.NamespacedName, machine)
 
 	if err != nil {
+		minTimeToReconcile := lastReconcileTime.Add(reconcileInterval)
+		if !time.Now().After(minTimeToReconcile) {
+			return ctrl.Result{RequeueAfter: minTimeToReconcile.Sub(time.Now())}, nil
+		}
+
+		lastReconcileTime = time.Now()
+
 		return r.handleApiError(err)
 	}
 
@@ -352,13 +381,6 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 
 	if lastUnhealthyTimeStr, exists := machine.Annotations[externalRemediationAnnotation]; exists {
 		return r.handleUnhealthyMachine(lastUnhealthyTimeStr, machine)
-	}
-
-	nodeBackup, nodeBackupExists := machine.Annotations[nodeBackupAnnotation]
-
-	if nodeBackupExists {
-		//node backup annotation exist and the machine is healthy, we need to restore the node
-		return r.restoreNode(machine, nodeBackup)
 	}
 
 	return ctrl.Result{RequeueAfter: reconcileInterval}, nil
@@ -375,7 +397,6 @@ func (r *MachineReconciler) updateNodesList() error {
 	//store the node list, so that it will be available if api-server is not accessible at some point
 	nodes = nodeList.DeepCopy()
 	for i, node := range nodes.Items {
-		r.Log.Info("found node", "name", node.Name)
 		//remove the node this pod runs on from the list
 		if node.Name == myNodeName {
 			nodes.Items = append(nodes.Items[:i], nodes.Items[i+1:]...)
