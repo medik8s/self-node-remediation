@@ -216,8 +216,9 @@ func (r *MachineReconciler) handleUnhealthyMachine(lastUnhealthyTimeStr string, 
 			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
 		}
 
-		r.Log.Info("node has been restored. removing unhealthy annotation", "machine name", machine.Name)
+		r.Log.Info("node has been restored. removing unhealthy annotation and node backup annotation", "machine name", machine.Name)
 
+		delete(machine.Annotations, nodeBackupAnnotation)
 		delete(machine.Annotations, externalRemediationAnnotation)
 
 		if err := r.Client.Update(context.TODO(), machine); err != nil {
@@ -298,7 +299,7 @@ func (r *MachineReconciler) handleApiError(err error) (ctrl.Result, error) {
 			if len(nodes.Items) == 1 {
 				//we got an error from the last node in the list
 				r.Log.Error(err, "failed to get health status from the last peer in the list. Assuming unhealthy")
-				r.stopWatchdogFeeding()
+				r.stopWatchdogFeeding() //todo we need to reboot only after someone else marked the node as unschedulable, need to check this is happeps before
 			}
 			return ctrl.Result{RequeueAfter: reconcileInterval}, err
 		}
