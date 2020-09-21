@@ -7,11 +7,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
+	"time"
 )
 
 const (
 	externalRemediationAnnotation = "host.metal3.io/external-remediation"
 	machineNamespace              = "openshift-machine-api"
+	safeTimeToAssumeNodeRebooted  = 90 * time.Second //todo this also appears in controller. put this in a common file
 )
 
 var client dynamic.Interface
@@ -42,9 +44,19 @@ func isHealthy(machineName string) poisonPillApis.HealthCheckResponse {
 		return poisonPillApis.Healthy
 	}
 
-	_, isUnhealthy := machine.GetAnnotations()[externalRemediationAnnotation]
+	lastUnhealthyTimeStr, exists := machine.GetAnnotations()[externalRemediationAnnotation]
 
-	if isUnhealthy {
+	if !exists {
+		return poisonPillApis.Healthy
+	}
+
+	lastUnhealthyTime, err := time.Parse(time.RFC3339, lastUnhealthyTimeStr)
+	if err != nil {
+		//todo log error
+		return poisonPillApis.Healthy
+	}
+
+	if lastUnhealthyTime.Add(safeTimeToAssumeNodeRebooted).Before(time.Now()) {
 		return poisonPillApis.Unhealthy
 	}
 
