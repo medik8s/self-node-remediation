@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	poisonPill "github.com/n1r1/poison-pill/api"
+	"github.com/n1r1/poison-pill/utils"
 	wdt "github.com/n1r1/poison-pill/watchdog"
 	"io/ioutil"
 	v1 "k8s.io/api/core/v1"
@@ -60,14 +61,14 @@ var (
 	nodes             *v1.NodeList
 	nodesToAsk        *v1.NodeList
 	errCount          int
-	myNodeName        = os.Getenv(nodeNameEnvVar)
 	myMachineName     string
 	shouldReboot      bool
 	lastReconcileTime time.Time
+	watchdog          *wdt.Watchdog
+	myNodeName        = os.Getenv(nodeNameEnvVar)
 	httpClient        = &http.Client{
 		Timeout: peerTimeout,
 	}
-	watchdog *wdt.Watchdog
 
 	NodeUnschedulableTaint = &v1.Taint{
 		Key:    "node.kubernetes.io/unschedulable",
@@ -155,6 +156,10 @@ func (r *MachineReconciler) restoreNode(machine *machinev1beta1.Machine, nodeBac
 	}
 
 	nodeToRestore.ResourceVersion = "" //create won't work with a non-empty value here
+	taints, _ := utils.DeleteTaint(nodeToRestore.Spec.Taints, NodeUnschedulableTaint)
+	nodeToRestore.Spec.Taints = taints
+	nodeToRestore.Spec.Unschedulable = false
+
 	if err := r.Client.Create(context.TODO(), nodeToRestore); err != nil {
 		if apiErrors.IsAlreadyExists(err) {
 			delete(machine.Annotations, nodeBackupAnnotation)
@@ -176,13 +181,26 @@ func (r *MachineReconciler) handleUnhealthyMachine(lastUnhealthyTimeStr string, 
 	r.Log.Info("found external remediation annotation", "machine name", machine.Name)
 
 	if lastUnhealthyTimeStr == "" {
-		machine.Annotations[externalRemediationAnnotation] = time.Now().Format(time.RFC3339)
-
 		node, err := r.getNodeByMachine(machine)
 
 		if err != nil {
-			r.Log.Error(err, "failed to get node CR for backup before deletion", "machine name", machine.Name)
+			r.Log.Error(err, "failed to get node CR", "machine name", machine.Name)
 			return ctrl.Result{}, err
+		}
+
+		if !node.Spec.Unschedulable {
+			node.Spec.Unschedulable = true
+			r.Log.Info("Marking node as unschedulable", "node name", node.Name)
+			if err := r.Client.Update(context.TODO(), node); err != nil {
+				r.Log.Error(err, "failed to mark node as unschedulable")
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
+		}
+
+		if !utils.TaintExists(node.Spec.Taints, NodeUnschedulableTaint) {
+			r.Log.Info("waiting for unschedulable taint to appear", "node name", node.Name)
+			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 		}
 
 		marshaledNode, err := json.Marshal(node)
@@ -191,6 +209,7 @@ func (r *MachineReconciler) handleUnhealthyMachine(lastUnhealthyTimeStr string, 
 			return ctrl.Result{}, err
 		}
 
+		machine.Annotations[externalRemediationAnnotation] = time.Now().Format(time.RFC3339)
 		machine.Annotations[nodeBackupAnnotation] = string(marshaledNode)
 
 		r.Log.Info("updating machine with node CR backup and updating unhealthy time", "machine name", machine.Name)
@@ -350,8 +369,6 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 			return ctrl.Result{RequeueAfter: 1 * time.Second}, err
 		}
 	}
-
-	//r.Log.Info("Reconciling...")
 
 	machine := &machinev1beta1.Machine{}
 
