@@ -44,19 +44,9 @@ func isHealthy(machineName string) poisonPillApis.HealthCheckResponse {
 		return poisonPillApis.Healthy
 	}
 
-	lastUnhealthyTimeStr, exists := machine.GetAnnotations()[externalRemediationAnnotation]
+	value, exists := machine.GetAnnotations()[externalRemediationAnnotation]
 
-	if !exists {
-		return poisonPillApis.Healthy
-	}
-
-	lastUnhealthyTime, err := time.Parse(time.RFC3339, lastUnhealthyTimeStr)
-	if err != nil {
-		//todo log error
-		return poisonPillApis.Healthy
-	}
-
-	if lastUnhealthyTime.Add(safeTimeToAssumeNodeRebooted).Before(time.Now()) {
+	if exists && value != "" {
 		return poisonPillApis.Unhealthy
 	}
 
