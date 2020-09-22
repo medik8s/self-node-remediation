@@ -11,7 +11,7 @@ import (
 import . "golang.org/x/sys/unix"
 
 const (
-	watchdogDevice = "/dev/Watchdog"
+	watchdogDevice = "/dev/watchdog"
 
 	WDIOF_SETTIMEOUT = 0x0080 // Supports timeout change
 )
