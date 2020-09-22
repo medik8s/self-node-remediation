@@ -7,13 +7,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
-	"time"
 )
 
 const (
 	externalRemediationAnnotation = "host.metal3.io/external-remediation"
 	machineNamespace              = "openshift-machine-api"
-	safeTimeToAssumeNodeRebooted  = 90 * time.Second //todo this also appears in controller. put this in a common file
 )
 
 var client dynamic.Interface
