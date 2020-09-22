@@ -53,8 +53,10 @@ const (
 	reconcileInterval             = 15 * time.Second
 	apiServerTimeout              = 5 * time.Second
 	peerTimeout                   = 10 * time.Second
-	safeTimeToAssumeNodeRebooted  = 90 * time.Second
-	waitingForNode                = "waiting-for-node"
+	//note that this time must include the time for a unhealthy node without api-server access to reach the conclusion that it's unhealthy
+	// this should be at least peersCount * 1s (reconcile interval) * request context timeout
+	safeTimeToAssumeNodeRebooted = 90 * time.Second
+	waitingForNode               = "waiting-for-node"
 )
 
 var (
@@ -325,6 +327,7 @@ func (r *MachineReconciler) handleApiError(err error) (ctrl.Result, error) {
 
 		r.Log.Info("got response from peer", "response", result)
 		r.doSomethingWithHealthResult(result)
+		return ctrl.Result{RequeueAfter: 1 * time.Second}, err
 	}
 
 	return ctrl.Result{RequeueAfter: reconcileInterval}, err
