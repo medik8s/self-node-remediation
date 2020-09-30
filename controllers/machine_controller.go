@@ -86,6 +86,72 @@ type MachineReconciler struct {
 	ApiReader client.Reader //todo make sure everywhere we use apiReader unless special case
 }
 
+// +kubebuilder:rbac:groups=machine.openshift.io.example.com,resources=machines,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=machine.openshift.io.example.com,resources=machines/status,verbs=get;update;patch
+func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error) {
+	if shouldReboot {
+		return r.reboot()
+	}
+
+	// check what's the machine name I'm running on, only if it's not already known
+	if myMachineName == "" {
+		return r.getMachineName()
+	}
+
+	//try to create watchdog if not exists
+	if watchdog == nil {
+		if wdt.IsWatchdogAvailable() {
+			r.Log.Info("starting watchdog")
+			var err error
+			watchdog, err = wdt.StartWatchdog()
+			if err != nil {
+				r.Log.Error(err, "failed to open watchdog device")
+				return ctrl.Result{RequeueAfter: reconcileInterval}, err
+			}
+
+			if watchdogTimeout, err := watchdog.GetTimeout(); err != nil {
+				r.Log.Error(err, "failed to retrieve watchdog timeout")
+			} else {
+				r.Log.Info("retrieved watchdog timeout", "timeout", watchdogTimeout)
+				//todo reconcileInterval = watchdogTimeout / 2
+			}
+		}
+	} else {
+		err := watchdog.Feed()
+		if err != nil {
+			r.Log.Error(err, "failed to feed watchdog")
+			return ctrl.Result{RequeueAfter: 1 * time.Second}, err
+		}
+	}
+
+	machine := &machinev1beta1.Machine{}
+
+	//define context with timeout, otherwise this blocks forever
+	ctx, cancelFunc := context.WithTimeout(context.TODO(), apiServerTimeout)
+	defer cancelFunc()
+
+	//todo we need to make sure we reconcile this machine, and not only others. if we requeue after constant interval it doesn't mean we reconcile the correct machine
+
+	//we use ApiReader as it doesn't use the cache. Otherwise, the cache returns the object
+	//event though the api server is not available
+	err := r.ApiReader.Get(ctx, request.NamespacedName, machine)
+
+	if err != nil {
+		return r.handleApiError(err)
+	}
+
+	//if there was no error we reset the global error count
+	errCount = 0
+
+	_ = r.updateNodesList()
+
+	if lastUnhealthyTimeStr, exists := machine.Annotations[externalRemediationAnnotation]; exists {
+		return r.handleUnhealthyMachine(lastUnhealthyTimeStr, machine)
+	}
+
+	return ctrl.Result{RequeueAfter: reconcileInterval}, nil
+}
+
 //retrieves the node that runs this pod
 func (r *MachineReconciler) getMyNode() (*v1.Node, error) {
 	nodeNamespacedName := types.NamespacedName{
@@ -299,6 +365,13 @@ func (r *MachineReconciler) handleUnhealthyMachine(lastUnhealthyTimeStr string, 
 
 //handleApiError handles the case where the api server is not responding or responding with an error
 func (r *MachineReconciler) handleApiError(err error) (ctrl.Result, error) {
+	//we don't want to increase the err count too quick
+	minTimeToReconcile := lastReconcileTime.Add(reconcileInterval)
+	if !time.Now().After(minTimeToReconcile) {
+		return ctrl.Result{RequeueAfter: minTimeToReconcile.Sub(time.Now())}, nil
+	}
+	lastReconcileTime = time.Now()
+
 	errCount++
 	r.Log.Error(err, "failed to retrieve machine from api-server", "error count is now", errCount)
 
@@ -309,18 +382,20 @@ func (r *MachineReconciler) handleApiError(err error) (ctrl.Result, error) {
 				r.Log.Error(err, "peers list is empty and couldn't be retrieved from server")
 				return ctrl.Result{RequeueAfter: reconcileInterval}, err
 			}
+			//todo maybe we need to check if this happens too much and reboot
 		}
 
 		if nodesToAsk == nil || len(nodesToAsk.Items) == 0 {
+			//deep copy nodes to ask, as we're going to remove nodes we already asked from the list
 			nodesToAsk = nodes.DeepCopy()
 		}
 
 		result, err := r.getHealthStatusFromPeer(popNode(nodesToAsk))
 		if err != nil {
-			if len(nodes.Items) == 1 {
+			if len(nodesToAsk.Items) == 1 {
 				//we got an error from the last node in the list
 				r.Log.Error(err, "failed to get health status from the last peer in the list. Assuming unhealthy")
-				r.stopWatchdogFeeding() //todo we need to reboot only after someone else marked the node as unschedulable, need to check this is happeps before
+				r.stopWatchdogFeeding()
 			}
 			return ctrl.Result{RequeueAfter: reconcileInterval}, err
 		}
@@ -333,81 +408,23 @@ func (r *MachineReconciler) handleApiError(err error) (ctrl.Result, error) {
 	return ctrl.Result{RequeueAfter: reconcileInterval}, err
 }
 
-// +kubebuilder:rbac:groups=machine.openshift.io.example.com,resources=machines,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=machine.openshift.io.example.com,resources=machines/status,verbs=get;update;patch
-func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error) {
-	if shouldReboot {
-		if watchdog == nil {
-			r.Log.Info("No watchdog is present on this host, trying software reboot")
-			//we couldn't init a watchdog so far but requested to be rebooted. we issue a software reboot
-			if err := softwareReboot(); err != nil {
-				r.Log.Error(err, "failed to run reboot command")
-				return ctrl.Result{RequeueAfter: reconcileInterval}, err
-			}
-			return ctrl.Result{RequeueAfter: reconcileInterval}, nil
-		}
-		//we stop feeding the watchdog and waiting for a reboot
-		r.Log.Info("Watchdog feeding has stopped, waiting for reboot to commence")
-		return ctrl.Result{}, nil
-	}
-
-	// check what's the machine name I'm running on, only if it's not already known
-	if myMachineName == "" {
-		return r.getMachineName()
-	}
-
-	//try to create watchdog if not exists
+// reboot stops watchdog feeding ig wachdog exists, otherwise issuing a sowtware reboot
+func (r *MachineReconciler) reboot() (ctrl.Result, error) {
 	if watchdog == nil {
-		if wdt.IsWatchdogAvailable() {
-			var err error
-			watchdog, err = wdt.StartWatchdog()
-			if err != nil {
-				return ctrl.Result{RequeueAfter: reconcileInterval}, err
-			}
+		r.Log.Info("no watchdog is present on this host, trying software reboot")
+		//we couldn't init a watchdog so far but requested to be rebooted. we issue a software reboot
+		if err := softwareReboot(); err != nil {
+			r.Log.Error(err, "failed to run reboot command")
+			return ctrl.Result{RequeueAfter: reconcileInterval}, err
 		}
-	} else {
-		err := watchdog.Feed()
-		if err != nil {
-			//todo log
-			return ctrl.Result{RequeueAfter: 1 * time.Second}, err
-		}
+		return ctrl.Result{RequeueAfter: reconcileInterval}, nil
 	}
-
-	machine := &machinev1beta1.Machine{}
-
-	//define context with timeout, otherwise this blocks forever
-	ctx, cancelFunc := context.WithTimeout(context.TODO(), apiServerTimeout)
-	defer cancelFunc()
-
-	//todo we need to make sure we reconile this machine, and not only others. if we requeue after constant interval it doesn't mean we reconcile the correct machine
-
-	//we use ApiReader as it doesn't use the cache. Otherwise, the cache returns the object
-	//event though the api server is not available
-	err := r.ApiReader.Get(ctx, request.NamespacedName, machine)
-
-	if err != nil {
-		minTimeToReconcile := lastReconcileTime.Add(reconcileInterval)
-		if !time.Now().After(minTimeToReconcile) {
-			return ctrl.Result{RequeueAfter: minTimeToReconcile.Sub(time.Now())}, nil
-		}
-
-		lastReconcileTime = time.Now()
-
-		return r.handleApiError(err)
-	}
-
-	//if there was no error we reset the global error count
-	errCount = 0
-
-	_ = r.updateNodesList()
-
-	if lastUnhealthyTimeStr, exists := machine.Annotations[externalRemediationAnnotation]; exists {
-		return r.handleUnhealthyMachine(lastUnhealthyTimeStr, machine)
-	}
-
-	return ctrl.Result{RequeueAfter: reconcileInterval}, nil
+	//we stop feeding the watchdog and waiting for a reboot
+	r.Log.Info("watchdog feeding has stopped, waiting for reboot to commence")
+	return ctrl.Result{}, nil
 }
 
+//updates nodes global variable to include list of the nodes objects that exists in api-server
 func (r *MachineReconciler) updateNodesList() error {
 	nodeList := &v1.NodeList{}
 
@@ -427,20 +444,21 @@ func (r *MachineReconciler) updateNodesList() error {
 	return nil
 }
 
+//getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer
 func (r *MachineReconciler) getHealthStatusFromPeer(endpointIp string) (poisonPill.HealthCheckResponse, error) {
 	url := fmt.Sprintf("%s://%s:%d/health/%s", peersProtocol, endpointIp, peersPort, myMachineName)
 
 	resp, err := httpClient.Get(url)
 
 	if err != nil {
-		r.Log.Error(err, "Failed to get health status from peer", "url", url)
+		r.Log.Error(err, "failed to get health status from peer", "url", url)
 		return -1, err
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		//todo
+		r.Log.Error(err, "failed to read health response from peer")
 		return -1, err
 	}
 
@@ -449,6 +467,7 @@ func (r *MachineReconciler) getHealthStatusFromPeer(endpointIp string) (poisonPi
 	return poisonPill.HealthCheckResponse(healthStatusResult), nil
 }
 
+//todo rename
 func (r *MachineReconciler) doSomethingWithHealthResult(healthStatus poisonPill.HealthCheckResponse) {
 	switch healthStatus {
 	case poisonPill.Unhealthy:
@@ -478,9 +497,10 @@ func (r *MachineReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+//popNode recieves non-empty NodeList and return the IP address of one of the nodes from that list
 func popNode(nodes *v1.NodeList) (address string) {
 	if len(nodes.Items) == 0 {
-		return "" //todo error
+		return ""
 	}
 
 	//todo this should be random, check if address exists, etc.
@@ -492,24 +512,9 @@ func popNode(nodes *v1.NodeList) (address string) {
 	return
 }
 
-func getRandomNode(nodes *v1.NodeList) *v1.Node {
-	if len(nodes.Items) == 0 {
-		return nil //todo error
-	}
-
-	//todo this should be random, check if address exists, etc.
-	nodeIndex := 0 //rand.Intn(len(nodes.Items))
-	chosenNode := nodes.Items[nodeIndex]
-
-	return &chosenNode
-	//address = chosenNode.Status.Addresses[0].Address //todo node might have multiple addresses
-	//nodes.Items = nodes.Items[1:]                    //remove this node from the list
-	//
-	//return
-}
-
+//softwareReboot performs software reboot by running systemctl reboot
 func softwareReboot() error {
-	// hostPID: true and privileged:true reqiuired to run this
+	// hostPID: true and privileged:true required to run this
 	rebootCmd := exec.Command("/usr/bin/nsenter", "-m/proc/1/ns/mnt", "/bin/systemctl", "reboot")
 	return rebootCmd.Run()
 }
