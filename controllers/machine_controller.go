@@ -210,7 +210,7 @@ func (r *MachineReconciler) getMachineName() (ctrl.Result, error) {
 
 	myMachineName = strings.Split(machine, string(types.Separator))[1]
 	r.Log.Info("Detected machine name", "my machine name", myMachineName)
-	return ctrl.Result{RequeueAfter: reconcileInterval}, nil
+	return ctrl.Result{Requeue: true}, nil
 }
 
 func (r *MachineReconciler) restoreNode(machine *machinev1beta1.Machine, nodeBackup string) (ctrl.Result, error) {
