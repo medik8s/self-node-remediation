@@ -8,13 +8,18 @@ import (
 	machinev1beta1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"time"
 )
 
 var _ = Describe("Machine Controller", func() {
-	Context("foo", func() {
+	Context("Unhealthy machine with api-server access", func() {
+		logf.SetLogger(zap.LoggerTo(GinkgoWriter, true))
+
 		machineName := "machine1"
 		machine1 := &machinev1beta1.Machine{}
 		machineNamespacedName := types.NamespacedName{
@@ -23,13 +28,9 @@ var _ = Describe("Machine Controller", func() {
 		}
 
 		It("Check the machine exists", func() {
-			Eventually(func() bool {
-				err := k8sClient.Get(context.TODO(), machineNamespacedName, machine1)
-				if err != nil {
-					return false
-				}
-				return true
-			}, 10*time.Second, 250*time.Millisecond).Should(BeTrue())
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), machineNamespacedName, machine1)
+			}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
 
 			Expect(machine1.Name).To(Equal("machine1"))
 			Expect(machine1.Status.NodeRef).ToNot(BeNil())
@@ -52,18 +53,11 @@ var _ = Describe("Machine Controller", func() {
 
 		It("Verify that node was marked as unschedulable ", func() {
 			Eventually(func() bool {
-				err := k8sClient.Get(context.TODO(), machineNamespacedName, machine1)
-				if err != nil {
-					return false
-				}
-
 				node = &v1.Node{}
 				Expect(k8sClient.Get(context.TODO(), nodeNamespacedName, node)).To(Succeed())
-				if !node.Spec.Unschedulable {
-					return false
-				}
 
-				return true
+				return node.Spec.Unschedulable
+
 			}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
 		})
 
@@ -73,22 +67,14 @@ var _ = Describe("Machine Controller", func() {
 		})
 
 		It("Verify that time has been added to annotation", func() {
-			Eventually(func() bool {
-				err := k8sClient.Get(context.TODO(), machineNamespacedName, machine1)
-				if err != nil {
-					return false
-				}
+			Eventually(func() string {
+				machine1 = &machinev1beta1.Machine{}
+				Expect(k8sClient.Get(context.TODO(), machineNamespacedName, machine1)).To(Succeed())
 
 				//give some time to the machine controller to update the time in the annotation
-				if machine1.Annotations[externalRemediationAnnotation] == "" {
-					return false
-				}
+				return machine1.Annotations[externalRemediationAnnotation]
 
-				return true
-			}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
-
-			Expect(machine1.Annotations[externalRemediationAnnotation]).ToNot(BeEmpty())
-			//todo validate the value
+			}, 5*time.Second, 250*time.Millisecond).ShouldNot(BeEmpty())
 		})
 
 		It("Verify that node backup annotation matches the node", func() {
@@ -103,44 +89,53 @@ var _ = Describe("Machine Controller", func() {
 			//todo why do we need the following 2 lines? this might be a bug
 			nodeToRestore.TypeMeta.Kind = "Node"
 			nodeToRestore.TypeMeta.APIVersion = "v1"
-			Expect(nodeToRestore).To(BeEquivalentTo(node))
+			Expect(nodeToRestore).To(Equal(node))
 		})
 
-		It("Verify that node has been deleted", func() {
-			Eventually(func() bool {
-				node = &v1.Node{}
-				err := k8sClient.Get(context.TODO(), nodeNamespacedName, node)
-				if err != nil {
-					if errors.IsNotFound(err) {
-						return true
-					}
-					return false
-				}
-				return true
-			}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
+		It("Verify that watchdog is not receiving food", func() {
+			currentLastFoodTime := dummyDog.GetLastFoodTime()
+			Consistently(func() time.Time {
+				return dummyDog.GetLastFoodTime()
+			}, 5*reconcileInterval, 1*time.Second).Should(Equal(currentLastFoodTime))
 		})
 
+		now := time.Now()
 		It("Update annotation time to accelerate the progress", func() {
-			now := time.Now()
-			now.Add(-safeTimeToAssumeNodeRebooted)
-			machine1.Annotations[externalRemediationAnnotation] = now.Format(time.RFC3339)
+			oldTime := now.Add(-safeTimeToAssumeNodeRebooted).Add(-time.Minute)
+			machine1.Annotations[externalRemediationAnnotation] = oldTime.Format(time.RFC3339)
 			Expect(k8sClient.Update(context.TODO(), machine1)).To(Succeed())
 		})
 
-		It("Verify that annotation has been updated to reflect that we're waiting for a node", func() {
-			Eventually(func() bool {
-				machine1 = &machinev1beta1.Machine{}
-				err := k8sClient.Get(context.TODO(), machineNamespacedName, machine1)
-				if err != nil {
-					return false
-				}
+		It("Verify that node has been deleted", func() {
+			// in real world scenario, other machines will take care for the rest of the test but
+			// in this test, we trick the machine to recover itself after we already verified it
+			// tried to reboot
+			shouldReboot = false
 
-				if machine1.Annotations[externalRemediationAnnotation] != waitingForNode {
-					return false
-				}
-				return true
-			}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
+			Eventually(func() metav1.StatusReason {
+				node = &v1.Node{}
+				err := k8sClient.Get(context.TODO(), nodeNamespacedName, node)
+				return errors.ReasonForError(err)
+			}, 2*time.Second, 20*time.Millisecond).Should(Equal(metav1.StatusReasonNotFound))
 		})
 
+		It("Verify that node has been restored", func() {
+			node = &v1.Node{}
+
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), nodeNamespacedName, node)
+			}, 5*time.Second, 250*time.Millisecond).Should(BeNil())
+
+			Expect(node.CreationTimestamp.After(now)).To(BeTrue())
+		})
+
+		It("Verify unhealthy annotation was removed", func() {
+			Eventually(func() map[string]string {
+				machine1 = &machinev1beta1.Machine{}
+				Expect(k8sClient.Get(context.TODO(), machineNamespacedName, machine1)).To(Succeed())
+				return machine1.Annotations
+			}, 5*time.Second, 250*time.Millisecond).ShouldNot(HaveKey(externalRemediationAnnotation))
+
+		})
 	})
 })
