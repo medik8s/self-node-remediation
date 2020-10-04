@@ -16,7 +16,7 @@ const (
 	WDIOF_SETTIMEOUT = 0x0080 // Supports timeout change
 )
 
-type Watchdog struct {
+type LinuxWatchdog struct {
 	fd   int
 	info *watchdogInfo
 }
@@ -32,20 +32,20 @@ func IsWatchdogAvailable() bool {
 	return !os.IsNotExist(err)
 }
 
-func StartWatchdog() (*Watchdog, error) {
+func StartWatchdog() (*LinuxWatchdog, error) {
 	wdFd, err := openDevice()
 	if err != nil {
-		return nil, fmt.Errorf("failed to open Watchdog device %s: %v", watchdogDevice, err)
+		return nil, fmt.Errorf("failed to open LinuxWatchdog device %s: %v", watchdogDevice, err)
 	}
 
-	wd := &Watchdog{fd: wdFd,
+	wd := &LinuxWatchdog{fd: wdFd,
 		info: getInfo(wdFd),
 	}
 
 	return wd, nil
 }
 
-func (wd *Watchdog) GetTimeout() (*time.Duration, error) {
+func (wd *LinuxWatchdog) GetTimeout() (*time.Duration, error) {
 	timeout, err := IoctlGetInt(wd.fd, WDIOC_GETTIMEOUT)
 
 	if err != nil {
@@ -56,9 +56,9 @@ func (wd *Watchdog) GetTimeout() (*time.Duration, error) {
 	return &timeoutDuration, nil
 }
 
-func (wd *Watchdog) SetTimeout(seconds time.Duration) error {
+func (wd *LinuxWatchdog) SetTimeout(seconds time.Duration) error {
 	if !wd.hasFeature(WDIOF_SETTIMEOUT) {
-		return errors.New("Watchdog device doesn't support timeout changes")
+		return errors.New("LinuxWatchdog device doesn't support timeout changes")
 	}
 
 	return IoctlSetPointerInt(
@@ -66,16 +66,16 @@ func (wd *Watchdog) SetTimeout(seconds time.Duration) error {
 		int(seconds/time.Second))
 }
 
-func (wd *Watchdog) Feed() error {
+func (wd *LinuxWatchdog) Feed() error {
 	food := []byte("a")
 	_, err := Write(wd.fd, food)
 
 	return err
 }
 
-//Disarm closes the Watchdog without triggering reboots, even if the Watchdog will not be fed any more
-func (wd *Watchdog) Disarm() error {
-	b := []byte("V") // "V" is a special char for signaling Watchdog disarm
+//Disarm closes the LinuxWatchdog without triggering reboots, even if the LinuxWatchdog will not be fed any more
+func (wd *LinuxWatchdog) Disarm() error {
+	b := []byte("V") // "V" is a special char for signaling LinuxWatchdog disarm
 	_, err := Write(wd.fd, b)
 
 	if err != nil {
@@ -85,7 +85,7 @@ func (wd *Watchdog) Disarm() error {
 	return Close(wd.fd)
 }
 
-func (wd *Watchdog) hasFeature(value uint32) bool {
+func (wd *LinuxWatchdog) hasFeature(value uint32) bool {
 	return wd.info != nil && wd.info.options&value == value
 }
 
