@@ -50,7 +50,6 @@ const (
 	maxFailuresThreshold          = 3
 	peersProtocol                 = "http"
 	peersPort                     = 30001
-	reconcileInterval             = 15 * time.Second
 	apiServerTimeout              = 5 * time.Second
 	peerTimeout                   = 10 * time.Second
 	//note that this time must include the time for a unhealthy node without api-server access to reach the conclusion that it's unhealthy
@@ -60,13 +59,14 @@ const (
 )
 
 var (
+	reconcileInterval = 15 * time.Second
 	nodes             *v1.NodeList
 	nodesToAsk        *v1.NodeList
 	errCount          int
 	myMachineName     string
 	shouldReboot      bool
 	lastReconcileTime time.Time
-	watchdog          *wdt.Watchdog
+	watchdog          wdt.Watchdog
 	myNodeName        = os.Getenv(nodeNameEnvVar)
 	httpClient        = &http.Client{
 		Timeout: peerTimeout,
@@ -102,8 +102,8 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 	if watchdog == nil {
 		if wdt.IsWatchdogAvailable() {
 			r.Log.Info("starting watchdog")
-			var err error
-			watchdog, err = wdt.StartWatchdog()
+			w, err := wdt.StartWatchdog()
+			watchdog = wdt.Watchdog(w)
 			if err != nil {
 				r.Log.Error(err, "failed to open watchdog device")
 				return ctrl.Result{RequeueAfter: reconcileInterval}, err
@@ -421,7 +421,7 @@ func (r *MachineReconciler) reboot() (ctrl.Result, error) {
 	}
 	//we stop feeding the watchdog and waiting for a reboot
 	r.Log.Info("watchdog feeding has stopped, waiting for reboot to commence")
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: reconcileInterval}, nil
 }
 
 //updates nodes global variable to include list of the nodes objects that exists in api-server
