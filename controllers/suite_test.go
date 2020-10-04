@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	wdt "github.com/n1r1/poison-pill/watchdog"
 	"github.com/onsi/gomega/gexec"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -50,6 +51,7 @@ const (
 var cfg *rest.Config
 var k8sClient client.Client
 var testEnv *envtest.Environment
+var dummyDog wdt.DummyWatchdog
 
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -89,6 +91,9 @@ var _ = BeforeSuite(func(done Done) {
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
+	reconcileInterval = 1 * time.Second
+	dummyDog = wdt.DummyWatchdog{}
+	watchdog = dummyDog
 	myNodeName = "node1"
 
 	go func() {
