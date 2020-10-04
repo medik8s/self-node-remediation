@@ -7,8 +7,6 @@ import (
 	. "github.com/onsi/gomega"
 	machinev1beta1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -106,20 +104,22 @@ var _ = Describe("Machine Controller", func() {
 			Expect(k8sClient.Update(context.TODO(), machine1)).To(Succeed())
 		})
 
-		It("Verify that node has been deleted", func() {
+		//It("Verify that node has been deleted", func() {
+		//
+		//
+		//	Eventually(func() metav1.StatusReason {
+		//		node = &v1.Node{}
+		//		err := k8sClient.Get(context.TODO(), nodeNamespacedName, node)
+		//		return errors.ReasonForError(err)
+		//	}, 2*time.Second, 20*time.Millisecond).Should(Equal(metav1.StatusReasonNotFound))
+		//})
+
+		It("Verify that node has been deleted and restored", func() {
 			// in real world scenario, other machines will take care for the rest of the test but
 			// in this test, we trick the machine to recover itself after we already verified it
 			// tried to reboot
 			shouldReboot = false
 
-			Eventually(func() metav1.StatusReason {
-				node = &v1.Node{}
-				err := k8sClient.Get(context.TODO(), nodeNamespacedName, node)
-				return errors.ReasonForError(err)
-			}, 2*time.Second, 20*time.Millisecond).Should(Equal(metav1.StatusReasonNotFound))
-		})
-
-		It("Verify that node has been restored", func() {
 			node = &v1.Node{}
 
 			Eventually(func() error {
@@ -130,7 +130,11 @@ var _ = Describe("Machine Controller", func() {
 		})
 
 		It("Verify that node is not marked as unschedulable", func() {
-			Expect(node.Spec.Unschedulable).To(BeFalse())
+			Eventually(func() bool {
+				node = &v1.Node{}
+				Expect(k8sClient.Get(context.TODO(), nodeNamespacedName, node)).To(Succeed())
+				return node.Spec.Unschedulable
+			}, 5*time.Second, 250*time.Millisecond).Should(BeFalse())
 		})
 
 		It("Verify unhealthy annotation was removed", func() {
