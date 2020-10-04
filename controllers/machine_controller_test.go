@@ -129,6 +129,10 @@ var _ = Describe("Machine Controller", func() {
 			Expect(node.CreationTimestamp.After(now)).To(BeTrue())
 		})
 
+		It("Verify that node is not marked as unschedulable", func() {
+			Expect(node.Spec.Unschedulable).To(BeFalse())
+		})
+
 		It("Verify unhealthy annotation was removed", func() {
 			Eventually(func() map[string]string {
 				machine1 = &machinev1beta1.Machine{}
