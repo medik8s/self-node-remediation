@@ -47,7 +47,7 @@ const (
 	nodeBackupAnnotation          = "poison-pill.openshift.io/node-backup"
 	machineAnnotationKey          = "machine.openshift.io/machine"
 	nodeNameEnvVar                = "MY_NODE_NAME"
-	maxFailuresThreshold          = 3
+	maxFailuresThreshold          = 3 //after which we start asking peers for health status
 	peersProtocol                 = "http"
 	peersPort                     = 30001
 	apiServerTimeout              = 5 * time.Second
@@ -61,6 +61,7 @@ const (
 var (
 	reconcileInterval = 15 * time.Second
 	nodes             *v1.NodeList
+	//nodes to ask for health results
 	nodesToAsk        *v1.NodeList
 	errCount          int
 	myMachineName     string
@@ -93,7 +94,7 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 		return r.reboot()
 	}
 
-	// check what's the machine name I'm running on, only if it's not already known
+	// set myMachineName global variable to the machine this pod runs on
 	if myMachineName == "" {
 		return r.getMachineName()
 	}
@@ -101,24 +102,13 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 	//try to create watchdog if not exists
 	if watchdog == nil {
 		if wdt.IsWatchdogAvailable() {
-			r.Log.Info("starting watchdog")
-			w, err := wdt.StartWatchdog()
-			watchdog = wdt.Watchdog(w)
-			if err != nil {
-				r.Log.Error(err, "failed to open watchdog device")
+			if err := r.initWatchdog(); err != nil {
+				r.Log.Error(err, "failed to start watchdog device")
 				return ctrl.Result{RequeueAfter: reconcileInterval}, err
-			}
-
-			if watchdogTimeout, err := watchdog.GetTimeout(); err != nil {
-				r.Log.Error(err, "failed to retrieve watchdog timeout")
-			} else {
-				r.Log.Info("retrieved watchdog timeout", "timeout", watchdogTimeout)
-				//todo reconcileInterval = watchdogTimeout / 2
 			}
 		}
 	} else {
-		err := watchdog.Feed()
-		if err != nil {
+		if err := watchdog.Feed(); err != nil {
 			r.Log.Error(err, "failed to feed watchdog")
 			return ctrl.Result{RequeueAfter: 1 * time.Second}, err
 		}
@@ -133,7 +123,7 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 	//todo we need to make sure we reconcile this machine, and not only others. if we requeue after constant interval it doesn't mean we reconcile the correct machine
 
 	//we use ApiReader as it doesn't use the cache. Otherwise, the cache returns the object
-	//event though the api server is not available
+	//even though the api server is not available
 	err := r.ApiReader.Get(ctx, request.NamespacedName, machine)
 
 	if err != nil {
@@ -150,6 +140,23 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 	}
 
 	return ctrl.Result{RequeueAfter: reconcileInterval}, nil
+}
+
+func (r *MachineReconciler) initWatchdog() error {
+	r.Log.Info("starting watchdog")
+	w, err := wdt.StartWatchdog()
+	watchdog = wdt.Watchdog(w)
+	if err != nil {
+		return err
+	}
+
+	if watchdogTimeout, err := watchdog.GetTimeout(); err != nil {
+		r.Log.Error(err, "failed to retrieve watchdog timeout")
+	} else {
+		r.Log.Info("retrieved watchdog timeout", "timeout", watchdogTimeout)
+		//todo reconcileInterval = watchdogTimeout / 2
+	}
+	return nil
 }
 
 //retrieves the node that runs this pod
@@ -184,7 +191,7 @@ func (r *MachineReconciler) getNodeByMachine(machine *machinev1beta1.Machine) (*
 	return node, nil
 }
 
-// updates machineName to the machine associated with the myNodeName
+// updates machineName global variable to the machine associated with the myNodeName
 func (r *MachineReconciler) getMachineName() (ctrl.Result, error) {
 	r.Log.Info("Determining machine name ...")
 
@@ -245,6 +252,7 @@ func (r *MachineReconciler) restoreNode(machine *machinev1beta1.Machine, nodeBac
 	return ctrl.Result{RequeueAfter: reconcileInterval}, nil
 }
 
+//handleUnhealthyMachine is taking the steps to recover an unhealthy machine which has api-server access
 func (r *MachineReconciler) handleUnhealthyMachine(lastUnhealthyTimeStr string, machine *machinev1beta1.Machine) (ctrl.Result, error) {
 	r.Log.Info("found external remediation annotation", "machine name", machine.Name)
 
@@ -401,7 +409,7 @@ func (r *MachineReconciler) handleApiError(err error) (ctrl.Result, error) {
 		}
 
 		r.Log.Info("got response from peer", "response", result)
-		r.doSomethingWithHealthResult(result)
+		r.actBasedOnHealthResponse(result)
 		return ctrl.Result{RequeueAfter: 1 * time.Second}, err
 	}
 
@@ -462,15 +470,20 @@ func (r *MachineReconciler) getHealthStatusFromPeer(endpointIp string) (poisonPi
 		return -1, err
 	}
 
-	healthStatusResult, _ := strconv.Atoi(string(body))
+	healthStatusResult, err := strconv.Atoi(string(body))
+
+	if err != nil {
+		r.Log.Error(err, "failed to convert health check response from string to int")
+	}
 
 	return poisonPill.HealthCheckResponse(healthStatusResult), nil
 }
 
-//todo rename
-func (r *MachineReconciler) doSomethingWithHealthResult(healthStatus poisonPill.HealthCheckResponse) {
+//actBasedOnHealthResponse takes action per the give health check result
+func (r *MachineReconciler) actBasedOnHealthResponse(healthStatus poisonPill.HealthCheckResponse) {
 	switch healthStatus {
 	case poisonPill.Unhealthy:
+		r.Log.Info("Peer told me I'm unhealthy. Stopping watchdog feeding")
 		r.stopWatchdogFeeding()
 		break
 	case poisonPill.Healthy:
@@ -481,7 +494,8 @@ func (r *MachineReconciler) doSomethingWithHealthResult(healthStatus poisonPill.
 	case poisonPill.ApiError:
 		break
 	default:
-		r.Log.Error(errors.New("got unexpected value from peer while trying to retrieve health status"), "Received value", healthStatus)
+		r.Log.Error(errors.New("got unexpected value from peer while trying to retrieve health status"),
+			"Received value", healthStatus)
 	}
 }
 
