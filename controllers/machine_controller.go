@@ -256,82 +256,74 @@ func (r *MachineReconciler) restoreNode(machine *machinev1beta1.Machine, nodeBac
 func (r *MachineReconciler) handleUnhealthyMachine(lastUnhealthyTimeStr string, machine *machinev1beta1.Machine) (ctrl.Result, error) {
 	r.Log.Info("found external remediation annotation", "machine name", machine.Name)
 
-	if lastUnhealthyTimeStr == "" {
-		node, err := r.getNodeByMachine(machine)
-
+	// we use lastUnhealthyTimeStr as the state of the remediation process, MHC set it first to
+	// an empty value
+	switch lastUnhealthyTimeStr {
+	case "": // step #1
+		return r.handleEmptyAnnotationValue(machine)
+	case waitingForNode: // step #3
+		return r.handleWaitingForNode(machine)
+	default: // step #2
+		lastUnhealthyTime, err := time.Parse(time.RFC3339, lastUnhealthyTimeStr)
 		if err != nil {
-			r.Log.Error(err, "failed to get node CR", "machine name", machine.Name)
+			r.Log.Error(err, "failed to parse time from unhealthy annotation", "machine name", machine.Name)
 			return ctrl.Result{}, err
 		}
-
-		if !node.Spec.Unschedulable {
-			return r.markNodeAsUnschedulable(node)
-		}
-
-		if !utils.TaintExists(node.Spec.Taints, NodeUnschedulableTaint) {
-			r.Log.Info("waiting for unschedulable taint to appear", "node name", node.Name)
-			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
-		}
-
-		marshaledNode, err := json.Marshal(node)
-		if err != nil {
-			r.Log.Error(err, "failed to marshal node", "machine name", machine.Name)
-			return ctrl.Result{}, err
-		}
-
-		//we assume the unhealthy machine will be rebooted after this time + safeTimeToAssumeNodeRebooted
-		machine.Annotations[externalRemediationAnnotation] = time.Now().Format(time.RFC3339)
-		//backup the node CR, as it's going to be deleted and we want to restore it
-		machine.Annotations[nodeBackupAnnotation] = string(marshaledNode)
-
-		r.Log.Info("updating machine with node CR backup and updating unhealthy time", "machine name", machine.Name)
-
-		if err := r.Client.Update(context.TODO(), machine); err != nil {
-			if apiErrors.IsConflict(err) {
-				return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
-			}
-			r.Log.Error(err, "failed to update machine with node backup and unhealthy time", "machine name", machine.Name)
-			return ctrl.Result{}, err
-		}
-
-		return ctrl.Result{Requeue: true}, nil
+		return r.handleTimeValueInAnnotation(lastUnhealthyTime, machine)
 	}
+}
 
-	if lastUnhealthyTimeStr == waitingForNode {
-		if _, err := r.getNodeByMachine(machine); err != nil {
-			if apiErrors.IsNotFound(err) {
-				if nodeBackup, nodeBackupExists := machine.Annotations[nodeBackupAnnotation]; nodeBackupExists {
-					return r.restoreNode(machine, nodeBackup)
-				}
-			}
-			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
-		}
+//handleEmptyAnnotationValue cordons the node associated with the given machine, sets the current time
+//in externalRemediationAnnotation and add the node CR to nodeBackupAnnotation
+func (r *MachineReconciler) handleEmptyAnnotationValue(machine *machinev1beta1.Machine) (ctrl.Result, error) {
+	node, err := r.getNodeByMachine(machine)
 
-		r.Log.Info("node has been restored. removing unhealthy annotation and node backup annotation", "machine name", machine.Name)
-
-		delete(machine.Annotations, nodeBackupAnnotation)
-		delete(machine.Annotations, externalRemediationAnnotation)
-
-		if err := r.Client.Update(context.TODO(), machine); err != nil {
-			r.Log.Error(err, "failed to remove external remediation annotation", "machine name", machine.Name)
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{Requeue: true}, nil
-	}
-
-	lastUnhealthyTime, err := time.Parse(time.RFC3339, lastUnhealthyTimeStr)
 	if err != nil {
-		r.Log.Error(err, "failed to parse time from unhealthy annotation", "machine name", machine.Name)
+		r.Log.Error(err, "failed to get node CR", "machine name", machine.Name)
 		return ctrl.Result{}, err
 	}
 
-	if lastUnhealthyTime.Add(safeTimeToAssumeNodeRebooted).After(time.Now()) {
+	if !node.Spec.Unschedulable {
+		return r.markNodeAsUnschedulable(node)
+	}
+
+	if !utils.TaintExists(node.Spec.Taints, NodeUnschedulableTaint) {
+		r.Log.Info("waiting for unschedulable taint to appear", "node name", node.Name)
+		return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
+	}
+
+	marshaledNode, err := json.Marshal(node)
+	if err != nil {
+		r.Log.Error(err, "failed to marshal node", "machine name", machine.Name)
+		return ctrl.Result{}, err
+	}
+
+	//we assume the unhealthy machine will be rebooted after this time + safeTimeToAssumeNodeRebooted
+	machine.Annotations[externalRemediationAnnotation] = time.Now().Format(time.RFC3339)
+	//backup the node CR, as it's going to be deleted and we want to restore it
+	machine.Annotations[nodeBackupAnnotation] = string(marshaledNode)
+
+	r.Log.Info("updating machine with node CR backup and updating unhealthy time", "machine name", machine.Name)
+
+	if err := r.Client.Update(context.TODO(), machine); err != nil {
+		if apiErrors.IsConflict(err) {
+			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
+		}
+		r.Log.Error(err, "failed to update machine with node backup and unhealthy time", "machine name", machine.Name)
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{Requeue: true}, nil
+}
+
+func (r *MachineReconciler) handleTimeValueInAnnotation(lastUnhealthyTime time.Time, machine *machinev1beta1.Machine) (ctrl.Result, error) {
+	maxNodeRebootTime := lastUnhealthyTime.Add(safeTimeToAssumeNodeRebooted)
+	if maxNodeRebootTime.After(time.Now()) {
 		if machine.Name == myMachineName {
 			r.stopWatchdogFeeding()
 			return ctrl.Result{Requeue: true}, nil
 		}
-
-		return ctrl.Result{RequeueAfter: reconcileInterval}, nil
+		return ctrl.Result{RequeueAfter: maxNodeRebootTime.Sub(time.Now())}, nil
 	}
 
 	r.Log.Info("annotation time is old. The unhealthy machine assumed to been rebooted", "machine name", machine.Name)
@@ -342,14 +334,14 @@ func (r *MachineReconciler) handleUnhealthyMachine(lastUnhealthyTimeStr string, 
 		machine.Annotations[externalRemediationAnnotation] = waitingForNode
 
 		if err := r.Client.Update(context.TODO(), machine); err != nil {
-			r.Log.Error(err, "failed to remove external remediation annotation", "machine name", machine.Name)
+			r.Log.Error(err, "failed to update external remediation annotation", "machine name", machine.Name)
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{Requeue: true}, nil
 	}
 
 	if err != nil {
-		r.Log.Error(err, "failed to get node CR for backup before deletion", "machine name", machine.Name)
+		r.Log.Error(err, "failed to get node CR for deletion", "machine name", machine.Name)
 		return ctrl.Result{}, err
 	}
 
@@ -363,6 +355,28 @@ func (r *MachineReconciler) handleUnhealthyMachine(lastUnhealthyTimeStr string, 
 		return ctrl.Result{}, err
 	}
 
+	return ctrl.Result{Requeue: true}, nil
+}
+
+func (r *MachineReconciler) handleWaitingForNode(machine *machinev1beta1.Machine) (ctrl.Result, error) {
+	if _, err := r.getNodeByMachine(machine); err != nil {
+		if apiErrors.IsNotFound(err) {
+			if nodeBackup, nodeBackupExists := machine.Annotations[nodeBackupAnnotation]; nodeBackupExists {
+				return r.restoreNode(machine, nodeBackup)
+			}
+		}
+		return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+	}
+
+	r.Log.Info("node has been restored. removing unhealthy annotation and node backup annotation", "machine name", machine.Name)
+
+	delete(machine.Annotations, nodeBackupAnnotation)
+	delete(machine.Annotations, externalRemediationAnnotation)
+
+	if err := r.Client.Update(context.TODO(), machine); err != nil {
+		r.Log.Error(err, "failed to remove external remediation annotation and node backup annotation", "machine name", machine.Name)
+		return ctrl.Result{}, err
+	}
 	return ctrl.Result{Requeue: true}, nil
 }
 
