@@ -265,13 +265,7 @@ func (r *MachineReconciler) handleUnhealthyMachine(lastUnhealthyTimeStr string, 
 		}
 
 		if !node.Spec.Unschedulable {
-			node.Spec.Unschedulable = true
-			r.Log.Info("Marking node as unschedulable", "node name", node.Name)
-			if err := r.Client.Update(context.TODO(), node); err != nil {
-				r.Log.Error(err, "failed to mark node as unschedulable")
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
+			return r.markNodeAsUnschedulable(node)
 		}
 
 		if !utils.TaintExists(node.Spec.Taints, NodeUnschedulableTaint) {
@@ -285,7 +279,9 @@ func (r *MachineReconciler) handleUnhealthyMachine(lastUnhealthyTimeStr string, 
 			return ctrl.Result{}, err
 		}
 
+		//we assume the unhealthy machine will be rebooted after this time + safeTimeToAssumeNodeRebooted
 		machine.Annotations[externalRemediationAnnotation] = time.Now().Format(time.RFC3339)
+		//backup the node CR, as it's going to be deleted and we want to restore it
 		machine.Annotations[nodeBackupAnnotation] = string(marshaledNode)
 
 		r.Log.Info("updating machine with node CR backup and updating unhealthy time", "machine name", machine.Name)
@@ -321,7 +317,6 @@ func (r *MachineReconciler) handleUnhealthyMachine(lastUnhealthyTimeStr string, 
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{Requeue: true}, nil
-
 	}
 
 	lastUnhealthyTime, err := time.Parse(time.RFC3339, lastUnhealthyTimeStr)
@@ -369,6 +364,16 @@ func (r *MachineReconciler) handleUnhealthyMachine(lastUnhealthyTimeStr string, 
 	}
 
 	return ctrl.Result{Requeue: true}, nil
+}
+
+func (r *MachineReconciler) markNodeAsUnschedulable(node *v1.Node) (ctrl.Result, error) {
+	node.Spec.Unschedulable = true
+	r.Log.Info("Marking node as unschedulable", "node name", node.Name)
+	if err := r.Client.Update(context.TODO(), node); err != nil {
+		r.Log.Error(err, "failed to mark node as unschedulable")
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 }
 
 //handleApiError handles the case where the api server is not responding or responding with an error
