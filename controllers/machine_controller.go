@@ -316,6 +316,7 @@ func (r *MachineReconciler) handleEmptyAnnotationValue(machine *machinev1beta1.M
 	return ctrl.Result{Requeue: true}, nil
 }
 
+//handleTimeValueInAnnotation reboots itself if still within the reboot time, deletes the node, and sets the state to waitingForNode
 func (r *MachineReconciler) handleTimeValueInAnnotation(lastUnhealthyTime time.Time, machine *machinev1beta1.Machine) (ctrl.Result, error) {
 	maxNodeRebootTime := lastUnhealthyTime.Add(safeTimeToAssumeNodeRebooted)
 	if maxNodeRebootTime.After(time.Now()) {
@@ -358,6 +359,8 @@ func (r *MachineReconciler) handleTimeValueInAnnotation(lastUnhealthyTime time.T
 	return ctrl.Result{Requeue: true}, nil
 }
 
+//handleWaitingForNode restores node from machine annotation and deletes the nodeBackupAnnotation
+//and the externalRemediationAnnotation
 func (r *MachineReconciler) handleWaitingForNode(machine *machinev1beta1.Machine) (ctrl.Result, error) {
 	if _, err := r.getNodeByMachine(machine); err != nil {
 		if apiErrors.IsNotFound(err) {
