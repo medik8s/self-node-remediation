@@ -13,7 +13,8 @@ This work can also be useful for clusters with BMC credentials.
 1. Peer to peer authentication and encryption
 1. Marking the poison pill pod as critical pod to avoid eviction
 1. Ask multiple peers concurrently instead of one by one
-1. create a flow chart to describe the algorithm visually 
+1. create a flow chart to describe the algorithm visually
+1. OLM integration
 
 
 ## Blog Post 
