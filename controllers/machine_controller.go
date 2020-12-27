@@ -62,14 +62,15 @@ var (
 	reconcileInterval = 15 * time.Second
 	nodes             *v1.NodeList
 	//nodes to ask for health results
-	nodesToAsk        *v1.NodeList
-	errCount          int
-	myMachineName     string
-	shouldReboot      bool
-	lastReconcileTime time.Time
-	watchdog          wdt.Watchdog
-	myNodeName        = os.Getenv(nodeNameEnvVar)
-	httpClient        = &http.Client{
+	nodesToAsk            *v1.NodeList
+	errCount              int
+	apiErrorResponseCount int
+	myMachineName         string
+	shouldReboot          bool
+	lastReconcileTime     time.Time
+	watchdog              wdt.Watchdog
+	myNodeName            = os.Getenv(nodeNameEnvVar)
+	httpClient            = &http.Client{
 		Timeout: peerTimeout,
 	}
 
@@ -132,6 +133,7 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 
 	//if there was no error we reset the global error count
 	errCount = 0
+	apiErrorResponseCount = 0
 
 	_ = r.updateNodesList()
 
@@ -405,37 +407,103 @@ func (r *MachineReconciler) handleApiError(err error) (ctrl.Result, error) {
 	errCount++
 	r.Log.Error(err, "failed to retrieve machine from api-server", "error count is now", errCount)
 
-	if errCount > maxFailuresThreshold {
-		r.Log.Info("Error count exceeds threshold, trying to ask other nodes if I'm healthy")
-		if nodes == nil || len(nodes.Items) == 0 {
-			if err := r.updateNodesList(); err != nil {
-				r.Log.Error(err, "peers list is empty and couldn't be retrieved from server")
-				return ctrl.Result{RequeueAfter: reconcileInterval}, err
-			}
-			//todo maybe we need to check if this happens too much and reboot
-		}
+	if errCount <= maxFailuresThreshold {
+		return ctrl.Result{RequeueAfter: reconcileInterval}, err
+	}
 
-		if nodesToAsk == nil || len(nodesToAsk.Items) == 0 {
-			//deep copy nodes to ask, as we're going to remove nodes we already asked from the list
-			nodesToAsk = nodes.DeepCopy()
-		}
-
-		result, err := r.getHealthStatusFromPeer(popNode(nodesToAsk))
-		if err != nil {
-			if len(nodesToAsk.Items) == 1 {
-				//we got an error from the last node in the list
-				r.Log.Error(err, "failed to get health status from the last peer in the list. Assuming unhealthy")
-				r.stopWatchdogFeeding()
-			}
+	r.Log.Info("Error count exceeds threshold, trying to ask other nodes if I'm healthy")
+	if nodes == nil || len(nodes.Items) == 0 {
+		if err := r.updateNodesList(); err != nil {
+			r.Log.Error(err, "peers list is empty and couldn't be retrieved from server")
 			return ctrl.Result{RequeueAfter: reconcileInterval}, err
 		}
+		//todo maybe we need to check if this happens too much and reboot
+	}
 
-		r.Log.Info("got response from peer", "response", result)
-		r.actBasedOnHealthResponse(result)
+	if nodesToAsk == nil || len(nodesToAsk.Items) == 0 {
+		//deep copy nodes to ask, as we're going to remove nodes we already asked from the list
+		nodesToAsk = nodes.DeepCopy()
+	}
+
+	nodesBatchCount := len(nodes.Items) / 10
+	if nodesBatchCount == 0 {
+		nodesBatchCount = 1
+	}
+
+	chosenNodesAddresses := popNodes(nodesToAsk, nodesBatchCount)
+	responsesChan := make(chan poisonPill.HealthCheckResponse, nodesBatchCount)
+
+	for _, address := range chosenNodesAddresses {
+		go r.getHealthStatusFromPeer(address, responsesChan)
+	}
+
+	healthyResponses, unhealthyResponses, apiErrorsResponses, _ := r.sumPeersResponses(nodesBatchCount, responsesChan)
+
+	if healthyResponses > 0 {
+		r.Log.Info("Peer told me I'm healthy.")
+		apiErrorResponseCount = 0
+		errCount = 0
+		nodesToAsk = nil
+		return ctrl.Result{RequeueAfter: reconcileInterval}, nil
+	}
+
+	if unhealthyResponses > 0 {
+		r.Log.Info("Peer told me I'm unhealthy. Stopping watchdog feeding")
+		r.stopWatchdogFeeding()
 		return ctrl.Result{RequeueAfter: 1 * time.Second}, err
 	}
 
-	return ctrl.Result{RequeueAfter: reconcileInterval}, err
+	if apiErrorsResponses > 0 {
+		apiErrorResponseCount += apiErrorsResponses
+		if apiErrorResponseCount > len(nodes.Items)/2 { //already reached more than 50% of the nodes and all of them returned api error
+			//assuming this is a control plane failure as others can't access api-server as well
+			r.Log.Info("More than 50% of the nodes couldn't access the api-server, assuming this is a control plane failure")
+			errCount = 0
+			nodesToAsk = nil
+			apiErrorResponseCount = 0
+			return ctrl.Result{RequeueAfter: reconcileInterval}, nil
+		}
+	}
+
+	if len(nodesToAsk.Items) == 0 {
+		//we already asked all peers
+		r.Log.Error(err, "failed to get health status from the last peer in the list. Assuming unhealthy")
+		r.stopWatchdogFeeding()
+	}
+
+	return ctrl.Result{RequeueAfter: 1 * time.Second}, err
+}
+
+func (r *MachineReconciler) sumPeersResponses(nodesBatchCount int, responsesChan chan poisonPill.HealthCheckResponse) (int, int, int, int) {
+	healthyResponses := 0
+	unhealthyResponses := 0
+	apiErrorsResponses := 0
+	noResponse := 0
+
+	for i := 0; i < nodesBatchCount; i++ {
+		response := <-responsesChan
+		r.Log.Info("got response from peer", "response", response)
+
+		switch response {
+		case poisonPill.Unhealthy:
+			healthyResponses++
+			break
+		case poisonPill.Healthy:
+			unhealthyResponses++
+			break
+		case poisonPill.ApiError:
+			apiErrorsResponses++
+			break
+		case -1:
+			noResponse++
+
+		default:
+			r.Log.Error(errors.New("got unexpected value from peer while trying to retrieve health status"),
+				"Received value", response)
+		}
+	}
+
+	return healthyResponses, unhealthyResponses, apiErrorsResponses, noResponse
 }
 
 // reboot stops watchdog feeding ig wachdog exists, otherwise issuing a sowtware reboot
@@ -474,22 +542,24 @@ func (r *MachineReconciler) updateNodesList() error {
 	return nil
 }
 
-//getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer
-func (r *MachineReconciler) getHealthStatusFromPeer(endpointIp string) (poisonPill.HealthCheckResponse, error) {
+//getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer into the given channel
+func (r *MachineReconciler) getHealthStatusFromPeer(endpointIp string, results chan<- poisonPill.HealthCheckResponse) {
 	url := fmt.Sprintf("%s://%s:%d/health/%s", peersProtocol, endpointIp, peersPort, myMachineName)
 
 	resp, err := httpClient.Get(url)
+	defer resp.Body.Close()
 
 	if err != nil {
 		r.Log.Error(err, "failed to get health status from peer", "url", url)
-		return -1, err
+		results <- -1
+		return
 	}
-	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		r.Log.Error(err, "failed to read health response from peer")
-		return -1, err
+		results <- -1
+		return
 	}
 
 	healthStatusResult, err := strconv.Atoi(string(body))
@@ -498,27 +568,8 @@ func (r *MachineReconciler) getHealthStatusFromPeer(endpointIp string) (poisonPi
 		r.Log.Error(err, "failed to convert health check response from string to int")
 	}
 
-	return poisonPill.HealthCheckResponse(healthStatusResult), nil
-}
-
-//actBasedOnHealthResponse takes action per the give health check result
-func (r *MachineReconciler) actBasedOnHealthResponse(healthStatus poisonPill.HealthCheckResponse) {
-	switch healthStatus {
-	case poisonPill.Unhealthy:
-		r.Log.Info("Peer told me I'm unhealthy. Stopping watchdog feeding")
-		r.stopWatchdogFeeding()
-		break
-	case poisonPill.Healthy:
-		r.Log.Info("Peer told me I'm healthy. Resetting error count")
-		errCount = 0
-		nodesToAsk = nil
-		break
-	case poisonPill.ApiError:
-		break
-	default:
-		r.Log.Error(errors.New("got unexpected value from peer while trying to retrieve health status"),
-			"Received value", healthStatus)
-	}
+	results <- poisonPill.HealthCheckResponse(healthStatusResult)
+	return
 }
 
 //this will cause reboot
@@ -546,6 +597,30 @@ func popNode(nodes *v1.NodeList) (address string) {
 	nodes.Items = nodes.Items[1:]                    //remove this node from the list
 
 	return
+}
+
+func popNodes(nodes *v1.NodeList, count int) []string {
+	addresses := make([]string, 10)
+	if len(nodes.Items) == 0 {
+		return addresses
+	}
+
+	//todo this should be random, check if address exists, etc.
+	nodeIndex := 0 //rand.Intn(len(nodes.Items))
+	chosenNode := nodes.Items[nodeIndex]
+
+	nodesCount := count
+	if nodesCount > len(nodes.Items) {
+		nodesCount = len(nodes.Items)
+	}
+
+	for i := 0; i < nodesCount; i++ {
+		addresses[i] = chosenNode.Status.Addresses[i].Address //todo node might have multiple addresses
+	}
+
+	nodes.Items = nodes.Items[nodesCount:] //remove popped nodes from the list
+
+	return addresses
 }
 
 //softwareReboot performs software reboot by running systemctl reboot
