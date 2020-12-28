@@ -547,13 +547,14 @@ func (r *MachineReconciler) getHealthStatusFromPeer(endpointIp string, results c
 	url := fmt.Sprintf("%s://%s:%d/health/%s", peersProtocol, endpointIp, peersPort, myMachineName)
 
 	resp, err := httpClient.Get(url)
-	defer resp.Body.Close()
 
 	if err != nil {
 		r.Log.Error(err, "failed to get health status from peer", "url", url)
 		results <- -1
 		return
 	}
+
+	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
