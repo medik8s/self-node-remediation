@@ -97,6 +97,7 @@ var _ = BeforeSuite(func(done Done) {
 	myNodeName = "node1"
 
 	go func() {
+                defer GinkgoRecover()
 		err = k8sManager.Start(ctrl.SetupSignalHandler())
 		Expect(err).ToNot(HaveOccurred())
 	}()
