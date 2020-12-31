@@ -137,8 +137,10 @@ func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error)
 
 	_ = r.updateNodesList()
 
-	if lastUnhealthyTimeStr, exists := machine.Annotations[externalRemediationAnnotation]; exists {
-		return r.handleUnhealthyMachine(lastUnhealthyTimeStr, machine)
+	if machine.Annotations != nil {
+		if lastUnhealthyTimeStr, exists := machine.Annotations[externalRemediationAnnotation]; exists {
+			return r.handleUnhealthyMachine(lastUnhealthyTimeStr, machine)
+		}
 	}
 
 	return ctrl.Result{RequeueAfter: reconcileInterval}, nil
