@@ -18,6 +18,11 @@ var _ = Describe("Machine Controller", func() {
 	Context("Unhealthy machine with api-server access", func() {
 		logf.SetLogger(zap.LoggerTo(GinkgoWriter, true))
 
+		It("Disable api-server failure simulation", func() {
+			shouldReboot = false
+			apiReaderWrapper.ShouldSimulateFailure = false
+		})
+
 		machineName := "machine1"
 		machine1 := &machinev1beta1.Machine{}
 		machineNamespacedName := types.NamespacedName{
@@ -144,6 +149,43 @@ var _ = Describe("Machine Controller", func() {
 				return machine1.Annotations
 			}, 5*time.Second, 250*time.Millisecond).ShouldNot(HaveKey(externalRemediationAnnotation))
 
+		})
+	})
+
+	Context("Unhealthy machine without api-server access", func() {
+		logf.SetLogger(zap.LoggerTo(GinkgoWriter, true))
+
+		machineName := "machine1"
+		machine1 := &machinev1beta1.Machine{}
+		machineNamespacedName := types.NamespacedName{
+			Name:      machineName,
+			Namespace: machineNamespace,
+		}
+
+		It("Check the machine exists", func() {
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), machineNamespacedName, machine1)
+			}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
+
+			Expect(machine1.Name).To(Equal("machine1"))
+			Expect(machine1.Status.NodeRef).ToNot(BeNil())
+		})
+
+		It("Simulate api-server failure", func() {
+			apiReaderWrapper.ShouldSimulateFailure = true
+		})
+
+		It("Sleep", func() {
+			Consistently(func() bool {
+				return true
+			}, (maxFailuresThreshold+2)*reconcileInterval, 1*time.Second).Should(BeTrue())
+		})
+
+		It("Verify that watchdog is not receiving food", func() {
+			currentLastFoodTime := dummyDog.GetLastFoodTime()
+			Consistently(func() time.Time {
+				return dummyDog.GetLastFoodTime()
+			}, 5*reconcileInterval, 1*time.Second).Should(Equal(currentLastFoodTime))
 		})
 	})
 })
