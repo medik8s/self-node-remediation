@@ -18,9 +18,11 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	wdt "github.com/n1r1/poison-pill/watchdog"
 	"github.com/onsi/gomega/gexec"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"os"
 	"path/filepath"
@@ -52,6 +54,7 @@ var cfg *rest.Config
 var k8sClient client.Client
 var testEnv *envtest.Environment
 var dummyDog wdt.DummyWatchdog
+var apiReaderWrapper ApiReaderWrapper
 
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -59,6 +62,26 @@ func TestAPIs(t *testing.T) {
 	RunSpecsWithDefaultAndCustomReporters(t,
 		"Controller Suite",
 		[]Reporter{printer.NewlineReporter{}})
+}
+
+type ApiReaderWrapper struct {
+	apiReader             client.Reader
+	ShouldSimulateFailure bool
+}
+
+func (arw *ApiReaderWrapper) Get(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
+	if arw.ShouldSimulateFailure {
+		return errors.New("simulation of api reader error")
+	}
+	return arw.apiReader.Get(ctx, key, obj)
+}
+
+func (arw *ApiReaderWrapper) List(ctx context.Context, list runtime.Object, opts ...client.ListOption) error {
+	if arw.ShouldSimulateFailure {
+		return errors.New("simulation of api reader error")
+	}
+
+	return arw.apiReader.List(ctx, list)
 }
 
 var _ = BeforeSuite(func(done Done) {
@@ -84,10 +107,15 @@ var _ = BeforeSuite(func(done Done) {
 	})
 	Expect(err).ToNot(HaveOccurred())
 
+	apiReaderWrapper = ApiReaderWrapper{
+		apiReader:             k8sManager.GetAPIReader(),
+		ShouldSimulateFailure: false,
+	}
+
 	err = (&MachineReconciler{
 		Client:    k8sManager.GetClient(),
 		Log:       ctrl.Log.WithName("controllers").WithName("poison-pill-controller"),
-		ApiReader: k8sManager.GetAPIReader(),
+		ApiReader: &apiReaderWrapper,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
@@ -97,7 +125,7 @@ var _ = BeforeSuite(func(done Done) {
 	myNodeName = "node1"
 
 	go func() {
-                defer GinkgoRecover()
+		defer GinkgoRecover()
 		err = k8sManager.Start(ctrl.SetupSignalHandler())
 		Expect(err).ToNot(HaveOccurred())
 	}()
@@ -123,7 +151,6 @@ var _ = BeforeSuite(func(done Done) {
 	machine1 := &machinev1beta1.Machine{}
 	machine1.Name = machineName
 	machine1.Namespace = machineNamespace
-	machine1.Annotations = map[string]string{externalRemediationAnnotation: ""}
 
 	machine1.Status.NodeRef = &v1.ObjectReference{
 		Kind:      "Node",
