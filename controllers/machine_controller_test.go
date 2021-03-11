@@ -7,16 +7,16 @@ import (
 	. "github.com/onsi/gomega"
 	machinev1beta1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"time"
 )
 
 var _ = Describe("Machine Controller", func() {
 	Context("Unhealthy machine with api-server access", func() {
-		logf.SetLogger(zap.LoggerTo(GinkgoWriter, true))
+		//logf.SetLogger(zap.LoggerTo(GinkgoWriter, true))
 
 		It("Disable api-server failure simulation", func() {
 			shouldReboot = false
@@ -64,7 +64,7 @@ var _ = Describe("Machine Controller", func() {
 			}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
 		})
 
-		It("Add unshedulable taint to node to simulate node controller", func() {
+		It("Add unschedulable taint to node to simulate node controller", func() {
 			node.Spec.Taints = append(node.Spec.Taints, *NodeUnschedulableTaint)
 			Expect(k8sClient.Update(context.TODO(), node)).To(Succeed())
 		})
@@ -109,21 +109,20 @@ var _ = Describe("Machine Controller", func() {
 			Expect(k8sClient.Update(context.TODO(), machine1)).To(Succeed())
 		})
 
-		//It("Verify that node has been deleted", func() {
-		//
-		//
-		//	Eventually(func() metav1.StatusReason {
-		//		node = &v1.Node{}
-		//		err := k8sClient.Get(context.TODO(), nodeNamespacedName, node)
-		//		return errors.ReasonForError(err)
-		//	}, 2*time.Second, 20*time.Millisecond).Should(Equal(metav1.StatusReasonNotFound))
-		//})
+		It("Verify that node has been deleted", func() {
+			shouldReboot = false
+
+			Eventually(func() metav1.StatusReason {
+				node = &v1.Node{}
+				err := k8sClient.Get(context.TODO(), nodeNamespacedName, node)
+				return errors.ReasonForError(err)
+			}, 10*time.Second, 20*time.Millisecond).Should(Equal(metav1.StatusReasonNotFound))
+		})
 
 		It("Verify that node has been deleted and restored", func() {
 			// in real world scenario, other machines will take care for the rest of the test but
 			// in this test, we trick the machine to recover itself after we already verified it
 			// tried to reboot
-			shouldReboot = false
 
 			node = &v1.Node{}
 
@@ -153,7 +152,7 @@ var _ = Describe("Machine Controller", func() {
 	})
 
 	Context("Unhealthy machine without api-server access", func() {
-		logf.SetLogger(zap.LoggerTo(GinkgoWriter, true))
+		//logf.SetLogger(zap.LoggerTo(GinkgoWriter, true))
 
 		machineName := "machine1"
 		machine1 := &machinev1beta1.Machine{}

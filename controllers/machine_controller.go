@@ -90,7 +90,7 @@ type MachineReconciler struct {
 
 // +kubebuilder:rbac:groups=machine.openshift.io.example.com,resources=machines,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=machine.openshift.io.example.com,resources=machines/status,verbs=get;update;patch
-func (r *MachineReconciler) Reconcile(request ctrl.Request) (ctrl.Result, error) {
+func (r *MachineReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
 	if shouldReboot {
 		return r.reboot()
 	}
