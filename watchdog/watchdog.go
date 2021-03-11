@@ -12,8 +12,6 @@ import . "golang.org/x/sys/unix"
 
 const (
 	watchdogDevice = "/dev/watchdog1"
-
-	WDIOF_SETTIMEOUT = 0x0080 // Supports timeout change
 )
 
 type LinuxWatchdog struct {

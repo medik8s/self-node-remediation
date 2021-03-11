@@ -22,13 +22,11 @@ import (
 	wdt "github.com/n1r1/poison-pill/watchdog"
 	"github.com/onsi/gomega/gexec"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"os"
 	"path/filepath"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"testing"
 	"time"
 
@@ -39,7 +37,6 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -69,14 +66,14 @@ type ApiReaderWrapper struct {
 	ShouldSimulateFailure bool
 }
 
-func (arw *ApiReaderWrapper) Get(ctx context.Context, key client.ObjectKey, obj runtime.Object) error {
+func (arw *ApiReaderWrapper) Get(ctx context.Context, key client.ObjectKey, obj client.Object) error {
 	if arw.ShouldSimulateFailure {
 		return errors.New("simulation of api reader error")
 	}
 	return arw.apiReader.Get(ctx, key, obj)
 }
 
-func (arw *ApiReaderWrapper) List(ctx context.Context, list runtime.Object, opts ...client.ListOption) error {
+func (arw *ApiReaderWrapper) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 	if arw.ShouldSimulateFailure {
 		return errors.New("simulation of api reader error")
 	}
@@ -85,7 +82,7 @@ func (arw *ApiReaderWrapper) List(ctx context.Context, list runtime.Object, opts
 }
 
 var _ = BeforeSuite(func(done Done) {
-	logf.SetLogger(zap.LoggerTo(GinkgoWriter, true))
+	//logf.SetLogger(zap.New(GinkgoWriter, true))
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
@@ -160,6 +157,8 @@ var _ = BeforeSuite(func(done Done) {
 	Expect(machine1.Status.NodeRef).ToNot(BeNil())
 
 	Expect(k8sClient.Create(context.TODO(), machine1)).To(Succeed())
+	//this is required in order to update status.nodeRef
+	Expect(k8sClient.Status().Update(context.Background(), machine1))
 	Expect(machine1.Status.NodeRef).ToNot(BeNil())
 
 	machine1 = &machinev1beta1.Machine{}
