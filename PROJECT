@@ -1,4 +1,4 @@
-domain: example.com
+domain: medik8s.io
 layout: go.kubebuilder.io/v2
 projectName: poison-pill
 repo: github.com/n1r1/poison-pill
