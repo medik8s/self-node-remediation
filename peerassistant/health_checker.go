@@ -2,7 +2,9 @@ package peerassistant
 
 import (
 	"context"
-	poisonPillApis "github.com/n1r1/poison-pill/api"
+	poisonPillApis "github.com/medik8s/poison-pill/api"
+	"github.com/medik8s/poison-pill/api/v1alpha1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
@@ -11,11 +13,13 @@ import (
 
 const (
 	externalRemediationAnnotation = "host.metal3.io/external-remediation"
-	machineNamespace              = "openshift-machine-api"
+	pprNamespace                  = "medik8s"
 )
 
 var client dynamic.Interface
-var machineRes = schema.GroupVersionResource{Group: "machine.openshift.io", Version: "v1beta1", Resource: "machines"}
+var pprRes = schema.GroupVersionResource{Group: v1alpha1.GroupVersion.Group,
+	Version:  v1alpha1.GroupVersion.Version,
+	Resource: "poisonpillremediations"}
 
 func init() {
 	// creates the in-cluster config
@@ -31,22 +35,14 @@ func init() {
 	}
 }
 
-func isHealthy(machineName string) poisonPillApis.HealthCheckResponse {
-	machine, err := client.Resource(machineRes).Namespace(machineNamespace).Get(context.TODO(), machineName, metav1.GetOptions{})
+func isHealthy(nodeName string) poisonPillApis.HealthCheckResponse {
+	_, err := client.Resource(pprRes).Namespace(pprNamespace).Get(context.TODO(), nodeName, metav1.GetOptions{})
 	if err != nil {
-		//todo examine the error, maybe it's 404 etc.
+		if apiErrors.IsNotFound(err) {
+			return poisonPillApis.Healthy
+		}
 		return poisonPillApis.ApiError
 	}
 
-	if len(machine.GetAnnotations()) <= 0 {
-		return poisonPillApis.Healthy
-	}
-
-	value, exists := machine.GetAnnotations()[externalRemediationAnnotation]
-
-	if exists && value != "" {
-		return poisonPillApis.Unhealthy
-	}
-
-	return poisonPillApis.Healthy
+	return poisonPillApis.Unhealthy
 }
