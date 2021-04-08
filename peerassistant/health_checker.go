@@ -12,8 +12,7 @@ import (
 )
 
 const (
-	externalRemediationAnnotation = "host.metal3.io/external-remediation"
-	pprNamespace                  = "medik8s"
+	pprNamespace = "medik8s"
 )
 
 var client dynamic.Interface
