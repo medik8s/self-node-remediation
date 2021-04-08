@@ -112,7 +112,6 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 	ctx, cancelFunc := context.WithTimeout(context.TODO(), apiServerTimeout)
 	defer cancelFunc()
 
-	//todo we need to make sure we reconcile this machine, and not only others. if we requeue after constant interval it doesn't mean we reconcile the correct machine
 	ppr := &v1alpha1.PoisonPillRemediation{}
 	//we use ApiReader as it doesn't use the cache. Otherwise, the cache returns the object
 	//even though the api server is not available
@@ -141,10 +140,15 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 		//this node was created after the node was reported as unhealthy
 		//we assume this is the new node after remediation and take no-op expecting the ppr to be deleted
 		r.Log.Info("node has been restored", "node name", node.Name)
+		//todo this means we only allow one remediation attempt per ppr. we could add some config to
+		//ppr which states max remediation attempts, and the timeout to consider a remediation failed.
 		return ctrl.Result{RequeueAfter: reconcileInterval}, nil
 	}
 
 	if !node.Spec.Unschedulable {
+		//the unhealthy node might reboot itself and take new workloads
+		//since we're going to delete the node eventually, we must make sure the node is deleted
+		//when there's no running workload there. Hence we mark it as unschedulable.
 		return r.markNodeAsUnschedulable(node)
 	}
 
@@ -160,11 +164,11 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 	maxNodeRebootTime := ppr.Status.TimeAssumedRebooted
 
 	if maxNodeRebootTime.After(time.Now()) {
-		if node.Name == ppr.Name {
+		if myNodeName == ppr.Name {
 			r.stopWatchdogFeeding()
 			return ctrl.Result{Requeue: true}, nil
 		}
-		return ctrl.Result{RequeueAfter: maxNodeRebootTime.Sub(time.Now())}, nil
+		return ctrl.Result{RequeueAfter: maxNodeRebootTime.Sub(time.Now()) + time.Second}, nil
 	}
 
 	r.Log.Info("TimeAssumedRebooted is old. The unhealthy node assumed to been rebooted", "node name", node.Name)
@@ -477,26 +481,11 @@ func (r *PoisonPillRemediationReconciler) stopWatchdogFeeding() {
 func (r *PoisonPillRemediationReconciler) handleDeletedNode(ppr *v1alpha1.PoisonPillRemediation) (ctrl.Result, error) {
 	if ppr.Status.NodeBackup == nil {
 		err := errors.New("unhealthy node doesn't exist and there's no backup node to restore")
-		r.Log.Error(err, "remediation failed", "ppr name", ppr.Name)
+		r.Log.Error(err, "remediation failed")
 		return ctrl.Result{}, err
 	}
 
 	return r.restoreNode(ppr.Status.NodeBackup)
-}
-
-//popNode recieves non-empty NodeList and return the IP address of one of the nodes from that list
-func popNode(nodes *v1.NodeList) (address string) {
-	if len(nodes.Items) == 0 {
-		return ""
-	}
-
-	//todo this should be random, check if address exists, etc.
-	nodeIndex := 0 //rand.Intn(len(nodes.Items))
-	chosenNode := nodes.Items[nodeIndex]
-	address = chosenNode.Status.Addresses[0].Address //todo node might have multiple addresses
-	nodes.Items = nodes.Items[1:]                    //remove this node from the list
-
-	return
 }
 
 func popNodes(nodes *v1.NodeList, count int) []string {
