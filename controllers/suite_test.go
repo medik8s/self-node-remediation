@@ -125,10 +125,6 @@ var _ = BeforeSuite(func() {
 	k8sClient = k8sManager.GetClient()
 	Expect(k8sClient).ToNot(BeNil())
 
-	//k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	//Expect(err).NotTo(HaveOccurred())
-	//Expect(k8sClient).NotTo(BeNil())
-
 }, 60)
 
 var _ = AfterSuite(func() {
