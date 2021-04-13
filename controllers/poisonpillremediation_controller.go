@@ -39,7 +39,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	v1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
+	"github.com/medik8s/poison-pill/api/v1alpha1"
 )
 
 const (
@@ -405,7 +405,7 @@ func (r *PoisonPillRemediationReconciler) sumPeersResponses(nodesBatchCount int,
 	return healthyResponses, unhealthyResponses, apiErrorsResponses, noResponse
 }
 
-// reboot stops watchdog feeding ig wachdog exists, otherwise issuing a sowtware reboot
+// reboot stops watchdog feeding ig watchdog exists, otherwise issuing a software reboot
 func (r *PoisonPillRemediationReconciler) reboot() (ctrl.Result, error) {
 	if watchdog == nil {
 		r.Log.Info("no watchdog is present on this host, trying software reboot")
@@ -453,7 +453,11 @@ func (r *PoisonPillRemediationReconciler) getHealthStatusFromPeer(endpointIp str
 		return
 	}
 
-	defer resp.Body.Close()
+	defer func() {
+		if err = resp.Body.Close(); err != nil {
+			r.Log.Error(err, "failed to close health response from peer")
+		}
+	}()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
