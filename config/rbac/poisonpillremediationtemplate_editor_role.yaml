@@ -1,0 +1,24 @@
+# permissions for end users to edit poisonpillremediationtemplates.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: poisonpillremediationtemplate-editor-role
+rules:
+- apiGroups:
+  - poison-pill.medik8s.io
+  resources:
+  - poisonpillremediationtemplates
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - poison-pill.medik8s.io
+  resources:
+  - poisonpillremediationtemplates/status
+  verbs:
+  - get
