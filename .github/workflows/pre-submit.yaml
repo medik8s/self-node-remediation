@@ -18,8 +18,6 @@ jobs:
       with:
         go-version: 1.15
 
-    - name: Build
+    - name: Build and test
       run: make manifests generate docker-build
 
-    - name: Test
-      run: make test
