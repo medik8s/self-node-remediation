@@ -50,7 +50,7 @@ const (
 	apiServerTimeout     = 5 * time.Second
 	peerTimeout          = 10 * time.Second
 	//note that this time must include the time for a unhealthy node without api-server access to reach the conclusion that it's unhealthy
-	// this should be at least peersCount * 1s (reconcile interval) * request context timeout
+	// this should be at least worst-case time to reach a conclusion from the other peers * request context timeout + watchdog interval + maxFailuresThreshold * reconcileInterval + padding
 	safeTimeToAssumeNodeRebooted = 90 * time.Second
 )
 
@@ -118,6 +118,9 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 	err := r.ApiReader.Get(ctx, req.NamespacedName, ppr)
 
 	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			return ctrl.Result{RequeueAfter: reconcileInterval}, nil
+		}
 		return r.handleApiError(err)
 	}
 
@@ -192,6 +195,7 @@ func (r *PoisonPillRemediationReconciler) updatePprStatus(node *v1.Node, ppr *v1
 	r.Log.Info("updating ppr with node backup and updating time to assume node has been rebooted", "node name", node.Name)
 	//we assume the unhealthy node will be rebooted by maxTimeNodeHasRebooted
 	maxTimeNodeHasRebooted := metav1.NewTime(metav1.Now().Add(safeTimeToAssumeNodeRebooted))
+	//todo once we let the user config these values we need to make sure that safeTimeToAssumeNodeRebooted >> watchdog timeout
 	ppr.Status.TimeAssumedRebooted = &maxTimeNodeHasRebooted
 	ppr.Status.NodeBackup = node
 	ppr.Status.NodeBackup.Kind = node.GetObjectKind().GroupVersionKind().Kind
@@ -248,6 +252,8 @@ func (r *PoisonPillRemediationReconciler) getMyNode() (*v1.Node, error) {
 func (r *PoisonPillRemediationReconciler) restoreNode(nodeToRestore *v1.Node) (ctrl.Result, error) {
 	r.Log.Info("restoring node", "node name", nodeToRestore.Name)
 
+	// todo we probably want to have some allowlist/denylist on which things to restore, we already had
+	// a problem when we restored ovn annotations
 	nodeToRestore.ResourceVersion = "" //create won't work with a non-empty value here
 	taints, _ := utils.DeleteTaint(nodeToRestore.Spec.Taints, NodeUnschedulableTaint)
 	nodeToRestore.Spec.Taints = taints
@@ -354,6 +360,7 @@ func (r *PoisonPillRemediationReconciler) handleApiError(err error) (ctrl.Result
 
 	if apiErrorsResponses > 0 {
 		apiErrorResponseCount += apiErrorsResponses
+		//todo consider using [m|n]hc.spec.maxUnhealthy instead of 50%
 		if apiErrorResponseCount > len(nodes.Items)/2 { //already reached more than 50% of the nodes and all of them returned api error
 			//assuming this is a control plane failure as others can't access api-server as well
 			r.Log.Info("More than 50% of the nodes couldn't access the api-server, assuming this is a control plane failure")
