@@ -33,6 +33,7 @@ import (
 
 	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
 	"github.com/medik8s/poison-pill/controllers"
+	pa "github.com/medik8s/poison-pill/peerassistant"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -97,6 +98,9 @@ func main() {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
+
+	setupLog.Info("starting web server")
+	go pa.Start()
 
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
