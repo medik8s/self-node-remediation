@@ -37,6 +37,18 @@ spec:
           spec:
             description: PoisonPillRemediationTemplateSpec defines the desired state
               of PoisonPillRemediationTemplate
+            properties:
+              template:
+                properties:
+                  spec:
+                    description: PoisonPillRemediationSpec defines the desired state
+                      of PoisonPillRemediation
+                    type: object
+                required:
+                - spec
+                type: object
+            required:
+            - template
             type: object
           status:
             description: PoisonPillRemediationTemplateStatus defines the observed
