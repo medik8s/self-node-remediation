@@ -86,6 +86,8 @@ type PoisonPillRemediationReconciler struct {
 //+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillremediations,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillremediations/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillremediations/finalizers,verbs=update
+//+kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch;create;update;patch;delete
+
 func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	_ = r.Log.WithValues("poisonpillremediation", req.NamespacedName)
 
