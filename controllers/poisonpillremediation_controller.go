@@ -78,7 +78,9 @@ var (
 // PoisonPillRemediationReconciler reconciles a PoisonPillRemediation object
 type PoisonPillRemediationReconciler struct {
 	client.Client
-	Log       logr.Logger
+	Log logr.Logger
+	//logger is a logger that holds the CR name being reconciled
+	logger    logr.Logger
 	Scheme    *runtime.Scheme
 	ApiReader client.Reader
 }
@@ -89,7 +91,7 @@ type PoisonPillRemediationReconciler struct {
 //+kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch;create;update;patch;delete
 
 func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = r.Log.WithValues("poisonpillremediation", req.NamespacedName)
+	r.logger = r.Log.WithValues("poisonpillremediation", req.NamespacedName)
 
 	if shouldReboot {
 		return r.reboot()
@@ -99,13 +101,13 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 	if watchdog == nil {
 		if wdt.IsWatchdogAvailable() {
 			if err := r.initWatchdog(); err != nil {
-				r.Log.Error(err, "failed to start watchdog device")
+				r.logger.Error(err, "failed to start watchdog device")
 				return ctrl.Result{RequeueAfter: reconcileInterval}, err
 			}
 		}
 	} else {
 		if err := watchdog.Feed(); err != nil {
-			r.Log.Error(err, "failed to feed watchdog")
+			r.logger.Error(err, "failed to feed watchdog")
 			return ctrl.Result{RequeueAfter: 1 * time.Second}, err
 		}
 	}
@@ -138,14 +140,14 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 			//as part of the remediation flow, we delete the node, and then we need to restore it
 			return r.handleDeletedNode(ppr)
 		}
-		r.Log.Error(err, "failed to retrieve node", "node name", ppr.Name)
+		r.logger.Error(err, "failed to retrieve node", "node name", ppr.Name)
 		return ctrl.Result{}, err
 	}
 
 	if node.CreationTimestamp.After(ppr.CreationTimestamp.Time) {
 		//this node was created after the node was reported as unhealthy
 		//we assume this is the new node after remediation and take no-op expecting the ppr to be deleted
-		r.Log.Info("node has been restored", "node name", node.Name)
+		r.logger.Info("node has been restored", "node name", node.Name)
 		//todo this means we only allow one remediation attempt per ppr. we could add some config to
 		//ppr which states max remediation attempts, and the timeout to consider a remediation failed.
 		return ctrl.Result{RequeueAfter: reconcileInterval}, nil
@@ -159,7 +161,7 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 	}
 
 	if !utils.TaintExists(node.Spec.Taints, NodeUnschedulableTaint) {
-		r.Log.Info("waiting for unschedulable taint to appear", "node name", node.Name)
+		r.logger.Info("waiting for unschedulable taint to appear", "node name", node.Name)
 		return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 	}
 
@@ -177,16 +179,16 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{RequeueAfter: maxNodeRebootTime.Sub(time.Now()) + time.Second}, nil
 	}
 
-	r.Log.Info("TimeAssumedRebooted is old. The unhealthy node assumed to been rebooted", "node name", node.Name)
+	r.logger.Info("TimeAssumedRebooted is old. The unhealthy node assumed to been rebooted", "node name", node.Name)
 
 	if !node.DeletionTimestamp.IsZero() {
 		return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 	}
 
-	r.Log.Info("deleting unhealthy node", "node name", node.Name)
+	r.logger.Info("deleting unhealthy node", "node name", node.Name)
 	if err := r.Client.Delete(context.TODO(), node); err != nil {
 		if !apiErrors.IsNotFound(err) {
-			r.Log.Error(err, "failed to delete the unhealthy node")
+			r.logger.Error(err, "failed to delete the unhealthy node")
 			return ctrl.Result{}, err
 		}
 	}
@@ -195,7 +197,7 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 }
 
 func (r *PoisonPillRemediationReconciler) updatePprStatus(node *v1.Node, ppr *v1alpha1.PoisonPillRemediation) (ctrl.Result, error) {
-	r.Log.Info("updating ppr with node backup and updating time to assume node has been rebooted", "node name", node.Name)
+	r.logger.Info("updating ppr with node backup and updating time to assume node has been rebooted", "node name", node.Name)
 	//we assume the unhealthy node will be rebooted by maxTimeNodeHasRebooted
 	maxTimeNodeHasRebooted := metav1.NewTime(metav1.Now().Add(safeTimeToAssumeNodeRebooted))
 	//todo once we let the user config these values we need to make sure that safeTimeToAssumeNodeRebooted >> watchdog timeout
@@ -208,7 +210,7 @@ func (r *PoisonPillRemediationReconciler) updatePprStatus(node *v1.Node, ppr *v1
 		if apiErrors.IsConflict(err) {
 			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 		}
-		r.Log.Error(err, "failed to update status with 'node back up' and 'time to assume node has rebooted'")
+		r.logger.Error(err, "failed to update status with 'node back up' and 'time to assume node has rebooted'")
 		return ctrl.Result{}, err
 	}
 
@@ -223,7 +225,7 @@ func (r *PoisonPillRemediationReconciler) SetupWithManager(mgr ctrl.Manager) err
 }
 
 func (r *PoisonPillRemediationReconciler) initWatchdog() error {
-	r.Log.Info("starting watchdog")
+	r.logger.Info("starting watchdog")
 	w, err := wdt.StartWatchdog()
 	watchdog = wdt.Watchdog(w)
 	if err != nil {
@@ -231,9 +233,9 @@ func (r *PoisonPillRemediationReconciler) initWatchdog() error {
 	}
 
 	if watchdogTimeout, err := watchdog.GetTimeout(); err != nil {
-		r.Log.Error(err, "failed to retrieve watchdog timeout")
+		r.logger.Error(err, "failed to retrieve watchdog timeout")
 	} else {
-		r.Log.Info("retrieved watchdog timeout", "timeout", watchdogTimeout)
+		r.logger.Info("retrieved watchdog timeout", "timeout", watchdogTimeout)
 		//todo reconcileInterval = watchdogTimeout / 2
 	}
 	return nil
@@ -253,7 +255,7 @@ func (r *PoisonPillRemediationReconciler) getMyNode() (*v1.Node, error) {
 }
 
 func (r *PoisonPillRemediationReconciler) restoreNode(nodeToRestore *v1.Node) (ctrl.Result, error) {
-	r.Log.Info("restoring node", "node name", nodeToRestore.Name)
+	r.logger.Info("restoring node", "node name", nodeToRestore.Name)
 
 	// todo we probably want to have some allowlist/denylist on which things to restore, we already had
 	// a problem when we restored ovn annotations
@@ -271,7 +273,7 @@ func (r *PoisonPillRemediationReconciler) restoreNode(nodeToRestore *v1.Node) (c
 			return ctrl.Result{Requeue: true}, nil
 		}
 
-		r.Log.Error(err, "failed to create node", "node name", nodeToRestore.Name)
+		r.logger.Error(err, "failed to create node", "node name", nodeToRestore.Name)
 		return ctrl.Result{}, err
 	}
 
@@ -295,9 +297,9 @@ func (r *PoisonPillRemediationReconciler) getNodeFromPpr(ppr *v1alpha1.PoisonPil
 
 func (r *PoisonPillRemediationReconciler) markNodeAsUnschedulable(node *v1.Node) (ctrl.Result, error) {
 	node.Spec.Unschedulable = true
-	r.Log.Info("Marking node as unschedulable", "node name", node.Name)
+	r.logger.Info("Marking node as unschedulable", "node name", node.Name)
 	if err := r.Client.Update(context.Background(), node); err != nil {
-		r.Log.Error(err, "failed to mark node as unschedulable")
+		r.logger.Error(err, "failed to mark node as unschedulable")
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
@@ -313,16 +315,16 @@ func (r *PoisonPillRemediationReconciler) handleApiError(err error) (ctrl.Result
 	lastReconcileTime = time.Now()
 
 	errCount++
-	r.Log.Error(err, "failed to retrieve machine from api-server", "error count is now", errCount)
+	r.logger.Error(err, "failed to retrieve machine from api-server", "error count is now", errCount)
 
 	if errCount <= maxFailuresThreshold {
 		return ctrl.Result{RequeueAfter: reconcileInterval}, err
 	}
 
-	r.Log.Info("Error count exceeds threshold, trying to ask other nodes if I'm healthy")
+	r.logger.Info("Error count exceeds threshold, trying to ask other nodes if I'm healthy")
 	if nodes == nil || len(nodes.Items) == 0 {
 		if err := r.updateNodesList(); err != nil {
-			r.Log.Error(err, "peers list is empty and couldn't be retrieved from server")
+			r.logger.Error(err, "peers list is empty and couldn't be retrieved from server")
 			return ctrl.Result{RequeueAfter: reconcileInterval}, err
 		}
 		//todo maybe we need to check if this happens too much and reboot
@@ -348,7 +350,7 @@ func (r *PoisonPillRemediationReconciler) handleApiError(err error) (ctrl.Result
 	healthyResponses, unhealthyResponses, apiErrorsResponses, _ := r.sumPeersResponses(nodesBatchCount, responsesChan)
 
 	if healthyResponses > 0 {
-		r.Log.Info("Peer told me I'm healthy.")
+		r.logger.Info("Peer told me I'm healthy.")
 		apiErrorResponseCount = 0
 		errCount = 0
 		nodesToAsk = nil
@@ -356,7 +358,7 @@ func (r *PoisonPillRemediationReconciler) handleApiError(err error) (ctrl.Result
 	}
 
 	if unhealthyResponses > 0 {
-		r.Log.Info("Peer told me I'm unhealthy. Stopping watchdog feeding")
+		r.logger.Info("Peer told me I'm unhealthy. Stopping watchdog feeding")
 		r.stopWatchdogFeeding()
 		return ctrl.Result{RequeueAfter: 1 * time.Second}, err
 	}
@@ -366,7 +368,7 @@ func (r *PoisonPillRemediationReconciler) handleApiError(err error) (ctrl.Result
 		//todo consider using [m|n]hc.spec.maxUnhealthy instead of 50%
 		if apiErrorResponseCount > len(nodes.Items)/2 { //already reached more than 50% of the nodes and all of them returned api error
 			//assuming this is a control plane failure as others can't access api-server as well
-			r.Log.Info("More than 50% of the nodes couldn't access the api-server, assuming this is a control plane failure")
+			r.logger.Info("More than 50% of the nodes couldn't access the api-server, assuming this is a control plane failure")
 			errCount = 0
 			nodesToAsk = nil
 			apiErrorResponseCount = 0
@@ -376,7 +378,7 @@ func (r *PoisonPillRemediationReconciler) handleApiError(err error) (ctrl.Result
 
 	if len(nodesToAsk.Items) == 0 {
 		//we already asked all peers
-		r.Log.Error(err, "failed to get health status from the last peer in the list. Assuming unhealthy")
+		r.logger.Error(err, "failed to get health status from the last peer in the list. Assuming unhealthy")
 		r.stopWatchdogFeeding()
 	}
 
@@ -391,7 +393,7 @@ func (r *PoisonPillRemediationReconciler) sumPeersResponses(nodesBatchCount int,
 
 	for i := 0; i < nodesBatchCount; i++ {
 		response := <-responsesChan
-		r.Log.Info("got response from peer", "response", response)
+		r.logger.Info("got response from peer", "response", response)
 
 		switch response {
 		case poisonPill.Unhealthy:
@@ -407,7 +409,7 @@ func (r *PoisonPillRemediationReconciler) sumPeersResponses(nodesBatchCount int,
 			noResponse++
 
 		default:
-			r.Log.Error(errors.New("got unexpected value from peer while trying to retrieve health status"),
+			r.logger.Error(errors.New("got unexpected value from peer while trying to retrieve health status"),
 				"Received value", response)
 		}
 	}
@@ -418,16 +420,16 @@ func (r *PoisonPillRemediationReconciler) sumPeersResponses(nodesBatchCount int,
 // reboot stops watchdog feeding ig watchdog exists, otherwise issuing a software reboot
 func (r *PoisonPillRemediationReconciler) reboot() (ctrl.Result, error) {
 	if watchdog == nil {
-		r.Log.Info("no watchdog is present on this host, trying software reboot")
+		r.logger.Info("no watchdog is present on this host, trying software reboot")
 		//we couldn't init a watchdog so far but requested to be rebooted. we issue a software reboot
 		if err := softwareReboot(); err != nil {
-			r.Log.Error(err, "failed to run reboot command")
+			r.logger.Error(err, "failed to run reboot command")
 			return ctrl.Result{RequeueAfter: reconcileInterval}, err
 		}
 		return ctrl.Result{RequeueAfter: reconcileInterval}, nil
 	}
 	//we stop feeding the watchdog and waiting for a reboot
-	r.Log.Info("watchdog feeding has stopped, waiting for reboot to commence")
+	r.logger.Info("watchdog feeding has stopped, waiting for reboot to commence")
 	return ctrl.Result{RequeueAfter: reconcileInterval}, nil
 }
 
@@ -436,7 +438,7 @@ func (r *PoisonPillRemediationReconciler) updateNodesList() error {
 	nodeList := &v1.NodeList{}
 
 	if err := r.List(context.TODO(), nodeList); err != nil {
-		r.Log.Error(err, "failed to get nodes list")
+		r.logger.Error(err, "failed to get nodes list")
 		return err
 	}
 
@@ -458,20 +460,20 @@ func (r *PoisonPillRemediationReconciler) getHealthStatusFromPeer(endpointIp str
 	resp, err := httpClient.Get(url)
 
 	if err != nil {
-		r.Log.Error(err, "failed to get health status from peer", "url", url)
+		r.logger.Error(err, "failed to get health status from peer", "url", url)
 		results <- -1
 		return
 	}
 
 	defer func() {
 		if err = resp.Body.Close(); err != nil {
-			r.Log.Error(err, "failed to close health response from peer")
+			r.logger.Error(err, "failed to close health response from peer")
 		}
 	}()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		r.Log.Error(err, "failed to read health response from peer")
+		r.logger.Error(err, "failed to read health response from peer")
 		results <- -1
 		return
 	}
@@ -479,7 +481,7 @@ func (r *PoisonPillRemediationReconciler) getHealthStatusFromPeer(endpointIp str
 	healthStatusResult, err := strconv.Atoi(string(body))
 
 	if err != nil {
-		r.Log.Error(err, "failed to convert health check response from string to int")
+		r.logger.Error(err, "failed to convert health check response from string to int")
 	}
 
 	results <- poisonPill.HealthCheckResponse(healthStatusResult)
@@ -488,14 +490,14 @@ func (r *PoisonPillRemediationReconciler) getHealthStatusFromPeer(endpointIp str
 
 //this will cause reboot
 func (r *PoisonPillRemediationReconciler) stopWatchdogFeeding() {
-	r.Log.Info("No more food for watchdog... system will be rebooted...", "node name", myNodeName)
+	r.logger.Info("No more food for watchdog... system will be rebooted...", "node name", myNodeName)
 	shouldReboot = true
 }
 
 func (r *PoisonPillRemediationReconciler) handleDeletedNode(ppr *v1alpha1.PoisonPillRemediation) (ctrl.Result, error) {
 	if ppr.Status.NodeBackup == nil {
 		err := errors.New("unhealthy node doesn't exist and there's no backup node to restore")
-		r.Log.Error(err, "remediation failed")
+		r.logger.Error(err, "remediation failed")
 		return ctrl.Result{}, err
 	}
 
