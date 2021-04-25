@@ -208,7 +208,7 @@ func (r *PoisonPillRemediationReconciler) updatePprStatus(node *v1.Node, ppr *v1
 		if apiErrors.IsConflict(err) {
 			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 		}
-		r.Log.Error(err, "failed to update status with node back up and time to assume node has rebooted")
+		r.Log.Error(err, "failed to update status with 'node back up' and 'time to assume node has rebooted'")
 		return ctrl.Result{}, err
 	}
 
