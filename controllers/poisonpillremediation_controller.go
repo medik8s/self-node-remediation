@@ -139,6 +139,7 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 			return r.handleDeletedNode(ppr)
 		}
 		r.Log.Error(err, "failed to retrieve node", "node name", ppr.Name)
+		return ctrl.Result{}, err
 	}
 
 	if node.CreationTimestamp.After(ppr.CreationTimestamp.Time) {
