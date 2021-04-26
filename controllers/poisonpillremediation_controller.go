@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/medik8s/poison-pill/api/v1alpha1"
+	machinev1beta1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 )
 
 const (
@@ -89,6 +90,7 @@ type PoisonPillRemediationReconciler struct {
 //+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillremediations/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillremediations/finalizers,verbs=update
 //+kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=machine.openshift.io,resources=machines,verbs=get;list;watch
 
 func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.logger = r.Log.WithValues("poisonpillremediation", req.NamespacedName)
@@ -280,8 +282,21 @@ func (r *PoisonPillRemediationReconciler) restoreNode(nodeToRestore *v1.Node) (c
 	return ctrl.Result{RequeueAfter: reconcileInterval}, nil
 }
 
-// getNodeByMachine returns the node object referenced by machine
+// getNodeFromPpr returns the unhealthy node reported in the given ppr
 func (r *PoisonPillRemediationReconciler) getNodeFromPpr(ppr *v1alpha1.PoisonPillRemediation) (*v1.Node, error) {
+	//PPR could be created by either machine based controller (e.g. MHC) or
+	//by a node based controller (e.g. NHC). This assumes that machine based controller
+	//will create the ppr with machine owner reference
+
+	for _, ownerRef := range ppr.OwnerReferences {
+		if ownerRef.Kind == "Machine" {
+			r.logger.Info("assuming the unhealthy resource is a machine")
+			return r.getNodeFromMachine(ownerRef, ppr.Namespace)
+		}
+	}
+
+	r.logger.Info("assuming the unhealthy resource is a node")
+	//since we didn't find a machine owner ref, we assume that ppr name is the unhealthy node name
 	node := &v1.Node{}
 	key := client.ObjectKey{
 		Name:      ppr.Name,
@@ -289,6 +304,40 @@ func (r *PoisonPillRemediationReconciler) getNodeFromPpr(ppr *v1alpha1.PoisonPil
 	}
 
 	if err := r.ApiReader.Get(context.TODO(), key, node); err != nil {
+		return nil, err
+	}
+
+	return node, nil
+}
+
+func (r *PoisonPillRemediationReconciler) getNodeFromMachine(ref metav1.OwnerReference, ns string) (*v1.Node, error) {
+	machine := &machinev1beta1.Machine{}
+	machineKey := client.ObjectKey{
+		Name:      ref.Name,
+		Namespace: ns,
+	}
+
+	if err := r.Client.Get(context.Background(), machineKey, machine); err != nil {
+		r.logger.Error(err, "failed to get machine from PoisonPillRemediation CR owner ref",
+			"machine name", machineKey.Name, "namespace", machineKey.Namespace)
+		return nil, err
+	}
+
+	if machine.Status.NodeRef == nil {
+		err := errors.New("nodeRef is nil")
+		r.logger.Error(err, "failed to retrieve node from the unhealthy machine")
+		return nil, err
+	}
+
+	node := &v1.Node{}
+	key := client.ObjectKey{
+		Name:      machine.Status.NodeRef.Name,
+		Namespace: machine.Status.NodeRef.Namespace,
+	}
+
+	if err := r.ApiReader.Get(context.Background(), key, node); err != nil {
+		r.logger.Error(err, "failed to retrieve node from the unhealthy machine",
+			"node name", node.Name, "machine name", machine.Name)
 		return nil, err
 	}
 
