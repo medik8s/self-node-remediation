@@ -290,12 +290,10 @@ func (r *PoisonPillRemediationReconciler) getNodeFromPpr(ppr *v1alpha1.PoisonPil
 
 	for _, ownerRef := range ppr.OwnerReferences {
 		if ownerRef.Kind == "Machine" {
-			r.logger.Info("assuming the unhealthy resource is a machine")
 			return r.getNodeFromMachine(ownerRef, ppr.Namespace)
 		}
 	}
 
-	r.logger.Info("assuming the unhealthy resource is a node")
 	//since we didn't find a machine owner ref, we assume that ppr name is the unhealthy node name
 	node := &v1.Node{}
 	key := client.ObjectKey{
