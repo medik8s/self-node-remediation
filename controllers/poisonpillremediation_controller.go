@@ -21,7 +21,7 @@ import (
 	"errors"
 	"fmt"
 	poisonPill "github.com/medik8s/poison-pill/api"
-	"github.com/medik8s/poison-pill/utils"
+	"github.com/medik8s/poison-pill/pkg/utils"
 	"io/ioutil"
 	v1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -34,7 +34,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	wdt "github.com/medik8s/poison-pill/watchdog"
+	wdt "github.com/medik8s/poison-pill/pkg/watchdog"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
