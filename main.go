@@ -36,6 +36,7 @@ import (
 
 	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
 	"github.com/medik8s/poison-pill/controllers"
+	pa "github.com/medik8s/poison-pill/pkg/peerassistant"
 	//+kubebuilder:scaffold:imports
 )
 
