@@ -25,7 +25,7 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	wdt "github.com/medik8s/poison-pill/watchdog"
+	wdt "github.com/medik8s/poison-pill/pkg/watchdog"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
