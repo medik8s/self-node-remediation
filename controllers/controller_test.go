@@ -2,17 +2,16 @@ package controllers
 
 import (
 	"context"
-	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
+	"time"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"os"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	"time"
+	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
 )
 
 const (
@@ -22,25 +21,16 @@ const (
 
 var _ = Describe("ppr Controller", func() {
 
+	nodeNamespacedName := client.ObjectKey{
+		Name:      nodeName,
+		Namespace: "",
+	}
+
 	Context("Unhealthy node with api-server access", func() {
-		logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
-		It("Disable api-server failure simulation", func() {
-			shouldReboot = false
-			apiReaderWrapper.ShouldSimulateFailure = false
+		It("Disable api-server failure", func() {
+			k8sClient.ShouldSimulateFailure = false
 		})
-
-		It("Create a new node", func() {
-			node1 := &v1.Node{}
-			node1.Name = nodeName
-			Expect(k8sClient.Create(context.Background(), node1)).To(Succeed(), "failed to create node")
-			Expect(os.Setenv(nodeNameEnvVar, node1.Name)).To(Succeed(), "failed to set env variable of the node name")
-		})
-
-		nodeNamespacedName := client.ObjectKey{
-			Name:      nodeName,
-			Namespace: "",
-		}
 
 		It("Check the node exists", func() {
 			node1 := &v1.Node{}
@@ -52,6 +42,8 @@ var _ = Describe("ppr Controller", func() {
 			Expect(node1.CreationTimestamp).ToNot(BeZero())
 		})
 
+		beforePPR := time.Now()
+
 		It("Create ppr for node1", func() {
 			ppr := &poisonpillv1alpha1.PoisonPillRemediation{}
 			ppr.Name = nodeName
@@ -60,14 +52,10 @@ var _ = Describe("ppr Controller", func() {
 		})
 
 		node := &v1.Node{}
-
 		It("Verify that node was marked as unschedulable ", func() {
 			Eventually(func() bool {
-				node = &v1.Node{}
 				Expect(k8sClient.Get(context.TODO(), nodeNamespacedName, node)).To(Succeed())
-
 				return node.Spec.Unschedulable
-
 			}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
 		})
 
@@ -77,14 +65,12 @@ var _ = Describe("ppr Controller", func() {
 		})
 
 		ppr := &poisonpillv1alpha1.PoisonPillRemediation{}
-		It("Verify that time has been added to annotation", func() {
+		It("Verify that time has been added to PPR status", func() {
 			Eventually(func() *metav1.Time {
 				pprNamespacedName := client.ObjectKey{Name: nodeName, Namespace: pprNamespace}
 
 				Expect(k8sClient.Get(context.TODO(), pprNamespacedName, ppr)).To(Succeed())
 				return ppr.Status.TimeAssumedRebooted
-
-				//give some time to the controller to update the time in the annotation
 
 			}, 5*time.Second, 250*time.Millisecond).ShouldNot(BeZero())
 		})
@@ -92,7 +78,6 @@ var _ = Describe("ppr Controller", func() {
 		newPpr := &poisonpillv1alpha1.PoisonPillRemediation{}
 		It("Verify that node backup annotation matches the node", func() {
 			pprNamespacedName := client.ObjectKey{Name: nodeName, Namespace: pprNamespace}
-			time.Sleep(time.Second * 10)
 
 			Expect(k8sClient.Get(context.TODO(), pprNamespacedName, newPpr)).To(Succeed())
 			Expect(newPpr.Status.NodeBackup).ToNot(BeNil(), "node backup should exist")
@@ -115,17 +100,17 @@ var _ = Describe("ppr Controller", func() {
 			currentLastFoodTime := dummyDog.LastFoodTime()
 			Consistently(func() time.Time {
 				return dummyDog.LastFoodTime()
-			}, 5*reconcileInterval, 1*time.Second).Should(Equal(currentLastFoodTime))
+			}, 5*dummyDog.GetTimeout(), 1*time.Second).Should(Equal(currentLastFoodTime))
 		})
-
-		now := time.Now()
-		It("Update ppr time to accelerate the progress", func() {
-			safeTimeToAssumeNodeRebooted := 90 * time.Second
-			oldTime := now.Add(-safeTimeToAssumeNodeRebooted).Add(-time.Minute)
-			oldTimeConverted := metav1.NewTime(oldTime)
-			ppr.Status.TimeAssumedRebooted = &oldTimeConverted
-			Expect(k8sClient.Status().Update(context.TODO(), ppr)).To(Succeed())
-		})
+		
+		//now := time.Now()
+		//It("Update ppr time to accelerate the progress", func() {
+		//	safeTimeToAssumeNodeRebooted := 90 * time.Second
+		//	oldTime := now.Add(-safeTimeToAssumeNodeRebooted).Add(-time.Minute)
+		//	oldTimeConverted := metav1.NewTime(oldTime)
+		//	ppr.Status.TimeAssumedRebooted = &oldTimeConverted
+		//	Expect(k8sClient.Status().Update(context.TODO(), ppr)).To(Succeed())
+		//})
 
 		It("Verify that node has been deleted and restored", func() {
 			// in real world scenario, other nodes will take care for the rest of the test but
@@ -133,21 +118,24 @@ var _ = Describe("ppr Controller", func() {
 			// tried to reboot
 
 			// stop rebooting yourself, we want you to recover the node
-			shouldReboot = false
+			//shouldReboot = false
 
-			node = &v1.Node{}
+			Eventually(func() time.Time {
+				err := k8sClient.Get(context.TODO(), nodeNamespacedName, node)
+				if err != nil {
+					return node.GetCreationTimestamp().Time
+				}
+				return beforePPR
+			}, 100*time.Second, 250*time.Millisecond).Should(BeTemporally(">", beforePPR))
 
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), nodeNamespacedName, node)
-			}, 5*time.Second, 250*time.Millisecond).Should(BeNil())
-
-			Expect(node.CreationTimestamp.After(now)).To(BeTrue())
 		})
 
 		It("Verify that node is not marked as unschedulable", func() {
 			Eventually(func() bool {
-				node = &v1.Node{}
-				Expect(k8sClient.Get(context.TODO(), nodeNamespacedName, node)).To(Succeed())
+				err := k8sClient.Get(context.TODO(), nodeNamespacedName, node)
+				if err != nil {
+					return true
+				}
 				return node.Spec.Unschedulable
 			}, 5*time.Second, 250*time.Millisecond).Should(BeFalse())
 		})
@@ -164,37 +152,29 @@ var _ = Describe("ppr Controller", func() {
 	})
 
 	Context("Unhealthy node without api-server access", func() {
-		logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
-		node1 := &v1.Node{}
-		nodeNamespacedName := client.ObjectKey{
-			Name:      nodeName,
-			Namespace: "",
-		}
-
-		It("Check the node exists", func() {
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), nodeNamespacedName, node1)
-			}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
-
-			Expect(node1.Name).To(Equal(nodeName))
-		})
+		// this is not a controller test anymore... it's testing peers. But keep it here for now...
 
 		It("Simulate api-server failure", func() {
-			apiReaderWrapper.ShouldSimulateFailure = true
+			k8sClient.ShouldSimulateFailure = true
 		})
 
-		It("Sleep", func() {
-			Consistently(func() bool {
-				return true
-			}, (maxFailuresThreshold+2)*reconcileInterval, 1*time.Second).Should(BeTrue())
-		})
-
-		It("Verify that watchdog is not receiving food", func() {
-			currentLastFoodTime := dummyDog.LastFoodTime()
-			Consistently(func() time.Time {
-				return dummyDog.LastFoodTime()
-			}, 5*reconcileInterval, 1*time.Second).Should(Equal(currentLastFoodTime))
+		// TODO this does not happen, because there are no peers which confirm we're unhealthy...
+		It("Verify that watchdog is not receiving food after some time", func() {
+			lastFoodTime := dummyDog.LastFoodTime()
+			timeout := dummyDog.GetTimeout()
+			Eventually(func() bool {
+				newTime := dummyDog.LastFoodTime()
+				// ensure the timeout passed
+				timeoutPassed := time.Now().After(lastFoodTime.Add(3 * timeout))
+				// ensure wd wasn't feeded
+				missedFeed := newTime.Before(lastFoodTime.Add(timeout))
+				if timeoutPassed && missedFeed {
+					return true
+				}
+				lastFoodTime = newTime
+				return false
+			}, 10*peerUpdateInterval, timeout).Should(BeTrue())
 		})
 	})
 })
