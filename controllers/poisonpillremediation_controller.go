@@ -557,17 +557,14 @@ func popNodes(nodes *v1.NodeList, count int) []string {
 		return addresses
 	}
 
-	//todo this should be random, check if address exists, etc.
-	nodeIndex := 0 //rand.Intn(len(nodes.Items))
-	chosenNode := nodes.Items[nodeIndex]
-
 	nodesCount := count
 	if nodesCount > len(nodes.Items) {
 		nodesCount = len(nodes.Items)
 	}
 
+	//todo maybe we should pick nodes randomly rather than relying on the order returned from api-server
 	for i := 0; i < nodesCount; i++ {
-		addresses[i] = chosenNode.Status.Addresses[i].Address //todo node might have multiple addresses
+		addresses[i] = nodes.Items[i].Status.Addresses[0].Address //todo node might have multiple addresses or none?
 	}
 
 	nodes.Items = nodes.Items[nodesCount:] //remove popped nodes from the list
