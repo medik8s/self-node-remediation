@@ -18,6 +18,7 @@ package main
 
 import (
 	"flag"
+	"github.com/medik8s/poison-pill/pkg/peers"
 	"os"
 	"strconv"
 	"time"
@@ -96,45 +97,31 @@ func main() {
 		if err != nil {
 			setupLog.Error(err, "failed to init watchdog, using soft reboot")
 		}
-		// let the manager handle watchdog start
 		if watchdog != nil {
 			if err = mgr.Add(watchdog); err != nil {
 				setupLog.Error(err, "failed to add watchdog to the manager")
 				os.Exit(1)
 			}
 		}
-
-		timeToAssumeNodeRebootedInt, err := strconv.Atoi(os.Getenv("TIME_TO_ASSUME_NODE_REBOOTED"))
-
-		if err != nil {
-			setupLog.Error(err, "failed to convert env variable TIME_TO_ASSUME_NODE_REBOOTED to int")
-			os.Exit(1)
-		}
-
-		timeToAssumeNodeRebootedDur := time.Duration(timeToAssumeNodeRebootedInt) * time.Second
-
-		if watchdog != nil {
-			//if we use watchdog, let's make sure the timeout to delete a node is bigger than the wd timeout
-			buffer := time.Second * 5
-			if timeToAssumeNodeRebootedDur < watchdog.GetTimeout()+buffer {
-				timeToAssumeNodeRebootedDur = watchdog.GetTimeout() + buffer
-			}
-		}
+		// TODO make the interval configurable?
+		// TODO use a long interval here, and do a seperate cheaper "healthcheck" with a lower interval in another loop?
+		// use API reader for not using the cache, which would prevent detecting API errors
+		peers := peers.New(watchdog, 5*time.Minute, 15*time.Second, 3, mgr.GetAPIReader(), ctrl.Log.WithName("peers"))
 
 		if err = (&controllers.PoisonPillRemediationReconciler{
-			Client:                       mgr.GetClient(),
-			Log:                          ctrl.Log.WithName("controllers").WithName("PoisonPillRemediation"),
-			Scheme:                       mgr.GetScheme(),
-			ApiReader:                    mgr.GetAPIReader(),
-			Watchdog:                     watchdog,
-			SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebootedDur,
+			Client: mgr.GetClient(),
+			Log:    ctrl.Log.WithName("controllers").WithName("PoisonPillRemediation"),
+			Scheme: mgr.GetScheme(),
+			Peers:  peers,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "PoisonPillRemediation")
 			os.Exit(1)
 		}
 
+		// TODO make this also a Runnable and let the manager start it
 		setupLog.Info("starting web server")
 		go pa.Start()
+
 	} else {
 		setupLog.Info("Starting as a manager that installs the daemonset")
 		if err = (&controllers.PoisonPillConfigReconciler{

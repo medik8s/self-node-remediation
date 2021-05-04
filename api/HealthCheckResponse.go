@@ -3,7 +3,8 @@ package api
 type HealthCheckResponse int
 
 const (
-	Healthy HealthCheckResponse = iota
+	RequestFailed                     = -1
+	Healthy       HealthCheckResponse = iota
 	Unhealthy
 	ApiError
 )

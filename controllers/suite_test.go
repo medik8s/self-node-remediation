@@ -27,6 +27,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -37,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
+	"github.com/medik8s/poison-pill/pkg/peers"
 	"github.com/medik8s/poison-pill/pkg/watchdog"
 	//+kubebuilder:scaffold:imports
 )
@@ -44,36 +46,29 @@ import (
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
+const (
+	peerUpdateInterval = 1 * time.Second
+)
+
 var cfg *rest.Config
-var k8sClient client.Client
 var testEnv *envtest.Environment
 var dummyDog watchdog.Watchdog
-var apiReaderWrapper ApiReaderWrapper
+var k8sClient *K8sClientWrapper
 
-const (
-	envVarApiServer = "TEST_ASSET_KUBE_APISERVER"
+type K8sClientWrapper struct {
+	client.Client
 	envVarETCD      = "TEST_ASSET_ETCD"
 	envVarKUBECTL   = "TEST_ASSET_KUBECTL"
 )
 
-type ApiReaderWrapper struct {
-	apiReader             client.Reader
 	ShouldSimulateFailure bool
 }
 
-func (arw *ApiReaderWrapper) Get(ctx context.Context, key client.ObjectKey, obj client.Object) error {
-	if arw.ShouldSimulateFailure {
-		return errors.New("simulation of api reader error")
+func (kcw *K8sClientWrapper) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	if kcw.ShouldSimulateFailure {
+		return errors.New("simulation of client error")
 	}
-	return arw.apiReader.Get(ctx, key, obj)
-}
-
-func (arw *ApiReaderWrapper) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
-	if arw.ShouldSimulateFailure {
-		return errors.New("simulation of api reader error")
-	}
-
-	return arw.apiReader.List(ctx, list)
+	return kcw.Client.List(ctx, list, opts...)
 }
 
 func TestAPIs(t *testing.T) {
@@ -110,15 +105,18 @@ var _ = BeforeSuite(func() {
 	err = poisonpillv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
+	//+kubebuilder:scaffold:scheme
+
 	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme.Scheme,
 	})
 	Expect(err).ToNot(HaveOccurred())
 
-	apiReaderWrapper = ApiReaderWrapper{
-		apiReader:             k8sManager.GetAPIReader(),
-		ShouldSimulateFailure: false,
+	k8sClient = &K8sClientWrapper{
+		k8sManager.GetClient(),
+		false,
 	}
+	Expect(k8sClient).ToNot(BeNil())
 
 	err = (&PoisonPillConfigReconciler{
 		Client:            k8sManager.GetClient(),
@@ -126,23 +124,33 @@ var _ = BeforeSuite(func() {
 		InstallFileFolder: "../install/",
 		Scheme:            scheme.Scheme,
 	}).SetupWithManager(k8sManager)
-	Expect(err).ToNot(HaveOccurred())
 
-	dummyDog, err = watchdog.NewFake(ctrl.Log.WithName("watchdog"))
+	// peers need their own node on start
+	node1 := &v1.Node{}
+	node1.Name = nodeName
+	node1.Labels = make(map[string]string)
+	node1.Labels["kubernetes.io/hostname"] = nodeName
+	Expect(k8sClient.Create(context.Background(), node1)).To(Succeed(), "failed to create node")
+	Expect(os.Setenv(nodeNameEnvVar, node1.Name)).To(Succeed(), "failed to set env variable of the node name")
+
+	dummyDog, err = watchdog.NewFake(ctrl.Log.WithName("fake watchdog"))
 	Expect(err).ToNot(HaveOccurred())
-	err = k8sManager.Add(dummyDog)
+	peers := peers.New(dummyDog, peerUpdateInterval, 1*time.Second, 1, k8sClient, ctrl.Log.WithName("peers"))
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&PoisonPillRemediationReconciler{
-		Client:                       k8sManager.GetClient(),
-		Log:                          ctrl.Log.WithName("controllers").WithName("poison-pill-remediation-controller"),
-		ApiReader:                    &apiReaderWrapper,
-		Watchdog:                     dummyDog,
+		Client: k8sClient,
+		Log:    ctrl.Log.WithName("controllers").WithName("poison-pill-controller"),
+		Peers:  peers,
 		SafeTimeToAssumeNodeRebooted: 90 * time.Second,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
-	reconcileInterval = 1 * time.Second
+	err = k8sManager.Add(dummyDog)
+	Expect(err).ToNot(HaveOccurred())
+	err = k8sManager.Add(peers)
+	Expect(err).ToNot(HaveOccurred())
+
 	myNodeName = "node1"
 
 	go func() {
@@ -150,14 +158,6 @@ var _ = BeforeSuite(func() {
 		err = k8sManager.Start(ctrl.SetupSignalHandler())
 		Expect(err).ToNot(HaveOccurred())
 	}()
-
-	err = poisonpillv1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
-
-	//+kubebuilder:scaffold:scheme
-
-	k8sClient = k8sManager.GetClient()
-	Expect(k8sClient).ToNot(BeNil())
 
 }, 60)
 
