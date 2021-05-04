@@ -19,55 +19,33 @@ package controllers
 import (
 	"context"
 	"errors"
-	"fmt"
-	poisonPill "github.com/medik8s/poison-pill/api"
-	"github.com/medik8s/poison-pill/pkg/utils"
-	"io/ioutil"
-	v1 "k8s.io/api/core/v1"
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"net/http"
 	"os"
-	"os/exec"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"strconv"
 	"time"
 
 	"github.com/go-logr/logr"
-	wdt "github.com/medik8s/poison-pill/pkg/watchdog"
+
+	machinev1beta1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
+	v1 "k8s.io/api/core/v1"
+	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/medik8s/poison-pill/api/v1alpha1"
-	machinev1beta1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
+	"github.com/medik8s/poison-pill/pkg/peers"
+	"github.com/medik8s/poison-pill/pkg/utils"
 )
 
 const (
-	nodeNameEnvVar       = "MY_NODE_NAME"
-	maxFailuresThreshold = 3 //after which we start asking peers for health status
-	peersProtocol        = "http"
-	peersPort            = 30001
-	apiServerTimeout     = 5 * time.Second
-	peerTimeout          = 10 * time.Second
+	nodeNameEnvVar   = "MY_NODE_NAME"
+	apiServerTimeout = 5 * time.Second
 	pprFinalizer         = "poison-pill.medik8s.io/ppr-finalizer"
 )
 
 var (
-	reconcileInterval = 15 * time.Second
-	nodes             *v1.NodeList
-	//nodes to ask for health results
-	nodesToAsk            *v1.NodeList
-	errCount              int
-	apiErrorResponseCount int
-	shouldReboot          bool
-	lastReconcileTime     time.Time
-	myNodeName            = os.Getenv(nodeNameEnvVar)
-	httpClient            = &http.Client{
-		Timeout: peerTimeout,
-	}
-
+	myNodeName             = os.Getenv(nodeNameEnvVar)
 	NodeUnschedulableTaint = &v1.Taint{
 		Key:    "node.kubernetes.io/unschedulable",
 		Effect: v1.TaintEffectNoSchedule,
@@ -79,13 +57,16 @@ type PoisonPillRemediationReconciler struct {
 	client.Client
 	Log logr.Logger
 	//logger is a logger that holds the CR name being reconciled
-	logger    logr.Logger
-	Scheme    *runtime.Scheme
-	ApiReader client.Reader
-	Watchdog  wdt.Watchdog
-	//note that this time must include the time for a unhealthy node without api-server access to reach the conclusion that it's unhealthy
-	// this should be at least worst-case time to reach a conclusion from the other peers * request context timeout + watchdog interval + maxFailuresThreshold * reconcileInterval + padding
-	SafeTimeToAssumeNodeRebooted time.Duration
+	logger logr.Logger
+	Scheme *runtime.Scheme
+	Peers  *peers.Peers
+}
+
+// SetupWithManager sets up the controller with the Manager.
+func (r *PoisonPillRemediationReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&v1alpha1.PoisonPillRemediation{}).
+		Complete(r)
 }
 
 //+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillremediations,verbs=get;list;watch;create;update;patch;delete
@@ -97,31 +78,16 @@ type PoisonPillRemediationReconciler struct {
 func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.logger = r.Log.WithValues("poisonpillremediation", req.NamespacedName)
 
-	if shouldReboot {
-		return r.reboot()
-	}
-
-	//define context with timeout, otherwise this blocks forever
-	ctx, cancelFunc := context.WithTimeout(context.TODO(), apiServerTimeout)
-	defer cancelFunc()
-
 	ppr := &v1alpha1.PoisonPillRemediation{}
-	//we use ApiReader as it doesn't use the cache. Otherwise, the cache returns the object
-	//even though the api server is not available
-	err := r.ApiReader.Get(ctx, req.NamespacedName, ppr)
-
-	if err != nil {
+	if err := r.Get(ctx, req.NamespacedName, ppr); err != nil {
 		if apiErrors.IsNotFound(err) {
-			return ctrl.Result{RequeueAfter: reconcileInterval}, nil
+			// PPR is deleted, stop reconciling
+			r.logger.Info("PPR already deleted")
+			return ctrl.Result{}, nil
 		}
-		return r.handleApiError(err)
+		r.logger.Error(err, "failed to get PPR")
+		return ctrl.Result{}, err
 	}
-
-	//if there was no error we reset the global error count
-	errCount = 0
-	apiErrorResponseCount = 0
-
-	_ = r.updateNodesList()
 
 	node, err := r.getNodeFromPpr(ppr)
 	if err != nil {
@@ -129,7 +95,7 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 			//as part of the remediation flow, we delete the node, and then we need to restore it
 			return r.handleDeletedNode(ppr)
 		}
-		r.logger.Error(err, "failed to retrieve node", "node name", ppr.Name)
+		r.logger.Error(err, "failed to get node", "node name", ppr.Name)
 		return ctrl.Result{}, err
 	}
 
@@ -160,7 +126,7 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 
 		//todo this means we only allow one remediation attempt per ppr. we could add some config to
 		//ppr which states max remediation attempts, and the timeout to consider a remediation failed.
-		return ctrl.Result{RequeueAfter: reconcileInterval}, nil
+		return ctrl.Result{}, nil
 	}
 
 	if !controllerutil.ContainsFinalizer(ppr, pprFinalizer) {
@@ -199,8 +165,16 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 
 	if maxNodeRebootTime.After(time.Now()) {
 		if myNodeName == node.Name {
-			r.stopWatchdogFeeding()
-			return ctrl.Result{Requeue: true}, nil
+			// we have a problem on this node
+			if err := r.Peers.Reboot(); err != nil {
+				// re-queue
+				return ctrl.Result{}, err
+			} else {
+				// we are done for now, node will reboot
+				// TODO requeue for unit test only, so the controller on the affected "node" cares about itself?
+				// on the other hand, we will just retrigger reboot... so it doesn't hurt
+				//return ctrl.Result{}, nil
+			}
 		}
 		return ctrl.Result{RequeueAfter: maxNodeRebootTime.Sub(time.Now()) + time.Second}, nil
 	}
@@ -219,7 +193,7 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 		}
 	}
 
-	return ctrl.Result{Requeue: true}, nil
+	return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 }
 
 func (r *PoisonPillRemediationReconciler) updatePprStatus(node *v1.Node, ppr *v1alpha1.PoisonPillRemediation) (ctrl.Result, error) {
@@ -244,52 +218,6 @@ func (r *PoisonPillRemediationReconciler) updatePprStatus(node *v1.Node, ppr *v1
 	return ctrl.Result{Requeue: true}, nil
 }
 
-// SetupWithManager sets up the controller with the Manager.
-func (r *PoisonPillRemediationReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.PoisonPillRemediation{}).
-		Complete(r)
-}
-
-//retrieves the node that runs this pod
-func (r *PoisonPillRemediationReconciler) getMyNode() (*v1.Node, error) {
-	nodeNamespacedName := types.NamespacedName{
-		Namespace: "",
-		Name:      myNodeName,
-	}
-
-	node := &v1.Node{}
-	err := r.Get(context.TODO(), nodeNamespacedName, node)
-
-	return node, err
-}
-
-func (r *PoisonPillRemediationReconciler) restoreNode(nodeToRestore *v1.Node) (ctrl.Result, error) {
-	r.logger.Info("restoring node", "node name", nodeToRestore.Name)
-
-	// todo we probably want to have some allowlist/denylist on which things to restore, we already had
-	// a problem when we restored ovn annotations
-	nodeToRestore.ResourceVersion = "" //create won't work with a non-empty value here
-	taints, _ := utils.DeleteTaint(nodeToRestore.Spec.Taints, NodeUnschedulableTaint)
-	nodeToRestore.Spec.Taints = taints
-	nodeToRestore.Spec.Unschedulable = false
-	nodeToRestore.CreationTimestamp = metav1.Now()
-
-	//todo should we also delete conditions that made the node reach the unhealthy state?
-	//I'm afraid we might cause remediation loops
-
-	if err := r.Client.Create(context.TODO(), nodeToRestore); err != nil {
-		if apiErrors.IsAlreadyExists(err) {
-			return ctrl.Result{Requeue: true}, nil
-		}
-
-		r.logger.Error(err, "failed to create node", "node name", nodeToRestore.Name)
-		return ctrl.Result{}, err
-	}
-
-	return ctrl.Result{RequeueAfter: reconcileInterval}, nil
-}
-
 // getNodeFromPpr returns the unhealthy node reported in the given ppr
 func (r *PoisonPillRemediationReconciler) getNodeFromPpr(ppr *v1alpha1.PoisonPillRemediation) (*v1.Node, error) {
 	//PPR could be created by either machine based controller (e.g. MHC) or
@@ -309,7 +237,7 @@ func (r *PoisonPillRemediationReconciler) getNodeFromPpr(ppr *v1alpha1.PoisonPil
 		Namespace: "",
 	}
 
-	if err := r.ApiReader.Get(context.TODO(), key, node); err != nil {
+	if err := r.Get(context.TODO(), key, node); err != nil {
 		return nil, err
 	}
 
@@ -341,7 +269,7 @@ func (r *PoisonPillRemediationReconciler) getNodeFromMachine(ref metav1.OwnerRef
 		Namespace: machine.Status.NodeRef.Namespace,
 	}
 
-	if err := r.ApiReader.Get(context.Background(), key, node); err != nil {
+	if err := r.Get(context.Background(), key, node); err != nil {
 		r.logger.Error(err, "failed to retrieve node from the unhealthy machine",
 			"node name", node.Name, "machine name", machine.Name)
 		return nil, err
@@ -360,234 +288,41 @@ func (r *PoisonPillRemediationReconciler) markNodeAsUnschedulable(node *v1.Node)
 	return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 }
 
-//handleApiError handles the case where the api server is not responding or responding with an error
-func (r *PoisonPillRemediationReconciler) handleApiError(err error) (ctrl.Result, error) {
-	//we don't want to increase the err count too quick
-	minTimeToReconcile := lastReconcileTime.Add(reconcileInterval)
-	if !time.Now().After(minTimeToReconcile) {
-		return ctrl.Result{RequeueAfter: minTimeToReconcile.Sub(time.Now())}, nil
-	}
-	lastReconcileTime = time.Now()
-
-	errCount++
-	r.logger.Error(err, "failed to retrieve machine from api-server", "error count is now", errCount)
-
-	if errCount <= maxFailuresThreshold {
-		return ctrl.Result{RequeueAfter: reconcileInterval}, err
-	}
-
-	r.logger.Info("Error count exceeds threshold, trying to ask other nodes if I'm healthy")
-	if nodes == nil || len(nodes.Items) == 0 {
-		if err := r.updateNodesList(); err != nil {
-			r.logger.Error(err, "peers list is empty and couldn't be retrieved from server")
-			return ctrl.Result{RequeueAfter: reconcileInterval}, err
-		}
-		//todo maybe we need to check if this happens too much and reboot
-	}
-
-	if nodesToAsk == nil || len(nodesToAsk.Items) == 0 {
-		//deep copy nodes to ask, as we're going to remove nodes we already asked from the list
-		nodesToAsk = nodes.DeepCopy()
-	}
-
-	nodesBatchCount := len(nodes.Items) / 10
-	if nodesBatchCount == 0 {
-		nodesBatchCount = 1
-	}
-
-	chosenNodesAddresses := popNodes(nodesToAsk, nodesBatchCount)
-	responsesChan := make(chan poisonPill.HealthCheckResponse, nodesBatchCount)
-
-	for _, address := range chosenNodesAddresses {
-		go r.getHealthStatusFromPeer(address, responsesChan)
-	}
-
-	healthyResponses, unhealthyResponses, apiErrorsResponses, _ := r.sumPeersResponses(nodesBatchCount, responsesChan)
-
-	if healthyResponses > 0 {
-		r.logger.Info("Peer told me I'm healthy.")
-		apiErrorResponseCount = 0
-		errCount = 0
-		nodesToAsk = nil
-		return ctrl.Result{RequeueAfter: reconcileInterval}, nil
-	}
-
-	if unhealthyResponses > 0 {
-		r.logger.Info("Peer told me I'm unhealthy. Stopping watchdog feeding")
-		r.stopWatchdogFeeding()
-		return ctrl.Result{RequeueAfter: 1 * time.Second}, err
-	}
-
-	if apiErrorsResponses > 0 {
-		apiErrorResponseCount += apiErrorsResponses
-		//todo consider using [m|n]hc.spec.maxUnhealthy instead of 50%
-		if apiErrorResponseCount > len(nodes.Items)/2 { //already reached more than 50% of the nodes and all of them returned api error
-			//assuming this is a control plane failure as others can't access api-server as well
-			r.logger.Info("More than 50% of the nodes couldn't access the api-server, assuming this is a control plane failure")
-			errCount = 0
-			nodesToAsk = nil
-			apiErrorResponseCount = 0
-			return ctrl.Result{RequeueAfter: reconcileInterval}, nil
-		}
-	}
-
-	if len(nodesToAsk.Items) == 0 {
-		//we already asked all peers
-		r.logger.Error(err, "failed to get health status from the last peer in the list. Assuming unhealthy")
-		r.stopWatchdogFeeding()
-	}
-
-	return ctrl.Result{RequeueAfter: 1 * time.Second}, err
-}
-
-func (r *PoisonPillRemediationReconciler) sumPeersResponses(nodesBatchCount int, responsesChan chan poisonPill.HealthCheckResponse) (int, int, int, int) {
-	healthyResponses := 0
-	unhealthyResponses := 0
-	apiErrorsResponses := 0
-	noResponse := 0
-
-	for i := 0; i < nodesBatchCount; i++ {
-		response := <-responsesChan
-		r.logger.Info("got response from peer", "response", response)
-
-		switch response {
-		case poisonPill.Unhealthy:
-			healthyResponses++
-			break
-		case poisonPill.Healthy:
-			unhealthyResponses++
-			break
-		case poisonPill.ApiError:
-			apiErrorsResponses++
-			break
-		case -1:
-			noResponse++
-
-		default:
-			r.logger.Error(errors.New("got unexpected value from peer while trying to retrieve health status"),
-				"Received value", response)
-		}
-	}
-
-	return healthyResponses, unhealthyResponses, apiErrorsResponses, noResponse
-}
-
-// reboot stops watchdog feeding ig watchdog exists, otherwise issuing a software reboot
-func (r *PoisonPillRemediationReconciler) reboot() (ctrl.Result, error) {
-	if !r.useWatchdog() {
-		r.logger.Info("no watchdog is present on this host, trying software reboot")
-		//we couldn't init a watchdog so far but requested to be rebooted. we issue a software reboot
-		if err := softwareReboot(); err != nil {
-			r.logger.Error(err, "failed to run reboot command")
-			return ctrl.Result{RequeueAfter: reconcileInterval}, err
-		}
-		return ctrl.Result{RequeueAfter: reconcileInterval}, nil
-	}
-	//we stop feeding the watchdog and waiting for a reboot
-	r.Watchdog.Stop()
-	r.logger.Info("watchdog feeding has stopped, waiting for reboot to commence")
-	return ctrl.Result{RequeueAfter: reconcileInterval}, nil
-}
-
-func (r *PoisonPillRemediationReconciler) useWatchdog() bool {
-	return r.Watchdog != nil && r.Watchdog.IsStarted()
-}
-
-//updates nodes global variable to include list of the nodes objects that exists in api-server
-func (r *PoisonPillRemediationReconciler) updateNodesList() error {
-	nodeList := &v1.NodeList{}
-
-	if err := r.List(context.TODO(), nodeList); err != nil {
-		r.logger.Error(err, "failed to get nodes list")
-		return err
-	}
-
-	//store the node list, so that it will be available if api-server is not accessible at some point
-	nodes = nodeList.DeepCopy()
-	for i, node := range nodes.Items {
-		//remove the node this pod runs on from the list
-		if node.Name == myNodeName {
-			nodes.Items = append(nodes.Items[:i], nodes.Items[i+1:]...)
-		}
-	}
-	return nil
-}
-
-//getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer into the given channel
-func (r *PoisonPillRemediationReconciler) getHealthStatusFromPeer(endpointIp string, results chan<- poisonPill.HealthCheckResponse) {
-	url := fmt.Sprintf("%s://%s:%d/health/%s", peersProtocol, endpointIp, peersPort, myNodeName)
-
-	resp, err := httpClient.Get(url)
-
-	if err != nil {
-		r.logger.Error(err, "failed to get health status from peer", "url", url)
-		results <- -1
-		return
-	}
-
-	defer func() {
-		if err = resp.Body.Close(); err != nil {
-			r.logger.Error(err, "failed to close health response from peer")
-		}
-	}()
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		r.logger.Error(err, "failed to read health response from peer")
-		results <- -1
-		return
-	}
-
-	healthStatusResult, err := strconv.Atoi(string(body))
-
-	if err != nil {
-		r.logger.Error(err, "failed to convert health check response from string to int")
-	}
-
-	results <- poisonPill.HealthCheckResponse(healthStatusResult)
-	return
-}
-
-//this will cause reboot
-func (r *PoisonPillRemediationReconciler) stopWatchdogFeeding() {
-	r.logger.Info("No more food for watchdog... system will be rebooted...", "node name", myNodeName)
-	shouldReboot = true
-}
-
 func (r *PoisonPillRemediationReconciler) handleDeletedNode(ppr *v1alpha1.PoisonPillRemediation) (ctrl.Result, error) {
 	if ppr.Status.NodeBackup == nil {
 		err := errors.New("unhealthy node doesn't exist and there's no backup node to restore")
 		r.logger.Error(err, "remediation failed")
-		return ctrl.Result{}, err
+		// there is nothing we can do about it, stop reconciling
+		return ctrl.Result{}, nil
 	}
 
 	return r.restoreNode(ppr.Status.NodeBackup)
 }
 
-func popNodes(nodes *v1.NodeList, count int) []string {
-	addresses := make([]string, 10)
-	if len(nodes.Items) == 0 {
-		return addresses
+func (r *PoisonPillRemediationReconciler) restoreNode(nodeToRestore *v1.Node) (ctrl.Result, error) {
+	r.logger.Info("restoring node", "node name", nodeToRestore.Name)
+
+	// todo we probably want to have some allowlist/denylist on which things to restore, we already had
+	// a problem when we restored ovn annotations
+	nodeToRestore.ResourceVersion = "" //create won't work with a non-empty value here
+	taints, _ := utils.DeleteTaint(nodeToRestore.Spec.Taints, NodeUnschedulableTaint)
+	nodeToRestore.Spec.Taints = taints
+	nodeToRestore.Spec.Unschedulable = false
+	nodeToRestore.CreationTimestamp = metav1.Now()
+
+	//todo should we also delete conditions that made the node reach the unhealthy state?
+	//I'm afraid we might cause remediation loops
+
+	if err := r.Client.Create(context.TODO(), nodeToRestore); err != nil {
+		if apiErrors.IsAlreadyExists(err) {
+			r.logger.Info("failed to restore node, already exists again")
+			// there is nothing we can do about it, stop reconciling
+			return ctrl.Result{}, nil
+		}
+		r.logger.Error(err, "failed to create node", "node name", nodeToRestore.Name)
+		return ctrl.Result{}, err
 	}
 
-	nodesCount := count
-	if nodesCount > len(nodes.Items) {
-		nodesCount = len(nodes.Items)
-	}
-
-	//todo maybe we should pick nodes randomly rather than relying on the order returned from api-server
-	for i := 0; i < nodesCount; i++ {
-		addresses[i] = nodes.Items[i].Status.Addresses[0].Address //todo node might have multiple addresses or none?
-	}
-
-	nodes.Items = nodes.Items[nodesCount:] //remove popped nodes from the list
-
-	return addresses
-}
-
-//softwareReboot performs software reboot by running systemctl reboot
-func softwareReboot() error {
-	// hostPID: true and privileged:true required to run this
-	rebootCmd := exec.Command("/usr/bin/nsenter", "-m/proc/1/ns/mnt", "/bin/systemctl", "reboot")
-	return rebootCmd.Run()
+	// all done, stop reconciling
+	return ctrl.Result{}, nil
 }
