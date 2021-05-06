@@ -14,3 +14,5 @@ env:
     valueFrom:
       fieldRef:
         fieldPath: spec.nodeName
+  - name: POISON_PILL_IMAGE
+    value: quay.io/nyehia/poison-pill:no-manager

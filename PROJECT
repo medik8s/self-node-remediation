@@ -23,4 +23,13 @@ resources:
   kind: PoisonPillRemediationTemplate
   path: github.com/medik8s/poison-pill/api/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: medik8s.io
+  group: poison-pill
+  kind: PoisonPillConfig
+  path: github.com/medik8s/poison-pill/api/v1alpha1
+  version: v1alpha1
 version: "3"

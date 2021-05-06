@@ -1,0 +1,20 @@
+# permissions for end users to view poisonpillconfigs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: poisonpillconfig-viewer-role
+rules:
+- apiGroups:
+  - poison-pill.medik8s.io
+  resources:
+  - poisonpillconfigs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - poison-pill.medik8s.io
+  resources:
+  - poisonpillconfigs/status
+  verbs:
+  - get
