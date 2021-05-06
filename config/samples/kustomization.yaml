@@ -2,4 +2,5 @@
 resources:
 - poison-pill_v1alpha1_poisonpillremediation.yaml
 - poison-pill_v1alpha1_poisonpillremediationtemplate.yaml
+- poison-pill_v1alpha1_poisonpillconfig.yaml
 #+kubebuilder:scaffold:manifestskustomizesamples

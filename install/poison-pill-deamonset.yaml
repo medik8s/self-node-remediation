@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: poison-pill-ds
+  namespace: poison-pill
+  labels:
+    k8s-app: poison-pill
+spec:
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        control-plane: controller-manager
+    spec:
+      serviceAccountName: poison-pill-controller-manager
+      priorityClassName: system-node-critical
+      hostPID: true
+      containers:
+      - args:
+        - --is-manager=false
+        command:
+        - /manager
+        env:
+          - name: MY_NODE_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: spec.nodeName
+        image: {{.Image}}
+        imagePullPolicy: Always
+        securityContext:
+          privileged: true
+          hostPID: true
+        name: manager
+        ports:
+        - containerPort: 30001
+          hostPort: 30001
+          name: p-pill-port
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 100m
+            memory: 30Mi
+          requests:
+            cpu: 100m
+            memory: 20Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 10

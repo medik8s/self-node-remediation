@@ -19,11 +19,13 @@ package controllers
 import (
 	"context"
 	"errors"
-	wdt "github.com/medik8s/poison-pill/watchdog"
 	"path/filepath"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"testing"
 	"time"
+
+	ctrl "sigs.k8s.io/controller-runtime"
+
+	wdt "github.com/medik8s/poison-pill/watchdog"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -119,6 +121,9 @@ var _ = BeforeSuite(func() {
 		err = k8sManager.Start(ctrl.SetupSignalHandler())
 		Expect(err).ToNot(HaveOccurred())
 	}()
+
+	err = poisonpillv1alpha1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme
 
