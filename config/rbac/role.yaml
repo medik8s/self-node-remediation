@@ -7,6 +7,17 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - apps
+  resources:
+  - daemonsets
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - ""
   resources:
   - nodes
@@ -23,9 +34,47 @@ rules:
   resources:
   - machines
   verbs:
+  - create
+  - delete
   - get
   - list
+  - patch
+  - update
   - watch
+- apiGroups:
+  - machine.openshift.io
+  resources:
+  - machines/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - poison-pill.medik8s.io
+  resources:
+  - poisonpillconfigs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - poison-pill.medik8s.io
+  resources:
+  - poisonpillconfigs/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - poison-pill.medik8s.io
+  resources:
+  - poisonpillconfigs/status
+  verbs:
+  - get
+  - patch
+  - update
 - apiGroups:
   - poison-pill.medik8s.io
   resources:
@@ -52,3 +101,11 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - security.openshift.io
+  resourceNames:
+  - privileged
+  resources:
+  - securitycontextconstraints
+  verbs:
+  - use

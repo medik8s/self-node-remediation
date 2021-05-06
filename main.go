@@ -18,8 +18,10 @@ package main
 
 import (
 	"flag"
-	machinev1beta1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
+	pa "github.com/medik8s/poison-pill/peerassistant"
 	"os"
+
+	machinev1beta1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -34,7 +36,6 @@ import (
 
 	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
 	"github.com/medik8s/poison-pill/controllers"
-	pa "github.com/medik8s/poison-pill/peerassistant"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -55,11 +56,15 @@ func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
+	var isManager bool
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.BoolVar(&isManager, "is-manager", false,
+		"Used to differentiate between the poison pill agents that runs in a daemonset to the 'manager' that only"+
+			"reconciles the config CRD and installs the DS")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -81,14 +86,31 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controllers.PoisonPillRemediationReconciler{
-		Client:    mgr.GetClient(),
-		Log:       ctrl.Log.WithName("controllers").WithName("PoisonPillRemediation"),
-		Scheme:    mgr.GetScheme(),
-		ApiReader: mgr.GetAPIReader(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "PoisonPillRemediation")
-		os.Exit(1)
+	if !isManager {
+		setupLog.Info("Starting as a poison pill agent that should run as part of the daemonset")
+		if err = (&controllers.PoisonPillRemediationReconciler{
+			Client:    mgr.GetClient(),
+			Log:       ctrl.Log.WithName("controllers").WithName("PoisonPillRemediation"),
+			Scheme:    mgr.GetScheme(),
+			ApiReader: mgr.GetAPIReader(),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "PoisonPillRemediation")
+			os.Exit(1)
+		}
+
+		setupLog.Info("starting web server")
+		go pa.Start()
+	} else {
+		setupLog.Info("Starting as a manager that installs the daemonset")
+		if err = (&controllers.PoisonPillConfigReconciler{
+			Client:            mgr.GetClient(),
+			Log:               ctrl.Log.WithName("controllers").WithName("PoisonPillConfig"),
+			Scheme:            mgr.GetScheme(),
+			InstallFileFolder: "./install",
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "PoisonPillConfig")
+			os.Exit(1)
+		}
 	}
 	//+kubebuilder:scaffold:builder
 
@@ -100,9 +122,6 @@ func main() {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
-
-	setupLog.Info("starting web server")
-	go pa.Start()
 
 	setupLog.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {

@@ -10,6 +10,7 @@ spec:
       - name: manager
         args:
         - "--config=controller_manager_config.yaml"
+        - "--isManager"
         volumeMounts:
         - name: manager-config
           mountPath: /controller_manager_config.yaml
