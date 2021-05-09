@@ -47,6 +47,7 @@ type PoisonPillConfigStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:resource:shortName=ppc;ppconfig
 
 // PoisonPillConfig is the Schema for the poisonpillconfigs API
 type PoisonPillConfig struct {

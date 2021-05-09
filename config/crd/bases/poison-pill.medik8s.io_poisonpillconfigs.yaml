@@ -13,6 +13,9 @@ spec:
     kind: PoisonPillConfig
     listKind: PoisonPillConfigList
     plural: poisonpillconfigs
+    shortNames:
+    - ppc
+    - ppconfig
     singular: poisonpillconfig
   scope: Namespaced
   versions:
