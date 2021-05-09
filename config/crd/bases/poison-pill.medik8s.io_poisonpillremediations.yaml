@@ -13,6 +13,9 @@ spec:
     kind: PoisonPillRemediation
     listKind: PoisonPillRemediationList
     plural: poisonpillremediations
+    shortNames:
+    - ppr
+    - ppremediation
     singular: poisonpillremediation
   scope: Namespaced
   versions:
