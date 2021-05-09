@@ -174,7 +174,7 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 	maxNodeRebootTime := ppr.Status.TimeAssumedRebooted
 
 	if maxNodeRebootTime.After(time.Now()) {
-		if myNodeName == ppr.Name {
+		if myNodeName == node.Name {
 			r.stopWatchdogFeeding()
 			return ctrl.Result{Requeue: true}, nil
 		}
