@@ -104,9 +104,17 @@ var _ = BeforeSuite(func() {
 		ShouldSimulateFailure: false,
 	}
 
+	err = (&PoisonPillConfigReconciler{
+		Client:            k8sManager.GetClient(),
+		Log:               ctrl.Log.WithName("controllers").WithName("poison-pill-config-controller"),
+		InstallFileFolder: "../install/",
+		Scheme:            scheme.Scheme,
+	}).SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
 	err = (&PoisonPillRemediationReconciler{
 		Client:    k8sManager.GetClient(),
-		Log:       ctrl.Log.WithName("controllers").WithName("poison-pill-controller"),
+		Log:       ctrl.Log.WithName("controllers").WithName("poison-pill-remediation-controller"),
 		ApiReader: &apiReaderWrapper,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
