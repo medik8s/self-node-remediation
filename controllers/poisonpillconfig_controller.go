@@ -57,12 +57,13 @@ func (r *PoisonPillConfigReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
+		logger.Error(err, "failed to fetch cr")
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("reconciling...")
 	if err := r.syncConfigDaemonSet(config); err != nil {
-		r.Log.Error(err, "error syncing DS")
+		logger.Error(err, "error syncing DS")
+		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
@@ -78,8 +79,6 @@ func (r *PoisonPillConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *PoisonPillConfigReconciler) syncConfigDaemonSet(ppc *poisonpillv1alpha1.PoisonPillConfig) error {
 	logger := r.Log.WithName("syncConfigDaemonset")
 	logger.Info("Start to sync config daemonset")
-
-	objs := []*unstructured.Unstructured{}
 
 	data := render.MakeRenderData()
 	data.Data["Image"] = os.Getenv("POISON_PILL_IMAGE")
