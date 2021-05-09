@@ -43,6 +43,7 @@ type PoisonPillRemediationTemplateStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:resource:shortName=pprt;ppremediationtemplate;pprtemplate
 
 // PoisonPillRemediationTemplate is the Schema for the poisonpillremediationtemplates API
 type PoisonPillRemediationTemplate struct {
