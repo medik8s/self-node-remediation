@@ -64,7 +64,6 @@ var (
 	apiErrorResponseCount int
 	shouldReboot          bool
 	lastReconcileTime     time.Time
-	watchdog              wdt.Watchdog
 	myNodeName            = os.Getenv(nodeNameEnvVar)
 	httpClient            = &http.Client{
 		Timeout: peerTimeout,
@@ -84,6 +83,7 @@ type PoisonPillRemediationReconciler struct {
 	logger    logr.Logger
 	Scheme    *runtime.Scheme
 	ApiReader client.Reader
+	Watchdog  wdt.Watchdog
 }
 
 //+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillremediations,verbs=get;list;watch;create;update;patch;delete
@@ -97,21 +97,6 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 
 	if shouldReboot {
 		return r.reboot()
-	}
-
-	//try to create watchdog if not exists
-	if watchdog == nil {
-		if wdt.IsWatchdogAvailable() {
-			if err := r.initWatchdog(); err != nil {
-				r.logger.Error(err, "failed to start watchdog device")
-				return ctrl.Result{RequeueAfter: reconcileInterval}, err
-			}
-		}
-	} else {
-		if err := watchdog.Feed(); err != nil {
-			r.logger.Error(err, "failed to feed watchdog")
-			return ctrl.Result{RequeueAfter: 1 * time.Second}, err
-		}
 	}
 
 	//define context with timeout, otherwise this blocks forever
@@ -224,23 +209,6 @@ func (r *PoisonPillRemediationReconciler) SetupWithManager(mgr ctrl.Manager) err
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.PoisonPillRemediation{}).
 		Complete(r)
-}
-
-func (r *PoisonPillRemediationReconciler) initWatchdog() error {
-	r.logger.Info("starting watchdog")
-	w, err := wdt.StartWatchdog()
-	watchdog = wdt.Watchdog(w)
-	if err != nil {
-		return err
-	}
-
-	if watchdogTimeout, err := watchdog.GetTimeout(); err != nil {
-		r.logger.Error(err, "failed to retrieve watchdog timeout")
-	} else {
-		r.logger.Info("retrieved watchdog timeout", "timeout", watchdogTimeout)
-		//todo reconcileInterval = watchdogTimeout / 2
-	}
-	return nil
 }
 
 //retrieves the node that runs this pod
@@ -466,7 +434,7 @@ func (r *PoisonPillRemediationReconciler) sumPeersResponses(nodesBatchCount int,
 
 // reboot stops watchdog feeding ig watchdog exists, otherwise issuing a software reboot
 func (r *PoisonPillRemediationReconciler) reboot() (ctrl.Result, error) {
-	if watchdog == nil {
+	if !r.useWatchdog() {
 		r.logger.Info("no watchdog is present on this host, trying software reboot")
 		//we couldn't init a watchdog so far but requested to be rebooted. we issue a software reboot
 		if err := softwareReboot(); err != nil {
@@ -476,8 +444,13 @@ func (r *PoisonPillRemediationReconciler) reboot() (ctrl.Result, error) {
 		return ctrl.Result{RequeueAfter: reconcileInterval}, nil
 	}
 	//we stop feeding the watchdog and waiting for a reboot
+	r.Watchdog.Stop()
 	r.logger.Info("watchdog feeding has stopped, waiting for reboot to commence")
 	return ctrl.Result{RequeueAfter: reconcileInterval}, nil
+}
+
+func (r *PoisonPillRemediationReconciler) useWatchdog() bool {
+	return r.Watchdog != nil && r.Watchdog.IsStarted()
 }
 
 //updates nodes global variable to include list of the nodes objects that exists in api-server
