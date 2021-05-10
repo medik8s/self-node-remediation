@@ -23,14 +23,12 @@ import (
 	"testing"
 	"time"
 
-	ctrl "sigs.k8s.io/controller-runtime"
-
-	wdt "github.com/medik8s/poison-pill/pkg/watchdog"
-
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
@@ -38,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
+	"github.com/medik8s/poison-pill/pkg/watchdog"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -47,7 +46,7 @@ import (
 var cfg *rest.Config
 var k8sClient client.Client
 var testEnv *envtest.Environment
-var dummyDog wdt.DummyWatchdog
+var dummyDog watchdog.Watchdog
 var apiReaderWrapper ApiReaderWrapper
 
 type ApiReaderWrapper struct {
@@ -112,16 +111,20 @@ var _ = BeforeSuite(func() {
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
+	dummyDog, err = watchdog.NewFake(ctrl.Log.WithName("watchdog"))
+	Expect(err).ToNot(HaveOccurred())
+	err = k8sManager.Add(dummyDog)
+	Expect(err).ToNot(HaveOccurred())
+
 	err = (&PoisonPillRemediationReconciler{
 		Client:    k8sManager.GetClient(),
 		Log:       ctrl.Log.WithName("controllers").WithName("poison-pill-remediation-controller"),
 		ApiReader: &apiReaderWrapper,
+		Watchdog:  dummyDog,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	reconcileInterval = 1 * time.Second
-	dummyDog = wdt.DummyWatchdog{}
-	watchdog = dummyDog
 	myNodeName = "node1"
 
 	go func() {

@@ -18,10 +18,7 @@ package main
 
 import (
 	"flag"
-	pa "github.com/medik8s/poison-pill/peerassistant"
 	"os"
-
-	machinev1beta1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -34,9 +31,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	machinev1beta1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
+
 	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
 	"github.com/medik8s/poison-pill/controllers"
 	pa "github.com/medik8s/poison-pill/pkg/peerassistant"
+	"github.com/medik8s/poison-pill/pkg/watchdog"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -89,11 +89,25 @@ func main() {
 
 	if !isManager {
 		setupLog.Info("Starting as a poison pill agent that should run as part of the daemonset")
+
+		watchdog, err := watchdog.New(ctrl.Log.WithName("watchdog"))
+		if err != nil {
+			setupLog.Error(err, "failed to init watchdog, using soft reboot")
+		}
+		// let the manager handle watchdog start
+		if watchdog != nil {
+			if err = mgr.Add(watchdog); err != nil {
+				setupLog.Error(err, "failed to add watchdog to the manager")
+				os.Exit(1)
+			}
+		}
+
 		if err = (&controllers.PoisonPillRemediationReconciler{
 			Client:    mgr.GetClient(),
 			Log:       ctrl.Log.WithName("controllers").WithName("PoisonPillRemediation"),
 			Scheme:    mgr.GetScheme(),
 			ApiReader: mgr.GetAPIReader(),
+			Watchdog:  watchdog,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "PoisonPillRemediation")
 			os.Exit(1)

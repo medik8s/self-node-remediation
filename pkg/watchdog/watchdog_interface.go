@@ -1,10 +1,14 @@
 package watchdog
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 type Watchdog interface {
-	Feed() error
-	GetTimeout() (*time.Duration, error)
-	SetTimeout(seconds time.Duration) error
-	Disarm() error
+	Start(ctx context.Context) error
+	IsStarted() bool
+	Stop()
+	GetTimeout() time.Duration
+	LastFoodTime() time.Time
 }
