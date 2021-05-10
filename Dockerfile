@@ -14,9 +14,7 @@ RUN go mod download
 COPY main.go main.go
 COPY api/ api/
 COPY controllers/ controllers/
-COPY peerassistant/ peerassistant/
-COPY watchdog/ watchdog/
-COPY utils/ utils/
+COPY pkg/ pkg/
 COPY render/ render/
 COPY apply/ apply/
 COPY install/ install/

@@ -106,9 +106,9 @@ var _ = Describe("ppr Controller", func() {
 		})
 
 		It("Verify that watchdog is not receiving food", func() {
-			currentLastFoodTime := dummyDog.GetLastFoodTime()
+			currentLastFoodTime := dummyDog.LastFoodTime()
 			Consistently(func() time.Time {
-				return dummyDog.GetLastFoodTime()
+				return dummyDog.LastFoodTime()
 			}, 5*reconcileInterval, 1*time.Second).Should(Equal(currentLastFoodTime))
 		})
 
@@ -175,9 +175,9 @@ var _ = Describe("ppr Controller", func() {
 		})
 
 		It("Verify that watchdog is not receiving food", func() {
-			currentLastFoodTime := dummyDog.GetLastFoodTime()
+			currentLastFoodTime := dummyDog.LastFoodTime()
 			Consistently(func() time.Time {
-				return dummyDog.GetLastFoodTime()
+				return dummyDog.LastFoodTime()
 			}, 5*reconcileInterval, 1*time.Second).Should(Equal(currentLastFoodTime))
 		})
 	})
