@@ -1,10 +1,10 @@
 package api
 
-type HealthCheckResponse int
+type HealthCheckResponseCode int
 
 const (
-	RequestFailed                     = -1
-	Healthy       HealthCheckResponse = iota
+	RequestFailed HealthCheckResponseCode = -1
+	Healthy       HealthCheckResponseCode = iota
 	Unhealthy
 	ApiError
 )

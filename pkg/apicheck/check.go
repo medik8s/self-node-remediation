@@ -3,9 +3,7 @@ package apicheck
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -17,14 +15,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	poisonPill "github.com/medik8s/poison-pill/api"
+	"github.com/medik8s/poison-pill/pkg/certificates"
+	"github.com/medik8s/poison-pill/pkg/peerhealth"
 	"github.com/medik8s/poison-pill/pkg/peers"
 	"github.com/medik8s/poison-pill/pkg/reboot"
-)
-
-const (
-	// TODO make some of this configurable?
-	peerProtocol = "http"
-	peerPort     = 30001
 )
 
 type ApiConnectivityCheck struct {
@@ -37,8 +31,8 @@ type ApiConnectivityCheck struct {
 	peers              *peers.Peers
 	rebooter           reboot.Rebooter
 	cfg                *rest.Config
-	httpClient         *http.Client
 	nodeKey            client.ObjectKey
+	certReader         certificates.CertStorageReader
 	apiServerTimeout   time.Duration
 }
 
@@ -50,6 +44,7 @@ type ApiConnectivityCheckConfig struct {
 	Peers              *peers.Peers
 	Rebooter           reboot.Rebooter
 	Cfg                *rest.Config
+	CertReader         certificates.CertStorageReader
 	ApiServerTimeout   time.Duration
 	PeerTimeout        time.Duration
 }
@@ -63,7 +58,7 @@ func New(config *ApiConnectivityCheckConfig) *ApiConnectivityCheck {
 		peers:              config.Peers,
 		rebooter:           config.Rebooter,
 		cfg:                config.Cfg,
-		httpClient:         &http.Client{Timeout: config.PeerTimeout},
+		certReader:         config.CertReader,
 		apiServerTimeout:   config.ApiServerTimeout,
 		nodeKey: client.ObjectKey{
 			Name: config.MyNodeName,
@@ -155,7 +150,7 @@ func (c *ApiConnectivityCheck) handleError() bool {
 
 		chosenNodesAddresses := c.popNodes(&nodesToAsk, nodesBatchCount)
 		nrAddresses := len(chosenNodesAddresses)
-		responsesChan := make(chan poisonPill.HealthCheckResponse, nrAddresses)
+		responsesChan := make(chan poisonPill.HealthCheckResponseCode, nrAddresses)
 
 		for _, address := range chosenNodesAddresses {
 			go c.getHealthStatusFromPeer(address, responsesChan)
@@ -218,40 +213,40 @@ func (c *ApiConnectivityCheck) popNodes(nodes *[]v1.Node, count int) []string {
 }
 
 //getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer into the given channel
-func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, results chan<- poisonPill.HealthCheckResponse) {
-	url := fmt.Sprintf("%s://%s:%d/health/%s", peerProtocol, endpointIp, peerPort, c.myNodeName)
+func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, results chan<- poisonPill.HealthCheckResponseCode) {
 
-	resp, err := c.httpClient.Get(url)
+	clientCreds, err := certificates.GetClientCredentialsFromCerts(c.certReader)
 	if err != nil {
-		c.log.Error(err, "failed to get health status from peer", "url", url)
+		c.log.Error(err, "failed to init client credentials")
 		results <- poisonPill.RequestFailed
 		return
 	}
 
-	defer func() {
-		if err = resp.Body.Close(); err != nil {
-			c.log.Error(err, "failed to close health response from peer")
-		}
-	}()
+	client, err := peerhealth.NewClient(endpointIp, c.log.WithName("peerhealth client"), clientCreds)
+	if err != nil {
+		c.log.Error(err, "failed to init grpc client")
+		results <- poisonPill.RequestFailed
+		return
+	}
+	defer client.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	resp, err := client.IsHealthy(ctx, &peerhealth.HealthRequest{
+		NodeName: c.nodeKey.Name,
+	})
 	if err != nil {
 		c.log.Error(err, "failed to read health response from peer")
-		results <- -1
+		results <- poisonPill.RequestFailed
 		return
 	}
 
-	healthStatusResult, err := strconv.Atoi(string(body))
-
-	if err != nil {
-		c.log.Error(err, "failed to convert health check response from string to int")
-	}
-
-	results <- poisonPill.HealthCheckResponse(healthStatusResult)
+	results <- poisonPill.HealthCheckResponseCode(resp.Status)
 	return
 }
 
-func (c *ApiConnectivityCheck) sumPeersResponses(nodesBatchCount int, responsesChan chan poisonPill.HealthCheckResponse) (int, int, int, int) {
+func (c *ApiConnectivityCheck) sumPeersResponses(nodesBatchCount int, responsesChan chan poisonPill.HealthCheckResponseCode) (int, int, int, int) {
 	healthyResponses := 0
 	unhealthyResponses := 0
 	apiErrorsResponses := 0
