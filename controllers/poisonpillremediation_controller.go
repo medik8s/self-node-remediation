@@ -39,7 +39,7 @@ import (
 )
 
 const (
-	pprFinalizer = "poison-pill.medik8s.io/ppr-finalizer"
+	PPRFinalizer = "poison-pill.medik8s.io/ppr-finalizer"
 )
 
 var (
@@ -140,8 +140,8 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 		r.logger.Info("node has been restored", "node name", node.Name)
 
 		//remove finalizer as remediation completed (successfully or not)
-		if controllerutil.ContainsFinalizer(ppr, pprFinalizer) {
-			controllerutil.RemoveFinalizer(ppr, pprFinalizer)
+		if controllerutil.ContainsFinalizer(ppr, PPRFinalizer) {
+			controllerutil.RemoveFinalizer(ppr, PPRFinalizer)
 			if err := r.Client.Update(context.Background(), ppr); err != nil {
 				r.logger.Error(err, "failed to remove finalizer from ppr")
 				return ctrl.Result{}, err
@@ -153,7 +153,7 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{}, nil
 	}
 
-	if !controllerutil.ContainsFinalizer(ppr, pprFinalizer) {
+	if !controllerutil.ContainsFinalizer(ppr, PPRFinalizer) {
 		if !ppr.DeletionTimestamp.IsZero() {
 			//ppr is going to be deleted before we started any remediation action, so taking no-op
 			//otherwise we continue the remediation even if the deletionTimestamp is not zero
@@ -161,7 +161,7 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 			return ctrl.Result{}, nil
 		}
 
-		controllerutil.AddFinalizer(ppr, pprFinalizer)
+		controllerutil.AddFinalizer(ppr, PPRFinalizer)
 		if err := r.Client.Update(context.Background(), ppr); err != nil {
 			r.logger.Error(err, "failed to add finalizer to ppr")
 			return ctrl.Result{}, err

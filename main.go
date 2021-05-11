@@ -20,32 +20,35 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	machinev1beta1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 
 	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
 	"github.com/medik8s/poison-pill/controllers"
 	"github.com/medik8s/poison-pill/pkg/apicheck"
-	pa "github.com/medik8s/poison-pill/pkg/peerassistant"
+	"github.com/medik8s/poison-pill/pkg/certificates"
+	"github.com/medik8s/poison-pill/pkg/peerhealth"
 	"github.com/medik8s/poison-pill/pkg/peers"
 	"github.com/medik8s/poison-pill/pkg/reboot"
 	"github.com/medik8s/poison-pill/pkg/watchdog"
@@ -162,18 +165,29 @@ func initPoisonPillAgent(mgr manager.Manager) {
 			"env var name", nodeNameEnvVar)
 	}
 
-	watchdog, err := watchdog.NewLinux(ctrl.Log.WithName("watchdog"))
+	// get our namespace
+	// TODO maybe use an env var in the pod using downward api for the namespace?
+	namespace := ""
+	if data, err := ioutil.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err != nil {
+		setupLog.Error(err, "unable to get namespace")
+		os.Exit(1)
+	} else if namespace = strings.TrimSpace(string(data)); len(namespace) == 0 {
+		setupLog.Error(err, "found empty namespace")
+		os.Exit(1)
+	}
+
+	wd, err := watchdog.NewLinux(ctrl.Log.WithName("watchdog"))
 	if err != nil {
 		setupLog.Error(err, "failed to init watchdog, using soft reboot")
 	}
-	if watchdog != nil {
-		if err = mgr.Add(watchdog); err != nil {
+	if wd != nil {
+		if err = mgr.Add(wd); err != nil {
 			setupLog.Error(err, "failed to add watchdog to the manager")
 			os.Exit(1)
 		}
 	}
 	// it's fine when the watchdog is nil!
-	rebooter := reboot.NewWatchdogRebooter(watchdog, ctrl.Log.WithName("rebooter"))
+	rebooter := reboot.NewWatchdogRebooter(wd, ctrl.Log.WithName("rebooter"))
 
 	// TODO make the interval configurable
 	peerUpdateInterval := 15 * time.Minute
@@ -191,6 +205,9 @@ func initPoisonPillAgent(mgr manager.Manager) {
 	apiServerTimeout := 5 * time.Second  //timeout for each api-connectivity check
 	peerTimeout := 5 * time.Second       //timeout for each peer request
 
+	// init certificate reader
+	certReader := certificates.NewSecretCertStorage(mgr.GetClient(), ctrl.Log.WithName("SecretCertStorage"), namespace)
+
 	apiConnectivityCheckConfig := &apicheck.ApiConnectivityCheckConfig{
 		Log:                ctrl.Log.WithName("api-check"),
 		MyNodeName:         myNodeName,
@@ -199,6 +216,7 @@ func initPoisonPillAgent(mgr manager.Manager) {
 		Peers:              myPeers,
 		Rebooter:           rebooter,
 		Cfg:                mgr.GetConfig(),
+		CertReader:         certReader,
 		ApiServerTimeout:   apiServerTimeout,
 		PeerTimeout:        peerTimeout,
 	}
@@ -221,8 +239,8 @@ func initPoisonPillAgent(mgr manager.Manager) {
 	minTimeToAssumeNodeRebooted := (apiCheckInterval+apiServerTimeout)*time.Duration(maxErrorThreshold) +
 		peerApiServerTimeout + (10+1)*peerTimeout
 	// then add the watchdog timeout
-	if watchdog != nil {
-		minTimeToAssumeNodeRebooted += watchdog.GetTimeout()
+	if wd != nil {
+		minTimeToAssumeNodeRebooted += wd.GetTimeout()
 	}
 	// and add some buffer
 	minTimeToAssumeNodeRebooted += 15 * time.Second
@@ -246,9 +264,17 @@ func initPoisonPillAgent(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
-	// TODO make this also a Runnable and let the manager start it
-	setupLog.Info("starting web server")
-	go pa.Start(pprReconciler)
+	setupLog.Info("init grpc server")
+	// TODO make port configurable?
+	server, err := peerhealth.NewServer(pprReconciler, mgr.GetConfig(), ctrl.Log.WithName("peerhealth").WithName("server"), 0, certReader)
+	if err != nil {
+		setupLog.Error(err, "failed to init grpc server")
+		os.Exit(1)
+	}
+	if err = mgr.Add(server); err != nil {
+		setupLog.Error(err, "failed to add grpc server to the manager")
+		os.Exit(1)
+	}
 }
 
 // newConfigIfNotExist creates a new PoisonPillConfig object

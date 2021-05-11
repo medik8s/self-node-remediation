@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controllers
+package controllers_test
 
 import (
 	"context"
@@ -37,7 +37,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
+	"github.com/medik8s/poison-pill/controllers"
 	"github.com/medik8s/poison-pill/pkg/apicheck"
+	"github.com/medik8s/poison-pill/pkg/certificates"
 	"github.com/medik8s/poison-pill/pkg/peers"
 	"github.com/medik8s/poison-pill/pkg/reboot"
 	"github.com/medik8s/poison-pill/pkg/watchdog"
@@ -50,6 +52,7 @@ import (
 var k8sClient *K8sClientWrapper
 var testEnv *envtest.Environment
 var dummyDog watchdog.Watchdog
+var certReader certificates.CertStorageReader
 
 const (
 	envVarApiServer = "TEST_ASSET_KUBE_APISERVER"
@@ -59,6 +62,8 @@ const (
 	peerUpdateInterval = 30 * time.Second
 	apiCheckInterval   = 1 * time.Second
 	maxErrorThreshold  = 1
+
+	namespace = "poison-pill"
 )
 
 type K8sClientWrapper struct {
@@ -110,7 +115,8 @@ var _ = BeforeSuite(func() {
 	//+kubebuilder:scaffold:scheme
 
 	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme: scheme.Scheme,
+		Scheme:             scheme.Scheme,
+		MetricsBindAddress: ":8080",
 	})
 	Expect(err).ToNot(HaveOccurred())
 
@@ -120,7 +126,7 @@ var _ = BeforeSuite(func() {
 	}
 	Expect(k8sClient).ToNot(BeNil())
 
-	err = (&PoisonPillConfigReconciler{
+	err = (&controllers.PoisonPillConfigReconciler{
 		Client:            k8sManager.GetClient(),
 		Log:               ctrl.Log.WithName("controllers").WithName("poison-pill-config-controller"),
 		InstallFileFolder: "../install/",
@@ -142,12 +148,16 @@ var _ = BeforeSuite(func() {
 
 	dummyDog, err = watchdog.NewFake(ctrl.Log.WithName("fake watchdog"))
 	Expect(err).ToNot(HaveOccurred())
-
-	rebooter := reboot.NewWatchdogRebooter(dummyDog, ctrl.Log.WithName("rebooter"))
+	err = k8sManager.Add(dummyDog)
+	Expect(err).ToNot(HaveOccurred())
 
 	peerApiServerTimeout := 5 * time.Second
 	peers := peers.New(unhealthyNodeName, peerUpdateInterval, k8sClient, ctrl.Log.WithName("peers"), peerApiServerTimeout)
+	err = k8sManager.Add(peers)
+	Expect(err).ToNot(HaveOccurred())
 
+	certReader = certificates.NewSecretCertStorage(k8sClient, ctrl.Log.WithName("SecretCertStorage"), namespace)
+	rebooter := reboot.NewWatchdogRebooter(dummyDog, ctrl.Log.WithName("rebooter"))
 	apiConnectivityCheckConfig := &apicheck.ApiConnectivityCheckConfig{
 		Log:                ctrl.Log.WithName("api-check"),
 		MyNodeName:         unhealthyNodeName,
@@ -156,16 +166,18 @@ var _ = BeforeSuite(func() {
 		Peers:              peers,
 		Rebooter:           rebooter,
 		Cfg:                cfg,
+		CertReader:         certReader,
 	}
-
 	apiCheck := apicheck.New(apiConnectivityCheckConfig)
+	err = k8sManager.Add(apiCheck)
+	Expect(err).ToNot(HaveOccurred())
 
 	timeToAssumeNodeRebooted := time.Duration(maxErrorThreshold) * apiCheckInterval
 	timeToAssumeNodeRebooted += dummyDog.GetTimeout()
 	timeToAssumeNodeRebooted += 5 * time.Second
 
 	// reconciler for unhealthy node
-	err = (&PoisonPillRemediationReconciler{
+	err = (&controllers.PoisonPillRemediationReconciler{
 		Client:                       k8sClient,
 		Log:                          ctrl.Log.WithName("controllers").WithName("poison-pill-controller").WithName("unhealthy node"),
 		Rebooter:                     rebooter,
@@ -175,19 +187,12 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	// reconciler for peer node
-	err = (&PoisonPillRemediationReconciler{
+	err = (&controllers.PoisonPillRemediationReconciler{
 		Client:                       k8sClient,
 		Log:                          ctrl.Log.WithName("controllers").WithName("poison-pill-controller").WithName("peer node"),
 		SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
 		MyNodeName:                   peerNodeName,
 	}).SetupWithManager(k8sManager)
-	Expect(err).ToNot(HaveOccurred())
-
-	err = k8sManager.Add(dummyDog)
-	Expect(err).ToNot(HaveOccurred())
-	err = k8sManager.Add(peers)
-	Expect(err).ToNot(HaveOccurred())
-	err = k8sManager.Add(apiCheck)
 	Expect(err).ToNot(HaveOccurred())
 
 	go func() {

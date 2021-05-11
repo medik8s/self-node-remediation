@@ -1,21 +1,23 @@
-package controllers
+package controllers_test
 
 import (
 	"context"
-	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
+	"os"
+	"time"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"os"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"time"
+
+	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
 )
 
 var _ = Describe("ppc controller Test", func() {
-	namespace := "poison-pill"
 
 	Context("DS installation", func() {
 		dummyPoisonPillImage := "poison-pill-image"
@@ -55,6 +57,13 @@ var _ = Describe("ppc controller Test", func() {
 
 			Expect(createdConfig.Spec.WatchdogFilePath).To(Equal(config.Spec.WatchdogFilePath))
 			Expect(createdConfig.Spec.SafeTimeToAssumeNodeRebootedSeconds).To(Equal(config.Spec.SafeTimeToAssumeNodeRebootedSeconds))
+		})
+
+		It("Cert Secret should be created", func() {
+			Eventually(func() error {
+				_, _, _, err := certReader.GetCerts()
+				return err
+			}, 15*time.Second, 250*time.Millisecond).ShouldNot(HaveOccurred())
 		})
 
 		It("Daemonset should be created", func() {
