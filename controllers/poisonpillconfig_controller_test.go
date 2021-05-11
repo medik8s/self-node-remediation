@@ -65,8 +65,8 @@ var _ = Describe("ppc controller Test", func() {
 			}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
 
 			dsContainers := ds.Spec.Template.Spec.Containers
-			Expect(len(dsContainers), 1)
-			Expect(dsContainers[0].Image, dummyPoisonPillImage)
+			Expect(len(dsContainers)).To(BeNumerically("==", 1))
+			Expect(dsContainers[0].Image).To(Equal(dummyPoisonPillImage))
 		})
 	})
 
