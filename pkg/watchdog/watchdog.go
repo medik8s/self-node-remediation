@@ -75,7 +75,11 @@ func (wd *linuxWatchdog) Start(ctx context.Context) error {
 		wd.mutex.Unlock()
 		return errors.New("watchdog was started more than once. This is likely to be caused by being added to a manager multiple times")
 	}
-	wd.start()
+	if err := wd.start(); err != nil {
+		wd.mutex.Unlock()
+		// TODO or return the error and fail the pod's start?
+		return nil
+	}
 	wd.started = true
 	wd.mutex.Unlock()
 
@@ -84,12 +88,16 @@ func (wd *linuxWatchdog) Start(ctx context.Context) error {
 
 	// feed until stopped
 	go wait.NonSlidingUntilWithContext(feedCtx, func(feedCtx context.Context) {
+		wd.mutex.Lock()
+		defer wd.mutex.Unlock()
+		// this should not happen because the context is cancelled already.. but just in case
+		if wd.stopped {
+			return
+		}
 		if err := wd.feed(); err != nil {
 			wd.log.Error(err, "failed to feed watchdog!")
 		} else {
-			wd.mutex.Lock()
 			wd.lastFoodTime = time.Now()
-			wd.mutex.Unlock()
 		}
 	}, wd.timeout/3)
 
@@ -107,22 +115,23 @@ func (wd *linuxWatchdog) Start(ctx context.Context) error {
 			wd.log.Info("disarmed watchdog")
 			// we can stop feeding after disarm
 			wd.stop()
+			wd.stopped = true
 		}
 	}
 	return nil
 }
 
-func (wd *linuxWatchdog) start() {
+func (wd *linuxWatchdog) start() error {
 	if wd.fake {
 		wd.timeout = fakeTimeout
-		return
+		return nil
 	}
 
 	wdFd, err := openDevice()
 	if err != nil {
 		// Only log the error! Else the pod won't start at all. Users need to check the started flag!
 		wd.log.Error(err, fmt.Sprintf("failed to open LinuxWatchdog device %s", watchdogDevice))
-		return
+		return err
 	}
 
 	wd.fd = wdFd
@@ -134,9 +143,10 @@ func (wd *linuxWatchdog) start() {
 		_ = wd.disarm()
 		// Only log the error! Else the pod won't start at all. Users need to check the started flag!
 		wd.log.Error(err, fmt.Sprintf("failed to get timeout of watchdog, disarmed: %s", watchdogDevice))
-		return
+		return err
 	}
 	wd.timeout = *timeout
+	return nil
 }
 
 func (wd *linuxWatchdog) IsStarted() bool {
