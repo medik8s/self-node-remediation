@@ -90,7 +90,7 @@ func main() {
 	if !isManager {
 		setupLog.Info("Starting as a poison pill agent that should run as part of the daemonset")
 
-		watchdog, err := watchdog.New(ctrl.Log.WithName("watchdog"))
+		watchdog, err := watchdog.NewLinux(ctrl.Log.WithName("watchdog"))
 		if err != nil {
 			setupLog.Error(err, "failed to init watchdog, using soft reboot")
 		}
