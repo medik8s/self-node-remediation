@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: poison-pill-ds
-  namespace: poison-pill
+  namespace: {{.Namespace}}
   labels:
     k8s-app: poison-pill
 spec:
