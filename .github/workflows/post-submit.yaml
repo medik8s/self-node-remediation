@@ -8,6 +8,8 @@ jobs:
   push_to_registry:
     name: Push a container image to quay.io/medik8s
     runs-on: ubuntu-20.04
+    env:
+      IMG: quay.io/medik8s/poison-pill:latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
@@ -20,7 +22,7 @@ jobs:
           registry: quay.io
 
       - name: Prepare Container Image
-        run: make docker-build bundle-build
+        run: make docker-build
 
       - name: Push to Quay.io
-        run: make docker-push bundle-push
+        run: make docker-push
