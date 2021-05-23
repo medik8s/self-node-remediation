@@ -1,5 +1,6 @@
 # Build the manager binary
-FROM golang:1.15 as builder
+FROM quay.io/centos/centos:stream8 AS builder
+RUN yum install golang -y
 
 WORKDIR /workspace
 # Copy the Go Modules manifests
