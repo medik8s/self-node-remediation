@@ -1,0 +1,26 @@
+name: Publish Container Images
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  push_to_registry:
+    name: Push a container image to quay.io/medik8s
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Log in to Quay.io
+        uses: redhat-actions/podman-login@v1
+        with:
+          username: ${{ secrets.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_PASSWORD }}
+          registry: quay.io
+
+      - name: Prepare Container Image
+        run: make docker-build bundle-build
+
+      - name: Push to Quay.io
+        run: make docker-push bundle-push
