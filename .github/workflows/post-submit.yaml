@@ -9,7 +9,7 @@ jobs:
     name: Push a container image to quay.io/medik8s
     runs-on: ubuntu-20.04
     env:
-      IMG: quay.io/medik8s/poison-pill:latest
+      IMG: quay.io/medik8s/poison-pill-operator:latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
