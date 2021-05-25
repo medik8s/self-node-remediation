@@ -60,7 +60,7 @@ func NewLinux(log logr.Logger) (Watchdog, error) {
 func (wd *linuxWatchdog) start() (*time.Duration, error) {
 	wdFd, err := openDevice()
 	if err != nil {
-		// Only log the error! Else the pod won't start at all. Users need to check the started flag!
+		// Only log the error! Else the pod won't start at all. Users need to check the isStarted flag!
 		wd.log.Error(err, fmt.Sprintf("failed to open LinuxWatchdog device %s", watchdogDevice))
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func (wd *linuxWatchdog) start() (*time.Duration, error) {
 	if err != nil {
 		// no feeding without timeout, so disarm
 		_ = wd.disarm()
-		// Only log the error! Else the pod won't start at all. Users need to check the started flag!
+		// Only log the error! Else the pod won't start at all. Users need to check the isStarted flag!
 		wd.log.Error(err, fmt.Sprintf("failed to get timeout of watchdog, disarmed: %s", watchdogDevice))
 		return nil, err
 	}
