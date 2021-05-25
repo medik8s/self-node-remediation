@@ -36,7 +36,7 @@ func (swd *synchronizedWatchdog) Start(ctx context.Context) error {
 	swd.mutex.Lock()
 	defer swd.mutex.Unlock()
 	if swd.isStarted {
-		return errors.New("watchdog was isStarted more than once. This is likely to be caused by being added to a manager multiple times")
+		return errors.New("watchdog was started more than once. This is likely to be caused by being added to a manager multiple times")
 	}
 	timeout, err := swd.impl.start()
 	if err != nil {
@@ -45,16 +45,16 @@ func (swd *synchronizedWatchdog) Start(ctx context.Context) error {
 	}
 	swd.timeout = *timeout
 	swd.isStarted = true
-	swd.log.Info("watchdog isStarted")
+	swd.log.Info("watchdog started")
 	swd.mutex.Unlock()
 
 	feedCtx, cancel := context.WithCancel(context.Background())
 	swd.stop = cancel
-	// feed until isStopped
+	// feed until stopped
 	go wait.NonSlidingUntilWithContext(feedCtx, func(feedCtx context.Context) {
 		swd.mutex.Lock()
 		defer swd.mutex.Unlock()
-		// this should not happen because the context is cancelled already.. but just in case
+		// prevent feeding of a disarmed watchdog in case the context isn't cancelled yet
 		if swd.isStopped {
 			return
 		}
@@ -67,7 +67,7 @@ func (swd *synchronizedWatchdog) Start(ctx context.Context) error {
 
 	<-ctx.Done()
 
-	// pod is being isStopped, disarm!
+	// pod is being stopped, disarm!
 	swd.mutex.Lock()
 	if swd.isStarted && !swd.isStopped {
 		if err := swd.impl.disarm(); err != nil {
