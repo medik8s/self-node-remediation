@@ -117,10 +117,11 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&PoisonPillRemediationReconciler{
-		Client:    k8sManager.GetClient(),
-		Log:       ctrl.Log.WithName("controllers").WithName("poison-pill-remediation-controller"),
-		ApiReader: &apiReaderWrapper,
-		Watchdog:  dummyDog,
+		Client:                       k8sManager.GetClient(),
+		Log:                          ctrl.Log.WithName("controllers").WithName("poison-pill-remediation-controller"),
+		ApiReader:                    &apiReaderWrapper,
+		Watchdog:                     dummyDog,
+		SafeTimeToAssumeNodeRebooted: 90 * time.Second,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 

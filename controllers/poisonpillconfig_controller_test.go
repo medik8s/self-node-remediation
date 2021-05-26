@@ -15,10 +15,12 @@ import (
 )
 
 var _ = Describe("ppc controller Test", func() {
+	namespace := "poison-pill"
+
 	Context("DS installation", func() {
 		dummyPoisonPillImage := "poison-pill-image"
 		os.Setenv("POISON_PILL_IMAGE", dummyPoisonPillImage)
-		namespace := "poison-pill"
+
 		dsName := "poison-pill-ds"
 
 		nsToCreate := &corev1.Namespace{
@@ -36,6 +38,7 @@ var _ = Describe("ppc controller Test", func() {
 		config.Kind = "PoisonPillConfig"
 		config.APIVersion = "poison-pill.medik8s.io/v1alpha1"
 		config.Spec.WatchdogFilePath = "/dev/foo"
+		config.Spec.SafeTimeToAssumeNodeRebootedSeconds = 123
 		config.Name = "config-sample"
 		config.Namespace = namespace
 
@@ -66,8 +69,43 @@ var _ = Describe("ppc controller Test", func() {
 
 			dsContainers := ds.Spec.Template.Spec.Containers
 			Expect(len(dsContainers)).To(BeNumerically("==", 1))
-			Expect(dsContainers[0].Image).To(Equal(dummyPoisonPillImage))
+			container := dsContainers[0]
+			Expect(container.Image).To(Equal(dummyPoisonPillImage))
+			envVars := getEnvVarMap(container.Env)
+			Expect(envVars["WATCHDOG_PATH"].Value).To(Equal(config.Spec.WatchdogFilePath))
+			Expect(envVars["TIME_TO_ASSUME_NODE_REBOOTED"].Value).To(Equal("123"))
+		})
+	})
+
+	Context("PPC defaults", func() {
+		config := &poisonpillv1alpha1.PoisonPillConfig{}
+		config.Kind = "PoisonPillConfig"
+		config.APIVersion = "poison-pill.medik8s.io/v1alpha1"
+		config.Name = "config-defaults"
+		config.Namespace = namespace
+
+		It("Config CR should be created with default values", func() {
+			Expect(k8sClient).To(Not(BeNil()))
+			Expect(k8sClient.Create(context.Background(), config)).To(Succeed())
+
+			createdConfig := &poisonpillv1alpha1.PoisonPillConfig{}
+			configKey := client.ObjectKeyFromObject(config)
+
+			Eventually(func() error {
+				return k8sClient.Get(context.Background(), configKey, createdConfig)
+			}, 5*time.Second, 250*time.Millisecond).Should(BeNil())
+
+			Expect(createdConfig.Spec.WatchdogFilePath).To(Equal("/dev/watchdog1"))
+			Expect(createdConfig.Spec.SafeTimeToAssumeNodeRebootedSeconds).To(Equal(180))
 		})
 	})
 
 })
+
+func getEnvVarMap(vars []corev1.EnvVar) map[string]corev1.EnvVar {
+	m := map[string]corev1.EnvVar{}
+	for _, envVar := range vars {
+		m[envVar.Name] = envVar
+	}
+	return m
+}

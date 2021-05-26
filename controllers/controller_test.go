@@ -114,6 +114,7 @@ var _ = Describe("ppr Controller", func() {
 
 		now := time.Now()
 		It("Update ppr time to accelerate the progress", func() {
+			safeTimeToAssumeNodeRebooted := 90 * time.Second
 			oldTime := now.Add(-safeTimeToAssumeNodeRebooted).Add(-time.Minute)
 			oldTimeConverted := metav1.NewTime(oldTime)
 			ppr.Status.TimeAssumedRebooted = &oldTimeConverted

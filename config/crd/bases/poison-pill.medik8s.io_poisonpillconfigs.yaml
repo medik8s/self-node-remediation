@@ -40,6 +40,7 @@ spec:
             description: PoisonPillConfigSpec defines the desired state of PoisonPillConfig
             properties:
               safeTimeToAssumeNodeRebootedSeconds:
+                default: 180
                 description: SafeTimeToAssumeNodeRebootedSeconds is the time after
                   which the healthy poison pill agents will assume the unhealthy node
                   has been rebooted and it is safe to remove the node from the cluster.
@@ -49,6 +50,7 @@ spec:
                 minimum: 0
                 type: integer
               watchdogFilePath:
+                default: /dev/watchdog1
                 description: WatchdogFilePath is the watchdog file path that should
                   be available on each node, e.g. /dev/watchdog
                 type: string

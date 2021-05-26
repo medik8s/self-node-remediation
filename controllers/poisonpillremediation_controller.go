@@ -50,9 +50,6 @@ const (
 	peersPort            = 30001
 	apiServerTimeout     = 5 * time.Second
 	peerTimeout          = 10 * time.Second
-	//note that this time must include the time for a unhealthy node without api-server access to reach the conclusion that it's unhealthy
-	// this should be at least worst-case time to reach a conclusion from the other peers * request context timeout + watchdog interval + maxFailuresThreshold * reconcileInterval + padding
-	safeTimeToAssumeNodeRebooted = 90 * time.Second
 )
 
 var (
@@ -84,6 +81,9 @@ type PoisonPillRemediationReconciler struct {
 	Scheme    *runtime.Scheme
 	ApiReader client.Reader
 	Watchdog  wdt.Watchdog
+	//note that this time must include the time for a unhealthy node without api-server access to reach the conclusion that it's unhealthy
+	// this should be at least worst-case time to reach a conclusion from the other peers * request context timeout + watchdog interval + maxFailuresThreshold * reconcileInterval + padding
+	SafeTimeToAssumeNodeRebooted time.Duration
 }
 
 //+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillremediations,verbs=get;list;watch;create;update;patch;delete
@@ -186,8 +186,8 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 func (r *PoisonPillRemediationReconciler) updatePprStatus(node *v1.Node, ppr *v1alpha1.PoisonPillRemediation) (ctrl.Result, error) {
 	r.logger.Info("updating ppr with node backup and updating time to assume node has been rebooted", "node name", node.Name)
 	//we assume the unhealthy node will be rebooted by maxTimeNodeHasRebooted
-	maxTimeNodeHasRebooted := metav1.NewTime(metav1.Now().Add(safeTimeToAssumeNodeRebooted))
-	//todo once we let the user config these values we need to make sure that safeTimeToAssumeNodeRebooted >> watchdog timeout
+	maxTimeNodeHasRebooted := metav1.NewTime(metav1.Now().Add(r.SafeTimeToAssumeNodeRebooted))
+	//todo once we let the user config these values we need to make sure that SafeTimeToAssumeNodeRebooted >> watchdog timeout
 	ppr.Status.TimeAssumedRebooted = &maxTimeNodeHasRebooted
 	ppr.Status.NodeBackup = node
 	ppr.Status.NodeBackup.Kind = node.GetObjectKind().GroupVersionKind().Kind
