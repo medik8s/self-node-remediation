@@ -38,7 +38,7 @@ const (
 type Peers struct {
 	client.Reader
 	log                logr.Logger
-	peerList           *[]v1.Node
+	peerList           *v1.NodeList
 	peerSelector       labels.Selector
 	peerUpdateInterval time.Duration
 	ignoreNewErrorsFor time.Duration
@@ -58,7 +58,6 @@ func New(r reboot.Rebooter, peerUpdateInterval time.Duration, ignoreNewErrorsFor
 		peerUpdateInterval: peerUpdateInterval,
 		ignoreNewErrorsFor: ignoreNewErrorsFor,
 		maxErrorsThreshold: maxErrorsThreshold,
-		mutex:              sync.Mutex{},
 		myNodeName:         os.Getenv(nodeNameEnvVar),
 		rebooter:           r,
 		httpClient:         &http.Client{Timeout: peerTimeout},
@@ -89,9 +88,6 @@ func (p *Peers) Start(ctx context.Context) error {
 		p.peerSelector = labels.NewSelector().Add(*req)
 	}
 
-	// get initial peer list
-	p.updatePeers(ctx, false)
-
 	go wait.UntilWithContext(ctx, func(ctx context.Context) {
 		p.updatePeers(ctx, false)
 	}, p.peerUpdateInterval)
@@ -114,13 +110,13 @@ func (p *Peers) updatePeers(ctx context.Context, ignoreError bool) {
 	if err := p.List(readerCtx, nodes, client.Limit(nrOfPeers), client.MatchingLabelsSelector{Selector: p.peerSelector}); err != nil {
 		if errors.IsNotFound(err) {
 			// we are the only node at the moment... reset peerList
-			p.peerList = &[]v1.Node{}
+			p.peerList = &v1.NodeList{}
 		}
 		p.log.Error(err, "failed to update peer list")
 		if ignoreError {
 			return
 		}
-		if healthy := p.HandleError(ctx, err); !healthy {
+		if isHealthy := p.handleError(err); !isHealthy {
 			// we have a problem on this node
 			p.log.Error(err, "we are unhealthy, triggering a reboot")
 			if err := p.rebooter.Reboot(); err != nil {
@@ -132,20 +128,14 @@ func (p *Peers) updatePeers(ctx context.Context, ignoreError bool) {
 		return
 	}
 	// reset error count after a successful API call!
-	p.reset()
+	p.resetErrorState()
 	//p.log.Info("peers updated")
-	p.peerList = &nodes.Items
-}
-
-func (p *Peers) getPeers() *[]v1.Node {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-	return p.peerList
+	p.peerList = nodes
 }
 
 // HandleError keeps track of the number of errors reported, and when a certain amount of error occur within a certain
 // time, ask peers if this node is healthy. Returns if the node is considered to be healthy or not.
-func (p *Peers) HandleError(ctx context.Context, newError error) bool {
+func (p *Peers) handleError(newError error) bool {
 
 	//we don't want to increase the err count too quick
 	if !p.lastErrorAt.IsZero() && time.Now().Before(p.lastErrorAt.Add(p.ignoreNewErrorsFor)) {
@@ -157,12 +147,12 @@ func (p *Peers) HandleError(ctx context.Context, newError error) bool {
 	p.errorCount++
 
 	if p.errorCount < p.maxErrorsThreshold {
-		p.log.Info("Ignoring error, error count below threshold", "current count", p.errorCount, "threshold", p.maxErrorsThreshold)
+		p.log.Info("Ignoring api-server error, error count below threshold", "current count", p.errorCount, "threshold", p.maxErrorsThreshold)
 		return true
 	}
 
 	p.log.Info("Error count exceeds threshold, trying to ask other nodes if I'm healthy")
-	nodes := *p.getPeers() // de-reference nodes here, so we don't accidentally modify the original list later on
+	nodes := p.peerList.Items
 	if nodes == nil || len(nodes) == 0 {
 		p.log.Info("Peers list is empty and / or couldn't be retrieved from server, nothing we can do, so consider the node being healthy")
 		//todo maybe we need to check if this happens too much and reboot
@@ -194,7 +184,7 @@ func (p *Peers) HandleError(ctx context.Context, newError error) bool {
 
 	if healthyResponses > 0 {
 		p.log.Info("Peer told me I'm healthy.")
-		p.reset()
+		p.resetErrorState()
 		return true
 	}
 
@@ -208,7 +198,7 @@ func (p *Peers) HandleError(ctx context.Context, newError error) bool {
 		//more than 50% of the nodes being asked returned an api error
 		//assuming this is a control plane failure as others can't access api-server as well
 		p.log.Info("More than 50% of the nodes couldn't access the api-server, assuming this is a control plane failure")
-		p.reset()
+		p.resetErrorState()
 		return true
 	}
 
@@ -304,7 +294,7 @@ func (p *Peers) sumPeersResponses(nodesBatchCount int, responsesChan chan poison
 	return healthyResponses, unhealthyResponses, apiErrorsResponses, noResponse
 }
 
-func (p *Peers) reset() {
+func (p *Peers) resetErrorState() {
 	p.lastErrorAt = time.Time{}
 	p.errorCount = 0
 }
