@@ -18,7 +18,6 @@ package main
 
 import (
 	"flag"
-	"github.com/medik8s/poison-pill/pkg/peers"
 	"os"
 	"strconv"
 	"time"
@@ -39,6 +38,8 @@ import (
 	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
 	"github.com/medik8s/poison-pill/controllers"
 	pa "github.com/medik8s/poison-pill/pkg/peerassistant"
+	"github.com/medik8s/poison-pill/pkg/peers"
+	"github.com/medik8s/poison-pill/pkg/reboot"
 	"github.com/medik8s/poison-pill/pkg/watchdog"
 	//+kubebuilder:scaffold:imports
 )
@@ -103,16 +104,23 @@ func main() {
 				os.Exit(1)
 			}
 		}
+		// it's fine when the watchdog is nil!
+		rebooter := reboot.NewWatchdogRebooter(watchdog, ctrl.Log.WithName("rebooter"))
+
 		// TODO make the interval configurable?
 		// TODO use a long interval here, and do a seperate cheaper "healthcheck" with a lower interval in another loop?
 		// use API reader for not using the cache, which would prevent detecting API errors
-		peers := peers.New(watchdog, 5*time.Minute, 15*time.Second, 3, mgr.GetAPIReader(), ctrl.Log.WithName("peers"))
+		myPeers := peers.New(rebooter, 5*time.Minute, 15*time.Second, 3, mgr.GetAPIReader(), ctrl.Log.WithName("peers"))
+		if err = mgr.Add(myPeers); err != nil {
+			setupLog.Error(err, "failed to add peers to the manager")
+			os.Exit(1)
+		}
 
 		if err = (&controllers.PoisonPillRemediationReconciler{
-			Client: mgr.GetClient(),
-			Log:    ctrl.Log.WithName("controllers").WithName("PoisonPillRemediation"),
-			Scheme: mgr.GetScheme(),
-			Peers:  peers,
+			Client:   mgr.GetClient(),
+			Log:      ctrl.Log.WithName("controllers").WithName("PoisonPillRemediation"),
+			Scheme:   mgr.GetScheme(),
+			Rebooter: rebooter,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "PoisonPillRemediation")
 			os.Exit(1)

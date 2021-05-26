@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/medik8s/poison-pill/api/v1alpha1"
-	"github.com/medik8s/poison-pill/pkg/peers"
+	"github.com/medik8s/poison-pill/pkg/reboot"
 	"github.com/medik8s/poison-pill/pkg/utils"
 )
 
@@ -57,9 +57,9 @@ type PoisonPillRemediationReconciler struct {
 	client.Client
 	Log logr.Logger
 	//logger is a logger that holds the CR name being reconciled
-	logger logr.Logger
-	Scheme *runtime.Scheme
-	Peers  *peers.Peers
+	logger   logr.Logger
+	Scheme   *runtime.Scheme
+	Rebooter reboot.Rebooter
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -166,7 +166,7 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 	if maxNodeRebootTime.After(time.Now()) {
 		if myNodeName == node.Name {
 			// we have a problem on this node
-			if err := r.Peers.Reboot(); err != nil {
+			if err := r.Rebooter.Reboot(); err != nil {
 				// re-queue
 				return ctrl.Result{}, err
 			} else {
