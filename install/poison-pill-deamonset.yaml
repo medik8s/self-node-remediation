@@ -28,6 +28,10 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: spec.nodeName
+          - name: WATCHDOG_PATH
+            value: {{.WatchdogPath}}
+          - name: TIME_TO_ASSUME_NODE_REBOOTED
+            value: {{.TimeToAssumeNodeRebooted}}
         image: {{.Image}}
         imagePullPolicy: Always
         securityContext:

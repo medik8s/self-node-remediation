@@ -29,6 +29,7 @@ type PoisonPillConfigSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// WatchdogFilePath is the watchdog file path that should be available on each node, e.g. /dev/watchdog
+	// +kubebuilder:default=/dev/watchdog1
 	WatchdogFilePath string `json:"watchdogFilePath,omitempty"`
 
 	// SafeTimeToAssumeNodeRebootedSeconds is the time after which the healthy poison pill
@@ -36,6 +37,7 @@ type PoisonPillConfigSpec struct {
 	// from the cluster. This is extremely important. Deleting a node while the workload is still
 	// running there might lead to data corruption and violation of run-once semantic.
 	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:default=180
 	SafeTimeToAssumeNodeRebootedSeconds int `json:"safeTimeToAssumeNodeRebootedSeconds,omitempty"`
 }
 
