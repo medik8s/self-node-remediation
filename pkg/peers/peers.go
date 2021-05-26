@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"os/exec"
 	"strconv"
 	"sync"
 	"time"
@@ -21,7 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	poisonPill "github.com/medik8s/poison-pill/api"
-	"github.com/medik8s/poison-pill/pkg/watchdog"
+	"github.com/medik8s/poison-pill/pkg/reboot"
 )
 
 const (
@@ -46,13 +45,13 @@ type Peers struct {
 	maxErrorsThreshold int
 	mutex              sync.Mutex
 	myNodeName         string
-	watchdog           watchdog.Watchdog
+	rebooter           reboot.Rebooter
 	lastErrorAt        time.Time
 	errorCount         int
 	httpClient         *http.Client
 }
 
-func New(wd watchdog.Watchdog, peerUpdateInterval time.Duration, ignoreNewErrorsFor time.Duration, maxErrorsThreshold int, reader client.Reader, log logr.Logger) *Peers {
+func New(r reboot.Rebooter, peerUpdateInterval time.Duration, ignoreNewErrorsFor time.Duration, maxErrorsThreshold int, reader client.Reader, log logr.Logger) *Peers {
 	return &Peers{
 		Reader:             reader,
 		log:                log,
@@ -61,7 +60,7 @@ func New(wd watchdog.Watchdog, peerUpdateInterval time.Duration, ignoreNewErrors
 		maxErrorsThreshold: maxErrorsThreshold,
 		mutex:              sync.Mutex{},
 		myNodeName:         os.Getenv(nodeNameEnvVar),
-		watchdog:           wd,
+		rebooter:           r,
 		httpClient:         &http.Client{Timeout: peerTimeout},
 	}
 }
@@ -124,7 +123,7 @@ func (p *Peers) updatePeers(ctx context.Context, ignoreError bool) {
 		if healthy := p.HandleError(ctx, err); !healthy {
 			// we have a problem on this node
 			p.log.Error(err, "we are unhealthy, triggering a reboot")
-			if err := p.Reboot(); err != nil {
+			if err := p.rebooter.Reboot(); err != nil {
 				p.log.Error(err, "failed to trigger reboot")
 			}
 		} else {
@@ -308,30 +307,4 @@ func (p *Peers) sumPeersResponses(nodesBatchCount int, responsesChan chan poison
 func (p *Peers) reset() {
 	p.lastErrorAt = time.Time{}
 	p.errorCount = 0
-}
-
-// Reboot stops watchdog feeding ig watchdog exists, otherwise issuing a software reboot
-func (p *Peers) Reboot() error {
-	if p.watchdog == nil || !p.watchdog.IsStarted() {
-		p.log.Info("no watchdog is present on this host, trying software reboot")
-		//we couldn't init a watchdog so far but requested to be rebooted. we issue a software reboot
-		if err := p.softwareReboot(); err != nil {
-			p.log.Error(err, "failed to run reboot command")
-			// TODO retry because of this?
-			//return err
-			return nil
-		}
-		return nil
-	}
-	//we stop feeding the watchdog and waiting for a reboot
-	p.watchdog.Stop()
-	p.log.Info("watchdog feeding has stopped, waiting for reboot to commence")
-	return nil
-}
-
-//softwareReboot performs software reboot by running systemctl reboot
-func (p *Peers) softwareReboot() error {
-	// hostPID: true and privileged:true required to run this
-	rebootCmd := exec.Command("/usr/bin/nsenter", "-m/proc/1/ns/mnt", "/bin/systemctl", "reboot")
-	return rebootCmd.Run()
 }
