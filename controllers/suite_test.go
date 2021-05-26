@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"errors"
+	"github.com/medik8s/poison-pill/pkg/reboot"
 	"os"
 	"path/filepath"
 	"testing"
@@ -135,13 +136,16 @@ var _ = BeforeSuite(func() {
 
 	dummyDog, err = watchdog.NewFake(ctrl.Log.WithName("fake watchdog"))
 	Expect(err).ToNot(HaveOccurred())
-	peers := peers.New(dummyDog, peerUpdateInterval, 1*time.Second, 1, k8sClient, ctrl.Log.WithName("peers"))
+
+	rebooter := reboot.NewWatchdogRebooter(dummyDog, ctrl.Log.WithName("rebooter"))
+
+	peers := peers.New(rebooter, peerUpdateInterval, 1*time.Second, 1, k8sClient, ctrl.Log.WithName("peers"))
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&PoisonPillRemediationReconciler{
-		Client: k8sClient,
-		Log:    ctrl.Log.WithName("controllers").WithName("poison-pill-controller"),
-		Peers:  peers,
+		Client:   k8sClient,
+		Log:      ctrl.Log.WithName("controllers").WithName("poison-pill-controller"),
+		Rebooter: rebooter,
 		SafeTimeToAssumeNodeRebooted: 90 * time.Second,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
