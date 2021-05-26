@@ -13,8 +13,8 @@ import (
 	"github.com/go-logr/logr"
 )
 
-const (
-	watchdogDevice = "/dev/watchdog1"
+var (
+	watchdogDevice = os.Getenv("WATCHDOG_PATH")
 )
 
 // ensure we only have 1 instance

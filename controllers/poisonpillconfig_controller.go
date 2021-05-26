@@ -83,6 +83,9 @@ func (r *PoisonPillConfigReconciler) syncConfigDaemonSet(ppc *poisonpillv1alpha1
 	data := render.MakeRenderData()
 	data.Data["Image"] = os.Getenv("POISON_PILL_IMAGE")
 	data.Data["Namespace"] = ppc.Namespace
+	data.Data["WatchdogPath"] = ppc.Spec.WatchdogFilePath
+	data.Data["TimeToAssumeNodeRebooted"] = fmt.Sprintf("\"%d\"", ppc.Spec.SafeTimeToAssumeNodeRebootedSeconds)
+
 	objs, err := render.RenderDir(r.InstallFileFolder, &data)
 	if err != nil {
 		logger.Error(err, "Fail to render config daemon manifests")
