@@ -104,12 +104,18 @@ func main() {
 			}
 		}
 
-		timeToAssumeNodeRebootedStr := os.Getenv("TIME_TO_ASSUME_NODE_REBOOTED")
-		timeToAssumeNodeRebootedInt, err := strconv.Atoi(timeToAssumeNodeRebootedStr)
+		timeToAssumeNodeRebootedInt, err := strconv.Atoi(os.Getenv("TIME_TO_ASSUME_NODE_REBOOTED"))
 
 		if err != nil {
 			setupLog.Error(err, "failed to convert env variable TIME_TO_ASSUME_NODE_REBOOTED to int")
 			os.Exit(1)
+		}
+
+		timeToAssumeNodeRebootedDur := time.Duration(timeToAssumeNodeRebootedInt) * time.Second
+
+		buffer := time.Second * 5
+		if timeToAssumeNodeRebootedDur < watchdog.GetTimeout()+buffer {
+			timeToAssumeNodeRebootedDur = watchdog.GetTimeout() + buffer
 		}
 
 		if err = (&controllers.PoisonPillRemediationReconciler{
@@ -118,7 +124,7 @@ func main() {
 			Scheme:                       mgr.GetScheme(),
 			ApiReader:                    mgr.GetAPIReader(),
 			Watchdog:                     watchdog,
-			SafeTimeToAssumeNodeRebooted: time.Duration(timeToAssumeNodeRebootedInt) * time.Second,
+			SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebootedDur,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "PoisonPillRemediation")
 			os.Exit(1)
