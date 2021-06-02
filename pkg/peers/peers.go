@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -42,10 +41,8 @@ type Peers struct {
 	peerUpdateInterval time.Duration
 	ignoreNewErrorsFor time.Duration
 	maxErrorsThreshold int
-	mutex              sync.Mutex
 	myNodeName         string
 	rebooter           reboot.Rebooter
-	lastErrorAt        time.Time
 	errorCount         int
 	httpClient         *http.Client
 }
@@ -88,7 +85,7 @@ func (p *Peers) Start(ctx context.Context) error {
 	}
 
 	go wait.UntilWithContext(ctx, func(ctx context.Context) {
-		p.updatePeers(ctx, false)
+		p.updatePeers(ctx)
 	}, p.peerUpdateInterval)
 
 	p.log.Info("peers started")
@@ -97,10 +94,7 @@ func (p *Peers) Start(ctx context.Context) error {
 	return nil
 }
 
-func (p *Peers) updatePeers(ctx context.Context, ignoreError bool) {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
+func (p *Peers) updatePeers(ctx context.Context) {
 	readerCtx, cancel := context.WithTimeout(ctx, apiServerTimeout)
 	defer cancel()
 
@@ -112,9 +106,6 @@ func (p *Peers) updatePeers(ctx context.Context, ignoreError bool) {
 			p.peerList = &v1.NodeList{}
 		}
 		p.log.Error(err, "failed to update peer list")
-		if ignoreError {
-			return
-		}
 		if isHealthy := p.handleError(err); !isHealthy {
 			// we have a problem on this node
 			p.log.Error(err, "we are unhealthy, triggering a reboot")
@@ -127,7 +118,7 @@ func (p *Peers) updatePeers(ctx context.Context, ignoreError bool) {
 		return
 	}
 	// reset error count after a successful API call!
-	p.resetErrorState()
+	p.errorCount = 0
 	//p.log.Info("peers updated")
 	p.peerList = nodes
 }
@@ -136,15 +127,7 @@ func (p *Peers) updatePeers(ctx context.Context, ignoreError bool) {
 // time, ask peers if this node is healthy. Returns if the node is considered to be healthy or not.
 func (p *Peers) handleError(newError error) bool {
 
-	//we don't want to increase the err count too quick
-	if !p.lastErrorAt.IsZero() && time.Now().Before(p.lastErrorAt.Add(p.ignoreNewErrorsFor)) {
-		p.log.Info("Ignoring error, it came too fast after the last one", "error", newError)
-		return true
-	}
-
-	p.lastErrorAt = time.Now()
 	p.errorCount++
-
 	if p.errorCount < p.maxErrorsThreshold {
 		p.log.Info("Ignoring api-server error, error count below threshold", "current count", p.errorCount, "threshold", p.maxErrorsThreshold)
 		return true
@@ -159,6 +142,7 @@ func (p *Peers) handleError(newError error) bool {
 	}
 
 	apiErrorsResponsesSum := 0
+	// nodesToAsk is being reduced in every iteration, iterate until no nodes left to ask
 	for i := 0; len(nodesToAsk) > 0; i++ {
 
 		// start asking a few nodes only in first iteration to cover the case we get a healthy / unhealthy result
@@ -169,9 +153,6 @@ func (p *Peers) handleError(newError error) bool {
 			if nodesBatchCount == 0 {
 				nodesBatchCount = 1
 			}
-		}
-		if nodesBatchCount == 0 {
-			nodesBatchCount = 1
 		}
 
 		chosenNodesAddresses := p.popNodes(&nodesToAsk, nodesBatchCount)
@@ -186,7 +167,7 @@ func (p *Peers) handleError(newError error) bool {
 
 		if healthyResponses > 0 {
 			p.log.Info("Peer told me I'm healthy.")
-			p.resetErrorState()
+			p.errorCount = 0
 			return true
 		}
 
@@ -296,9 +277,4 @@ func (p *Peers) sumPeersResponses(nodesBatchCount int, responsesChan chan poison
 	}
 
 	return healthyResponses, unhealthyResponses, apiErrorsResponses, noResponse
-}
-
-func (p *Peers) resetErrorState() {
-	p.lastErrorAt = time.Time{}
-	p.errorCount = 0
 }
