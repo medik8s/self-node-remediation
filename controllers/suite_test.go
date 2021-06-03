@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -49,6 +50,12 @@ var testEnv *envtest.Environment
 var dummyDog watchdog.Watchdog
 var apiReaderWrapper ApiReaderWrapper
 
+const (
+	envVarApiServer = "TEST_ASSET_KUBE_APISERVER"
+	envVarETCD      = "TEST_ASSET_ETCD"
+	envVarKUBECTL   = "TEST_ASSET_KUBECTL"
+)
+
 type ApiReaderWrapper struct {
 	apiReader             client.Reader
 	ShouldSimulateFailure bool
@@ -78,6 +85,16 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	if _, isFound := os.LookupEnv(envVarApiServer); !isFound {
+		Expect(os.Setenv(envVarApiServer, "../testbin/bin/kube-apiserver")).To(Succeed())
+	}
+	if _, isFound := os.LookupEnv(envVarETCD); !isFound {
+		Expect(os.Setenv(envVarETCD, "../testbin/bin/etcd")).To(Succeed())
+	}
+	if _, isFound := os.LookupEnv(envVarKUBECTL); !isFound {
+		Expect(os.Setenv(envVarKUBECTL, "../testbin/bin/kubectl")).To(Succeed())
+	}
+
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
 	By("bootstrapping test environment")
@@ -148,4 +165,8 @@ var _ = AfterSuite(func() {
 	By("tearing down the test environment")
 	err := testEnv.Stop()
 	Expect(err).NotTo(HaveOccurred())
+
+	Expect(os.Unsetenv(envVarApiServer)).To(Succeed())
+	Expect(os.Unsetenv(envVarETCD)).To(Succeed())
+	Expect(os.Unsetenv(envVarKUBECTL)).To(Succeed())
 })
