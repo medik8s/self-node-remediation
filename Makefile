@@ -77,7 +77,7 @@ fmt: ## Run go fmt against code.
 vet: ## Run go vet against code.
 	go vet ./...
 
-verify-no-changes: ## verify no there are no un-staged changes
+verify-no-changes: ## verify there are no un-staged changes
 	./hack/verify-diff.sh
 
 fetch-mutation: ## fetch mutation package.
