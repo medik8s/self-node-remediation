@@ -18,7 +18,7 @@ var (
 )
 
 // ensure we only have 1 instance
-var once sync.Once
+var mutex sync.Mutex
 var linuxWatchDogInstantiated = false
 
 var _ watchdogImpl = &linuxWatchdog{}
@@ -37,11 +37,13 @@ type watchdogInfo struct {
 }
 
 func NewLinux(log logr.Logger) (Watchdog, error) {
-
-	once.Do(func() { linuxWatchDogInstantiated = true })
+	mutex.Lock()
 	if linuxWatchDogInstantiated {
 		return nil, fmt.Errorf("linux watchdog already instantiated")
 	}
+
+	linuxWatchDogInstantiated = true
+	mutex.Unlock()
 
 	if _, err := os.Stat(watchdogDevice); err != nil {
 		if os.IsNotExist(err) {
