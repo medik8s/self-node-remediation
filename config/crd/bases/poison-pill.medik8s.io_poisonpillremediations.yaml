@@ -47,6 +47,7 @@ spec:
               nodeBackup:
                 description: NodeBackup is the node object that is going to be deleted
                   as part of the remediation process
+                nullable: true
                 properties:
                   apiVersion:
                     description: 'APIVersion defines the versioned schema of this

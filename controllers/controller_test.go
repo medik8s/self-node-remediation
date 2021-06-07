@@ -9,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"os"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"time"
@@ -88,10 +89,11 @@ var _ = Describe("ppr Controller", func() {
 			}, 5*time.Second, 250*time.Millisecond).ShouldNot(BeZero())
 		})
 
+		newPpr := &poisonpillv1alpha1.PoisonPillRemediation{}
 		It("Verify that node backup annotation matches the node", func() {
 			pprNamespacedName := client.ObjectKey{Name: nodeName, Namespace: pprNamespace}
 			time.Sleep(time.Second * 10)
-			newPpr := &poisonpillv1alpha1.PoisonPillRemediation{}
+
 			Expect(k8sClient.Get(context.TODO(), pprNamespacedName, newPpr)).To(Succeed())
 			Expect(newPpr.Status.NodeBackup).ToNot(BeNil(), "node backup should exist")
 			nodeToRestore := newPpr.Status.NodeBackup
@@ -103,6 +105,10 @@ var _ = Describe("ppr Controller", func() {
 			nodeToRestore.TypeMeta.Kind = "Node"
 			nodeToRestore.TypeMeta.APIVersion = "v1"
 			Expect(nodeToRestore).To(Equal(node))
+		})
+
+		It("Verify that finalizer was added", func() {
+			Expect(controllerutil.ContainsFinalizer(newPpr, pprFinalizer)).Should(BeTrue(), "finalizer should be added")
 		})
 
 		It("Verify that watchdog is not receiving food", func() {
@@ -143,6 +149,15 @@ var _ = Describe("ppr Controller", func() {
 				node = &v1.Node{}
 				Expect(k8sClient.Get(context.TODO(), nodeNamespacedName, node)).To(Succeed())
 				return node.Spec.Unschedulable
+			}, 5*time.Second, 250*time.Millisecond).Should(BeFalse())
+		})
+
+		It("Verify that finalizer was removed", func() {
+			Eventually(func() bool {
+				pprNamespacedName := client.ObjectKey{Name: nodeName, Namespace: pprNamespace}
+				newPpr := &poisonpillv1alpha1.PoisonPillRemediation{}
+				Expect(k8sClient.Get(context.TODO(), pprNamespacedName, newPpr)).To(Succeed())
+				return controllerutil.ContainsFinalizer(newPpr, pprFinalizer)
 			}, 5*time.Second, 250*time.Millisecond).Should(BeFalse())
 		})
 
