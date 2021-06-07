@@ -39,7 +39,6 @@ type Peers struct {
 	peerList           *v1.NodeList
 	peerSelector       labels.Selector
 	peerUpdateInterval time.Duration
-	ignoreNewErrorsFor time.Duration
 	maxErrorsThreshold int
 	myNodeName         string
 	rebooter           reboot.Rebooter
@@ -47,12 +46,11 @@ type Peers struct {
 	httpClient         *http.Client
 }
 
-func New(r reboot.Rebooter, peerUpdateInterval time.Duration, ignoreNewErrorsFor time.Duration, maxErrorsThreshold int, reader client.Reader, log logr.Logger) *Peers {
+func New(r reboot.Rebooter, peerUpdateInterval time.Duration, maxErrorsThreshold int, reader client.Reader, log logr.Logger) *Peers {
 	return &Peers{
 		Reader:             reader,
 		log:                log,
 		peerUpdateInterval: peerUpdateInterval,
-		ignoreNewErrorsFor: ignoreNewErrorsFor,
 		maxErrorsThreshold: maxErrorsThreshold,
 		myNodeName:         os.Getenv(nodeNameEnvVar),
 		rebooter:           r,
