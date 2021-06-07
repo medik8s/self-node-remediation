@@ -37,6 +37,7 @@ type PoisonPillRemediationStatus struct {
 	// +optional
 	// +kubebuilder:validation:EmbeddedResource
 	// +kubebuilder:pruning:PreserveUnknownFields
+	// +nullable
 	NodeBackup *v1.Node `json:"nodeBackup,omitempty"`
 
 	//TimeAssumedRebooted is the time by then the unhealthy node assumed to be rebooted
