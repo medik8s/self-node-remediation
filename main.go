@@ -110,7 +110,7 @@ func main() {
 		// TODO make the interval configurable?
 		// TODO use a long interval here, and do a seperate cheaper "healthcheck" with a lower interval in another loop?
 		// use API reader for not using the cache, which would prevent detecting API errors
-		myPeers := peers.New(rebooter, 5*time.Minute, 15*time.Second, 3, mgr.GetAPIReader(), ctrl.Log.WithName("peers"))
+		myPeers := peers.New(rebooter, 5*time.Minute, 3, mgr.GetAPIReader(), ctrl.Log.WithName("peers"))
 		if err = mgr.Add(myPeers); err != nil {
 			setupLog.Error(err, "failed to add peers to the manager")
 			os.Exit(1)
