@@ -113,9 +113,12 @@ func main() {
 
 		timeToAssumeNodeRebootedDur := time.Duration(timeToAssumeNodeRebootedInt) * time.Second
 
-		buffer := time.Second * 5
-		if timeToAssumeNodeRebootedDur < watchdog.GetTimeout()+buffer {
-			timeToAssumeNodeRebootedDur = watchdog.GetTimeout() + buffer
+		if watchdog != nil {
+			//if we use watchdog, let's make sure the timeout to delete a node is bigger than the wd timeout
+			buffer := time.Second * 5
+			if timeToAssumeNodeRebootedDur < watchdog.GetTimeout()+buffer {
+				timeToAssumeNodeRebootedDur = watchdog.GetTimeout() + buffer
+			}
 		}
 
 		if err = (&controllers.PoisonPillRemediationReconciler{
