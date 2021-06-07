@@ -163,12 +163,14 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{RequeueAfter: reconcileInterval}, nil
 	}
 
-	if !ppr.DeletionTimestamp.IsZero() {
-		r.logger.Info("ppr is about to be deleted, which means the resource is healthy again. taking no-op")
-		return ctrl.Result{RequeueAfter: reconcileInterval}, nil
-	}
-
 	if !controllerutil.ContainsFinalizer(ppr, pprFinalizer) {
+		if !ppr.DeletionTimestamp.IsZero() {
+			//ppr is going to be deleted before we started any remediation action, so taking no-op
+			//otherwise we continue the remediation even if the deletionTimestamp is not zero
+			r.logger.Info("ppr is about to be deleted, which means the resource is healthy again. taking no-op")
+			return ctrl.Result{RequeueAfter: reconcileInterval}, nil
+		}
+
 		controllerutil.AddFinalizer(ppr, pprFinalizer)
 		if err := r.Client.Update(context.Background(), ppr); err != nil {
 			r.logger.Error(err, "failed to add finalizer to ppr")
