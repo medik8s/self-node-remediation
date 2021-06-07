@@ -139,7 +139,7 @@ var _ = BeforeSuite(func() {
 
 	rebooter := reboot.NewWatchdogRebooter(dummyDog, ctrl.Log.WithName("rebooter"))
 
-	peers := peers.New(rebooter, peerUpdateInterval, 1*time.Second, 1, k8sClient, ctrl.Log.WithName("peers"))
+	peers := peers.New(rebooter, peerUpdateInterval, 1, k8sClient, ctrl.Log.WithName("peers"))
 	Expect(err).ToNot(HaveOccurred())
 
 	err = (&PoisonPillRemediationReconciler{
