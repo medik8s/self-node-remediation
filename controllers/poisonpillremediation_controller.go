@@ -30,6 +30,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"strconv"
 	"time"
 
@@ -50,6 +51,7 @@ const (
 	peersPort            = 30001
 	apiServerTimeout     = 5 * time.Second
 	peerTimeout          = 10 * time.Second
+	pprFinalizer         = "poison-pill.medik8s.io/ppr-finalizer"
 )
 
 var (
@@ -134,10 +136,45 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 	if node.CreationTimestamp.After(ppr.CreationTimestamp.Time) {
 		//this node was created after the node was reported as unhealthy
 		//we assume this is the new node after remediation and take no-op expecting the ppr to be deleted
+		if ppr.Status.NodeBackup != nil {
+			//TODO: this is an ugly hack. without it the api-server complains about
+			//missing apiVersion and Kind for the nodeBackup.
+			ppr.Status.NodeBackup = nil
+			if err := r.Client.Status().Update(context.Background(), ppr); err != nil {
+				r.logger.Error(err, "failed to remove node backup from ppr")
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{Requeue: true}, nil
+		}
+
 		r.logger.Info("node has been restored", "node name", node.Name)
+
+		//remove finalizer as remediation completed (successfully or not)
+		if controllerutil.ContainsFinalizer(ppr, pprFinalizer) {
+			controllerutil.RemoveFinalizer(ppr, pprFinalizer)
+			if err := r.Client.Update(context.Background(), ppr); err != nil {
+				r.logger.Error(err, "failed to remove finalizer from ppr")
+				return ctrl.Result{}, err
+			}
+		}
+
 		//todo this means we only allow one remediation attempt per ppr. we could add some config to
 		//ppr which states max remediation attempts, and the timeout to consider a remediation failed.
 		return ctrl.Result{RequeueAfter: reconcileInterval}, nil
+	}
+
+	if !ppr.DeletionTimestamp.IsZero() {
+		r.logger.Info("ppr is about to be deleted, which means the resource is healthy again. taking no-op")
+		return ctrl.Result{RequeueAfter: reconcileInterval}, nil
+	}
+
+	if !controllerutil.ContainsFinalizer(ppr, pprFinalizer) {
+		controllerutil.AddFinalizer(ppr, pprFinalizer)
+		if err := r.Client.Update(context.Background(), ppr); err != nil {
+			r.logger.Error(err, "failed to add finalizer to ppr")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	if !node.Spec.Unschedulable {
@@ -191,6 +228,7 @@ func (r *PoisonPillRemediationReconciler) updatePprStatus(node *v1.Node, ppr *v1
 	ppr.Status.TimeAssumedRebooted = &maxTimeNodeHasRebooted
 	ppr.Status.NodeBackup = node
 	ppr.Status.NodeBackup.Kind = node.GetObjectKind().GroupVersionKind().Kind
+	ppr.Status.NodeBackup.APIVersion = node.APIVersion
 
 	err := r.Client.Status().Update(context.Background(), ppr)
 	if err != nil {
