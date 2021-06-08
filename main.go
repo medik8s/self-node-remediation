@@ -37,6 +37,7 @@ import (
 
 	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
 	"github.com/medik8s/poison-pill/controllers"
+	"github.com/medik8s/poison-pill/pkg/apicheck"
 	pa "github.com/medik8s/poison-pill/pkg/peerassistant"
 	"github.com/medik8s/poison-pill/pkg/peers"
 	"github.com/medik8s/poison-pill/pkg/reboot"
@@ -117,13 +118,20 @@ func main() {
 		rebooter := reboot.NewWatchdogRebooter(watchdog, ctrl.Log.WithName("rebooter"))
 
 		// TODO make the interval configurable
-		// TODO use a long interval for peer updates, and do a separate cheaper "healthcheck" with a lower interval in another loop?
-		// use API reader for not using the cache, which would prevent detecting API errors
 		peerUpdateInterval := 15 * time.Second
-		maxErrorThreshold := 3
-		myPeers := peers.New(myNodeName, rebooter, peerUpdateInterval, maxErrorThreshold, mgr.GetAPIReader(), ctrl.Log.WithName("peers"))
+		myPeers := peers.New(myNodeName, peerUpdateInterval, mgr.GetClient(), ctrl.Log.WithName("peers"))
 		if err = mgr.Add(myPeers); err != nil {
 			setupLog.Error(err, "failed to add peers to the manager")
+			os.Exit(1)
+		}
+
+		// TODO make the interval and error threshold configurable?
+		apiCheckInterval := 15 * time.Second
+		maxErrorThreshold := 3
+		// use API reader for not using the cache, which would prevent detecting API errors
+		apiCheck := apicheck.New(myNodeName, myPeers, rebooter, apiCheckInterval, maxErrorThreshold, mgr.GetAPIReader(), ctrl.Log.WithName("api-check"))
+		if err = mgr.Add(apiCheck); err != nil {
+			setupLog.Error(err, "failed to add api-check to the manager")
 			os.Exit(1)
 		}
 
@@ -136,7 +144,7 @@ func main() {
 		timeToAssumeNodeRebooted := time.Duration(timeToAssumeNodeRebootedInt) * time.Second
 
 		// but the reboot time needs be at least the time we know we need for determining a node issue and trigger the reboot!
-		minTimeToAssumeNodeRebooted := time.Duration(maxErrorThreshold) * peerUpdateInterval
+		minTimeToAssumeNodeRebooted := time.Duration(maxErrorThreshold) * apiCheckInterval
 		// then add the watchdog timeout
 		if watchdog != nil {
 			minTimeToAssumeNodeRebooted += watchdog.GetTimeout()

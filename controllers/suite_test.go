@@ -19,7 +19,6 @@ package controllers
 import (
 	"context"
 	"errors"
-	"github.com/medik8s/poison-pill/pkg/reboot"
 	"os"
 	"path/filepath"
 	"testing"
@@ -39,7 +38,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
+	"github.com/medik8s/poison-pill/pkg/apicheck"
 	"github.com/medik8s/poison-pill/pkg/peers"
+	"github.com/medik8s/poison-pill/pkg/reboot"
 	"github.com/medik8s/poison-pill/pkg/watchdog"
 	//+kubebuilder:scaffold:imports
 )
@@ -57,7 +58,9 @@ const (
 	envVarETCD      = "TEST_ASSET_ETCD"
 	envVarKUBECTL   = "TEST_ASSET_KUBECTL"
 
-	peerUpdateInterval = 1 * time.Second
+	peerUpdateInterval = 30 * time.Second
+	apiCheckInterval   = 1 * time.Second
+	maxErrorThreshold  = 1
 )
 
 type K8sClientWrapper struct {
@@ -144,10 +147,11 @@ var _ = BeforeSuite(func() {
 
 	rebooter := reboot.NewWatchdogRebooter(dummyDog, ctrl.Log.WithName("rebooter"))
 
-	peers := peers.New(unhealthyNodeName, rebooter, peerUpdateInterval, 1, k8sClient, ctrl.Log.WithName("peers"))
-	Expect(err).ToNot(HaveOccurred())
+	peers := peers.New(unhealthyNodeName, peerUpdateInterval, k8sClient, ctrl.Log.WithName("peers"))
 
-	timeToAssumeNodeRebooted := peerUpdateInterval
+	apiCheck := apicheck.New(unhealthyNodeName, peers, rebooter, apiCheckInterval, maxErrorThreshold, k8sClient, ctrl.Log.WithName("api-check"))
+
+	timeToAssumeNodeRebooted := time.Duration(maxErrorThreshold) * apiCheckInterval
 	timeToAssumeNodeRebooted += dummyDog.GetTimeout()
 	timeToAssumeNodeRebooted += 5 * time.Second
 
@@ -173,6 +177,8 @@ var _ = BeforeSuite(func() {
 	err = k8sManager.Add(dummyDog)
 	Expect(err).ToNot(HaveOccurred())
 	err = k8sManager.Add(peers)
+	Expect(err).ToNot(HaveOccurred())
+	err = k8sManager.Add(apiCheck)
 	Expect(err).ToNot(HaveOccurred())
 
 	go func() {
