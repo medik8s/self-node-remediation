@@ -44,6 +44,10 @@ import (
 	//+kubebuilder:scaffold:imports
 )
 
+const (
+	nodeNameEnvVar = "MY_NODE_NAME"
+)
+
 var (
 	scheme   = runtime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
@@ -94,6 +98,11 @@ func main() {
 	if !isManager {
 		setupLog.Info("Starting as a poison pill agent that should run as part of the daemonset")
 
+		myNodeName := os.Getenv(nodeNameEnvVar)
+		if myNodeName == "" {
+			setupLog.Error(err, "failed to get own node name", "env var name", nodeNameEnvVar)
+		}
+
 		watchdog, err := watchdog.NewLinux(ctrl.Log.WithName("watchdog"))
 		if err != nil {
 			setupLog.Error(err, "failed to init watchdog, using soft reboot")
@@ -112,7 +121,7 @@ func main() {
 		// use API reader for not using the cache, which would prevent detecting API errors
 		peerUpdateInterval := 5 * time.Minute
 		maxErrorThreshold := 3
-		myPeers := peers.New(rebooter, peerUpdateInterval, maxErrorThreshold, mgr.GetAPIReader(), ctrl.Log.WithName("peers"))
+		myPeers := peers.New(myNodeName, rebooter, peerUpdateInterval, maxErrorThreshold, mgr.GetAPIReader(), ctrl.Log.WithName("peers"))
 		if err = mgr.Add(myPeers); err != nil {
 			setupLog.Error(err, "failed to add peers to the manager")
 			os.Exit(1)
@@ -145,6 +154,7 @@ func main() {
 			Scheme:                       mgr.GetScheme(),
 			Rebooter:                     rebooter,
 			SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
+			MyNodeName:                   myNodeName,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "PoisonPillRemediation")
 			os.Exit(1)
