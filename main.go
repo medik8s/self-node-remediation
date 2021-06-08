@@ -107,20 +107,44 @@ func main() {
 		// it's fine when the watchdog is nil!
 		rebooter := reboot.NewWatchdogRebooter(watchdog, ctrl.Log.WithName("rebooter"))
 
-		// TODO make the interval configurable?
-		// TODO use a long interval here, and do a seperate cheaper "healthcheck" with a lower interval in another loop?
+		// TODO make the interval configurable
+		// TODO use a long interval for peer updates, and do a separate cheaper "healthcheck" with a lower interval in another loop?
 		// use API reader for not using the cache, which would prevent detecting API errors
-		myPeers := peers.New(rebooter, 5*time.Minute, 3, mgr.GetAPIReader(), ctrl.Log.WithName("peers"))
+		peerUpdateInterval := 5 * time.Minute
+		maxErrorThreshold := 3
+		myPeers := peers.New(rebooter, peerUpdateInterval, maxErrorThreshold, mgr.GetAPIReader(), ctrl.Log.WithName("peers"))
 		if err = mgr.Add(myPeers); err != nil {
 			setupLog.Error(err, "failed to add peers to the manager")
 			os.Exit(1)
 		}
 
+		// determine safe reboot time
+		timeToAssumeNodeRebootedInt, err := strconv.Atoi(os.Getenv("TIME_TO_ASSUME_NODE_REBOOTED"))
+		if err != nil {
+			setupLog.Error(err, "failed to convert env variable TIME_TO_ASSUME_NODE_REBOOTED to int")
+			os.Exit(1)
+		}
+		timeToAssumeNodeRebooted := time.Duration(timeToAssumeNodeRebootedInt) * time.Second
+
+		// but the reboot time needs be at least the time we know we need for determining a node issue and trigger the reboot!
+		minTimeToAssumeNodeRebooted := time.Duration(maxErrorThreshold) * peerUpdateInterval
+		// then add the watchdog timeout
+		if watchdog != nil {
+			minTimeToAssumeNodeRebooted += watchdog.GetTimeout()
+		}
+		// and add some buffer
+		minTimeToAssumeNodeRebooted += 5 * time.Second
+
+		if timeToAssumeNodeRebooted < minTimeToAssumeNodeRebooted {
+			timeToAssumeNodeRebooted = minTimeToAssumeNodeRebooted
+		}
+
 		if err = (&controllers.PoisonPillRemediationReconciler{
-			Client:   mgr.GetClient(),
-			Log:      ctrl.Log.WithName("controllers").WithName("PoisonPillRemediation"),
-			Scheme:   mgr.GetScheme(),
-			Rebooter: rebooter,
+			Client:                       mgr.GetClient(),
+			Log:                          ctrl.Log.WithName("controllers").WithName("PoisonPillRemediation"),
+			Scheme:                       mgr.GetScheme(),
+			Rebooter:                     rebooter,
+			SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "PoisonPillRemediation")
 			os.Exit(1)
