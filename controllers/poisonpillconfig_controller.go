@@ -25,16 +25,13 @@ import (
 	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
 	"github.com/medik8s/poison-pill/pkg/apply"
 	"github.com/medik8s/poison-pill/pkg/render"
-	gerrors "github.com/pkg/errors"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
-
-const configCRName = "poison-pill-config"
 
 // PoisonPillConfigReconciler reconciles a PoisonPillConfig object
 type PoisonPillConfigReconciler struct {
@@ -57,7 +54,7 @@ func (r *PoisonPillConfigReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	config := &poisonpillv1alpha1.PoisonPillConfig{}
 	if err := r.Client.Get(context.Background(), req.NamespacedName, config); err != nil {
-		if errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "failed to fetch cr")
@@ -127,44 +124,4 @@ func (r *PoisonPillConfigReconciler) syncK8sResource(cr *poisonpillv1alpha1.Pois
 		return fmt.Errorf("failed to apply object %v with err: %v", in, err)
 	}
 	return nil
-}
-
-// NewConfigIfNotExist creates a new PoisonPillConfig object
-// to initialize the rest of the deployment objects creation.
-func NewConfigIfNotExist(c client.Client) error {
-	namespace, err := getWatchNamespace()
-	if err != nil {
-		return gerrors.Wrap(err, "unable to get WatchNamespace")
-	}
-
-	config := poisonpillv1alpha1.PoisonPillConfig{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      configCRName,
-			Namespace: namespace,
-		},
-		Spec: poisonpillv1alpha1.PoisonPillConfigSpec{
-			WatchdogFilePath:                    "/dev/watchdog1",
-			SafeTimeToAssumeNodeRebootedSeconds: 180,
-		},
-	}
-
-	err = c.Create(context.Background(), &config, &client.CreateOptions{})
-	if err != nil && !errors.IsAlreadyExists(err) {
-		return gerrors.Wrap(err, "failed to create a default poison pill config CR")
-	}
-	return nil
-}
-
-// getWatchNamespace returns the Namespace the operator should be watching for changes
-func getWatchNamespace() (string, error) {
-	// WatchNamespaceEnvVar is the constant for env variable WATCH_NAMESPACE
-	// which specifies the Namespace to watch.
-	// An empty value means the operator is running with cluster scope.
-	var watchNamespaceEnvVar = "WATCH_NAMESPACE"
-
-	ns, found := os.LookupEnv(watchNamespaceEnvVar)
-	if !found {
-		return "", fmt.Errorf("%s must be set", watchNamespaceEnvVar)
-	}
-	return ns, nil
 }
