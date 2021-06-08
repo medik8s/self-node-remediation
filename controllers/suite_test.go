@@ -47,21 +47,21 @@ import (
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
+var cfg *rest.Config
+var k8sClient *K8sClientWrapper
+var testEnv *envtest.Environment
+var dummyDog watchdog.Watchdog
+
 const (
+	envVarApiServer = "TEST_ASSET_KUBE_APISERVER"
+	envVarETCD      = "TEST_ASSET_ETCD"
+	envVarKUBECTL   = "TEST_ASSET_KUBECTL"
+
 	peerUpdateInterval = 1 * time.Second
 )
 
-var cfg *rest.Config
-var testEnv *envtest.Environment
-var dummyDog watchdog.Watchdog
-var k8sClient *K8sClientWrapper
-
 type K8sClientWrapper struct {
 	client.Client
-	envVarETCD      = "TEST_ASSET_ETCD"
-	envVarKUBECTL   = "TEST_ASSET_KUBECTL"
-)
-
 	ShouldSimulateFailure bool
 }
 

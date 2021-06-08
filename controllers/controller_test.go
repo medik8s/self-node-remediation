@@ -7,11 +7,11 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
+	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
 )
 
 const (
@@ -102,7 +102,8 @@ var _ = Describe("ppr Controller", func() {
 				return dummyDog.LastFoodTime()
 			}, 5*dummyDog.GetTimeout(), 1*time.Second).Should(Equal(currentLastFoodTime))
 		})
-		
+
+		// this triggers a reconcile! It might cause invalid test results...
 		//now := time.Now()
 		//It("Update ppr time to accelerate the progress", func() {
 		//	safeTimeToAssumeNodeRebooted := 90 * time.Second
