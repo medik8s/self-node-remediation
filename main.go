@@ -17,10 +17,16 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
+	"fmt"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/pkg/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -183,11 +189,21 @@ func main() {
 			setupLog.Error(err, "unable to create controller", "controller", "PoisonPillConfig")
 			os.Exit(1)
 		}
-		if err = controllers.NewConfigIfNotExist(mgr.GetClient()); err != nil {
+		ns, err := getDeploymentNamespace()
+		if err != nil {
+			setupLog.Error(err, "unable to get the deployment namespace")
+			os.Exit(1)
+		}
+		if err = (&poisonpillv1alpha1.PoisonPillConfig{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "PoisonPillConfig")
+			os.Exit(1)
+		}
+		if err = newConfigIfNotExist(mgr.GetClient(), ns); err != nil {
 			setupLog.Error(err, "failed to create a default poison pill config CR")
 			os.Exit(1)
 		}
 	}
+
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
@@ -204,4 +220,30 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+// newConfigIfNotExist creates a new PoisonPillConfig object
+// to initialize the rest of the deployment objects creation.
+func newConfigIfNotExist(c client.Client, namespace string) error {
+	config := poisonpillv1alpha1.NewDefaultPoisonPillConfig()
+	config.SetNamespace(namespace)
+	err := c.Create(context.Background(), &config, &client.CreateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		return errors.Wrap(err, "failed to create a default poison pill config CR")
+	}
+	return nil
+}
+
+// getDeploymentNamespace returns the Namespace this operator is deployed on.
+func getDeploymentNamespace() (string, error) {
+	// deployNamespaceEnvVar is the constant for env variable DEPLOYMENT_NAMESPACE
+	// which specifies the Namespace to watch.
+	// An empty value means the operator is running with cluster scope.
+	var deployNamespaceEnvVar = "DEPLOYMENT_NAMESPACE"
+
+	ns, found := os.LookupEnv(deployNamespaceEnvVar)
+	if !found {
+		return "", fmt.Errorf("%s must be set", deployNamespaceEnvVar)
+	}
+	return ns, nil
 }

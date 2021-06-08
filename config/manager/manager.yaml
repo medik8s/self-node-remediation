@@ -32,7 +32,7 @@ spec:
         image: controller:latest
         name: manager
         env:
-          - name: WATCH_NAMESPACE
+          - name: DEPLOYMENT_NAMESPACE
             valueFrom:
               fieldRef:
                 fieldPath: metadata.namespace
