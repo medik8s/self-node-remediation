@@ -312,7 +312,6 @@ func (r *PoisonPillRemediationReconciler) restoreNode(nodeToRestore *v1.Node) (c
 
 	if err := r.Client.Create(context.TODO(), nodeToRestore); err != nil {
 		if apiErrors.IsAlreadyExists(err) {
-			r.logger.Info("failed to restore node, already exists again")
 			// there is nothing we can do about it, stop reconciling
 			return ctrl.Result{}, nil
 		}
@@ -321,5 +320,5 @@ func (r *PoisonPillRemediationReconciler) restoreNode(nodeToRestore *v1.Node) (c
 	}
 
 	// all done, stop reconciling
-	return ctrl.Result{}, nil
+	return ctrl.Result{Requeue: true}, nil
 }
