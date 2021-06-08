@@ -1,7 +1,7 @@
 apiVersion: poison-pill.medik8s.io/v1alpha1
 kind: PoisonPillConfig
 metadata:
-  name: poisonpillconfig-sample
+  name: poison-pill-config
   namespace: poison-pill
 spec: {}
   # Add fields here

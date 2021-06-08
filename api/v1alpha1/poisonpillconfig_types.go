@@ -20,6 +20,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	configCRName                        = "poison-pill-config"
+	watchdogFilePath                    = "/dev/watchdog1"
+	safeTimeToAssumeNodeRebootedSeconds = 180
+)
+
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
@@ -71,4 +77,17 @@ type PoisonPillConfigList struct {
 
 func init() {
 	SchemeBuilder.Register(&PoisonPillConfig{}, &PoisonPillConfigList{})
+}
+
+// NewDefaultPoisonPillConfig returns a config object with name and sepc fields set.
+func NewDefaultPoisonPillConfig() PoisonPillConfig {
+	return PoisonPillConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: configCRName,
+		},
+		Spec: PoisonPillConfigSpec{
+			WatchdogFilePath:                    watchdogFilePath,
+			SafeTimeToAssumeNodeRebootedSeconds: safeTimeToAssumeNodeRebootedSeconds,
+		},
+	}
 }
