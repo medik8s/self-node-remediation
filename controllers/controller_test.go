@@ -7,24 +7,33 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
 )
 
 const (
-	nodeName     string = "node1"
-	pprNamespace string = "default"
+	unhealthyNodeName string = "node1"
+	peerNodeName      string = "node2"
+	pprNamespace      string = "default"
 )
 
 var _ = Describe("ppr Controller", func() {
 
-	nodeNamespacedName := client.ObjectKey{
-		Name:      nodeName,
+	unhealthyNodeNamespacedName := client.ObjectKey{
+		Name:      unhealthyNodeName,
 		Namespace: "",
 	}
+	peerNodeNamespacedName := client.ObjectKey{
+		Name:      peerNodeName,
+		Namespace: "",
+	}
+
+	ppr := &poisonpillv1alpha1.PoisonPillRemediation{}
 
 	Context("Unhealthy node with api-server access", func() {
 
@@ -32,21 +41,28 @@ var _ = Describe("ppr Controller", func() {
 			k8sClient.ShouldSimulateFailure = false
 		})
 
-		It("Check the node exists", func() {
-			node1 := &v1.Node{}
+		It("Check the unhealthy node exists", func() {
+			node := &v1.Node{}
 			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), nodeNamespacedName, node1)
+				return k8sClient.Get(context.TODO(), unhealthyNodeNamespacedName, node)
 			}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
+			Expect(node.Name).To(Equal(unhealthyNodeName))
+			Expect(node.CreationTimestamp).ToNot(BeZero())
+		})
 
-			Expect(node1.Name).To(Equal(nodeName))
-			Expect(node1.CreationTimestamp).ToNot(BeZero())
+		It("Check the peer node exists", func() {
+			node := &v1.Node{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), peerNodeNamespacedName, node)
+			}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
+			Expect(node.Name).To(Equal(peerNodeName))
+			Expect(node.CreationTimestamp).ToNot(BeZero())
 		})
 
 		beforePPR := time.Now()
 
-		It("Create ppr for node1", func() {
-			ppr := &poisonpillv1alpha1.PoisonPillRemediation{}
-			ppr.Name = nodeName
+		It("Create ppr for unhealthy node", func() {
+			ppr.Name = unhealthyNodeName
 			ppr.Namespace = pprNamespace
 			Expect(k8sClient.Create(context.TODO(), ppr)).To(Succeed(), "failed to create ppr CR")
 		})
@@ -54,7 +70,7 @@ var _ = Describe("ppr Controller", func() {
 		node := &v1.Node{}
 		It("Verify that node was marked as unschedulable ", func() {
 			Eventually(func() bool {
-				Expect(k8sClient.Get(context.TODO(), nodeNamespacedName, node)).To(Succeed())
+				Expect(k8sClient.Get(context.TODO(), unhealthyNodeNamespacedName, node)).To(Succeed())
 				return node.Spec.Unschedulable
 			}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
 		})
@@ -64,10 +80,9 @@ var _ = Describe("ppr Controller", func() {
 			Expect(k8sClient.Update(context.TODO(), node)).To(Succeed())
 		})
 
-		ppr := &poisonpillv1alpha1.PoisonPillRemediation{}
 		It("Verify that time has been added to PPR status", func() {
 			Eventually(func() *metav1.Time {
-				pprNamespacedName := client.ObjectKey{Name: nodeName, Namespace: pprNamespace}
+				pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
 
 				Expect(k8sClient.Get(context.TODO(), pprNamespacedName, ppr)).To(Succeed())
 				return ppr.Status.TimeAssumedRebooted
@@ -77,14 +92,14 @@ var _ = Describe("ppr Controller", func() {
 
 		newPpr := &poisonpillv1alpha1.PoisonPillRemediation{}
 		It("Verify that node backup annotation matches the node", func() {
-			pprNamespacedName := client.ObjectKey{Name: nodeName, Namespace: pprNamespace}
+			pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
 
 			Expect(k8sClient.Get(context.TODO(), pprNamespacedName, newPpr)).To(Succeed())
 			Expect(newPpr.Status.NodeBackup).ToNot(BeNil(), "node backup should exist")
 			nodeToRestore := newPpr.Status.NodeBackup
 
 			node = &v1.Node{}
-			Expect(k8sClient.Get(context.TODO(), nodeNamespacedName, node)).To(Succeed())
+			Expect(k8sClient.Get(context.TODO(), unhealthyNodeNamespacedName, node)).To(Succeed())
 
 			//todo why do we need the following 2 lines? this might be a bug
 			nodeToRestore.TypeMeta.Kind = "Node"
@@ -114,26 +129,18 @@ var _ = Describe("ppr Controller", func() {
 		//})
 
 		It("Verify that node has been deleted and restored", func() {
-			// in real world scenario, other nodes will take care for the rest of the test but
-			// in this test, we trick the node to recover itself after we already verified it
-			// tried to reboot
-
-			// stop rebooting yourself, we want you to recover the node
-			//shouldReboot = false
-
 			Eventually(func() time.Time {
-				err := k8sClient.Get(context.TODO(), nodeNamespacedName, node)
+				err := k8sClient.Get(context.TODO(), unhealthyNodeNamespacedName, node)
 				if err != nil {
 					return node.GetCreationTimestamp().Time
 				}
 				return beforePPR
 			}, 100*time.Second, 250*time.Millisecond).Should(BeTemporally(">", beforePPR))
-
 		})
 
 		It("Verify that node is not marked as unschedulable", func() {
 			Eventually(func() bool {
-				err := k8sClient.Get(context.TODO(), nodeNamespacedName, node)
+				err := k8sClient.Get(context.TODO(), unhealthyNodeNamespacedName, node)
 				if err != nil {
 					return true
 				}
@@ -141,11 +148,19 @@ var _ = Describe("ppr Controller", func() {
 			}, 5*time.Second, 250*time.Millisecond).Should(BeFalse())
 		})
 
-		It("Verify that finalizer was removed", func() {
+		It("Verify that finalizer was removed and PPR can be deleted", func() {
+
+			// simulate health checker trying to delete the PPR because the node recovered
+			Expect(k8sClient.Delete(context.TODO(), ppr)).ToNot(HaveOccurred(), "failed to delete PPR")
+
 			Eventually(func() bool {
-				pprNamespacedName := client.ObjectKey{Name: nodeName, Namespace: pprNamespace}
+				pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
 				newPpr := &poisonpillv1alpha1.PoisonPillRemediation{}
-				Expect(k8sClient.Get(context.TODO(), pprNamespacedName, newPpr)).To(Succeed())
+				err := k8sClient.Get(context.TODO(), pprNamespacedName, newPpr)
+				if errors.IsNotFound(err) {
+					// already deleted, so finalizer was removed
+					return false
+				}
 				return controllerutil.ContainsFinalizer(newPpr, pprFinalizer)
 			}, 5*time.Second, 250*time.Millisecond).Should(BeFalse())
 		})
@@ -160,7 +175,6 @@ var _ = Describe("ppr Controller", func() {
 			k8sClient.ShouldSimulateFailure = true
 		})
 
-		// TODO this does not happen, because there are no peers which confirm we're unhealthy...
 		It("Verify that watchdog is not receiving food after some time", func() {
 			lastFoodTime := dummyDog.LastFoodTime()
 			timeout := dummyDog.GetTimeout()
