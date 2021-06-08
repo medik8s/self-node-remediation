@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -32,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/medik8s/poison-pill/api/v1alpha1"
 	"github.com/medik8s/poison-pill/pkg/reboot"
@@ -40,7 +40,7 @@ import (
 
 const (
 	nodeNameEnvVar = "MY_NODE_NAME"
-	pprFinalizer         = "poison-pill.medik8s.io/ppr-finalizer"
+	pprFinalizer   = "poison-pill.medik8s.io/ppr-finalizer"
 )
 
 var (
@@ -136,7 +136,7 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 			//ppr is going to be deleted before we started any remediation action, so taking no-op
 			//otherwise we continue the remediation even if the deletionTimestamp is not zero
 			r.logger.Info("ppr is about to be deleted, which means the resource is healthy again. taking no-op")
-			return ctrl.Result{RequeueAfter: reconcileInterval}, nil
+			return ctrl.Result{}, nil
 		}
 
 		controllerutil.AddFinalizer(ppr, pprFinalizer)
