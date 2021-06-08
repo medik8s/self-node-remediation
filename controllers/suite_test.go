@@ -128,29 +128,45 @@ var _ = BeforeSuite(func() {
 
 	// peers need their own node on start
 	node1 := &v1.Node{}
-	node1.Name = nodeName
+	node1.Name = unhealthyNodeName
 	node1.Labels = make(map[string]string)
-	node1.Labels["kubernetes.io/hostname"] = nodeName
-	Expect(k8sClient.Create(context.Background(), node1)).To(Succeed(), "failed to create node")
-	Expect(os.Setenv(nodeNameEnvVar, node1.Name)).To(Succeed(), "failed to set env variable of the node name")
+	node1.Labels["kubernetes.io/hostname"] = unhealthyNodeName
+	Expect(k8sClient.Create(context.Background(), node1)).To(Succeed(), "failed to create unhealthy node")
+
+	node2 := &v1.Node{}
+	node2.Name = peerNodeName
+	node2.Labels = make(map[string]string)
+	node2.Labels["kubernetes.io/hostname"] = peerNodeName
+	Expect(k8sClient.Create(context.Background(), node2)).To(Succeed(), "failed to create peer node")
 
 	dummyDog, err = watchdog.NewFake(ctrl.Log.WithName("fake watchdog"))
 	Expect(err).ToNot(HaveOccurred())
 
 	rebooter := reboot.NewWatchdogRebooter(dummyDog, ctrl.Log.WithName("rebooter"))
 
-	peers := peers.New(rebooter, peerUpdateInterval, 1, k8sClient, ctrl.Log.WithName("peers"))
+	peers := peers.New(unhealthyNodeName, rebooter, peerUpdateInterval, 1, k8sClient, ctrl.Log.WithName("peers"))
 	Expect(err).ToNot(HaveOccurred())
 
 	timeToAssumeNodeRebooted := peerUpdateInterval
 	timeToAssumeNodeRebooted += dummyDog.GetTimeout()
 	timeToAssumeNodeRebooted += 5 * time.Second
 
+	// reconciler for unhealthy node
 	err = (&PoisonPillRemediationReconciler{
 		Client:                       k8sClient,
-		Log:                          ctrl.Log.WithName("controllers").WithName("poison-pill-controller"),
+		Log:                          ctrl.Log.WithName("controllers").WithName("poison-pill-controller").WithName("unhealthy node"),
 		Rebooter:                     rebooter,
 		SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
+		MyNodeName:                   unhealthyNodeName,
+	}).SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	// reconciler for peer node
+	err = (&PoisonPillRemediationReconciler{
+		Client:                       k8sClient,
+		Log:                          ctrl.Log.WithName("controllers").WithName("poison-pill-controller").WithName("peer node"),
+		SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
+		MyNodeName:                   peerNodeName,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
@@ -158,8 +174,6 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 	err = k8sManager.Add(peers)
 	Expect(err).ToNot(HaveOccurred())
-
-	myNodeName = "node1"
 
 	go func() {
 		defer GinkgoRecover()
