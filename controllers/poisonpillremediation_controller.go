@@ -19,7 +19,6 @@ package controllers
 import (
 	"context"
 	"errors"
-	"os"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -39,12 +38,10 @@ import (
 )
 
 const (
-	nodeNameEnvVar = "MY_NODE_NAME"
-	pprFinalizer   = "poison-pill.medik8s.io/ppr-finalizer"
+	pprFinalizer = "poison-pill.medik8s.io/ppr-finalizer"
 )
 
 var (
-	myNodeName             = os.Getenv(nodeNameEnvVar)
 	NodeUnschedulableTaint = &v1.Taint{
 		Key:    "node.kubernetes.io/unschedulable",
 		Effect: v1.TaintEffectNoSchedule,
@@ -62,6 +59,7 @@ type PoisonPillRemediationReconciler struct {
 	// note that this time must include the time for a unhealthy node without api-server access to reach the conclusion that it's unhealthy
 	// this should be at least worst-case time to reach a conclusion from the other peers * request context timeout + watchdog interval + maxFailuresThreshold * reconcileInterval + padding
 	SafeTimeToAssumeNodeRebooted time.Duration
+	MyNodeName                   string
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -166,16 +164,14 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 	maxNodeRebootTime := ppr.Status.TimeAssumedRebooted
 
 	if maxNodeRebootTime.After(time.Now()) {
-		if myNodeName == node.Name {
+		if r.MyNodeName == node.Name {
 			// we have a problem on this node
 			if err := r.Rebooter.Reboot(); err != nil {
 				// re-queue
 				return ctrl.Result{}, err
 			} else {
 				// we are done for now, node will reboot
-				// TODO requeue for unit test only, so the controller on the affected "node" cares about itself?
-				// on the other hand, we will just retrigger reboot... so it doesn't hurt
-				//return ctrl.Result{}, nil
+				return ctrl.Result{}, nil
 			}
 		}
 		return ctrl.Result{RequeueAfter: maxNodeRebootTime.Sub(time.Now()) + time.Second}, nil
