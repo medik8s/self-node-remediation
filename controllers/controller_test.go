@@ -8,7 +8,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -149,18 +148,10 @@ var _ = Describe("ppr Controller", func() {
 		})
 
 		It("Verify that finalizer was removed and PPR can be deleted", func() {
-
-			// simulate health checker trying to delete the PPR because the node recovered
-			Expect(k8sClient.Delete(context.TODO(), ppr)).ToNot(HaveOccurred(), "failed to delete PPR")
-
 			Eventually(func() bool {
 				pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
 				newPpr := &poisonpillv1alpha1.PoisonPillRemediation{}
-				err := k8sClient.Get(context.TODO(), pprNamespacedName, newPpr)
-				if errors.IsNotFound(err) {
-					// already deleted, so finalizer was removed
-					return false
-				}
+				Expect(k8sClient.Get(context.TODO(), pprNamespacedName, newPpr)).ToNot(HaveOccurred())
 				return controllerutil.ContainsFinalizer(newPpr, pprFinalizer)
 			}, 5*time.Second, 250*time.Millisecond).Should(BeFalse())
 		})
