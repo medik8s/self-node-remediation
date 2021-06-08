@@ -258,10 +258,10 @@ func (p *Peers) sumPeersResponses(nodesBatchCount int, responsesChan chan poison
 
 		switch response {
 		case poisonPill.Unhealthy:
-			healthyResponses++
+			unhealthyResponses++
 			break
 		case poisonPill.Healthy:
-			unhealthyResponses++
+			healthyResponses++
 			break
 		case poisonPill.ApiError:
 			apiErrorsResponses++

@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 const (
@@ -35,13 +36,18 @@ func init() {
 }
 
 func isHealthy(nodeName string) poisonPillApis.HealthCheckResponse {
+	log := zap.New().WithName("health-checker")
+	log.Info("checking health for", "node", nodeName)
 	_, err := client.Resource(pprRes).Namespace(pprNamespace).Get(context.TODO(), nodeName, metav1.GetOptions{})
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
+			log.Info("healthy")
 			return poisonPillApis.Healthy
 		}
+		log.Info("api errror")
 		return poisonPillApis.ApiError
 	}
 
+	log.Info("unhealthy")
 	return poisonPillApis.Unhealthy
 }
