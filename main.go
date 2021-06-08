@@ -183,6 +183,10 @@ func main() {
 			setupLog.Error(err, "unable to create controller", "controller", "PoisonPillConfig")
 			os.Exit(1)
 		}
+		if err = controllers.NewConfigIfNotExist(mgr.GetClient()); err != nil {
+			setupLog.Error(err, "failed to create a default poison pill config CR")
+			os.Exit(1)
+		}
 	}
 	//+kubebuilder:scaffold:builder
 
