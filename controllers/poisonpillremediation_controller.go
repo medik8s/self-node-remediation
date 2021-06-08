@@ -39,8 +39,7 @@ import (
 )
 
 const (
-	nodeNameEnvVar   = "MY_NODE_NAME"
-	apiServerTimeout = 5 * time.Second
+	nodeNameEnvVar = "MY_NODE_NAME"
 	pprFinalizer         = "poison-pill.medik8s.io/ppr-finalizer"
 )
 
@@ -60,6 +59,9 @@ type PoisonPillRemediationReconciler struct {
 	logger   logr.Logger
 	Scheme   *runtime.Scheme
 	Rebooter reboot.Rebooter
+	// note that this time must include the time for a unhealthy node without api-server access to reach the conclusion that it's unhealthy
+	// this should be at least worst-case time to reach a conclusion from the other peers * request context timeout + watchdog interval + maxFailuresThreshold * reconcileInterval + padding
+	SafeTimeToAssumeNodeRebooted time.Duration
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -200,7 +202,6 @@ func (r *PoisonPillRemediationReconciler) updatePprStatus(node *v1.Node, ppr *v1
 	r.logger.Info("updating ppr with node backup and updating time to assume node has been rebooted", "node name", node.Name)
 	//we assume the unhealthy node will be rebooted by maxTimeNodeHasRebooted
 	maxTimeNodeHasRebooted := metav1.NewTime(metav1.Now().Add(r.SafeTimeToAssumeNodeRebooted))
-	//todo once we let the user config these values we need to make sure that SafeTimeToAssumeNodeRebooted >> watchdog timeout
 	ppr.Status.TimeAssumedRebooted = &maxTimeNodeHasRebooted
 	ppr.Status.NodeBackup = node
 	ppr.Status.NodeBackup.Kind = node.GetObjectKind().GroupVersionKind().Kind

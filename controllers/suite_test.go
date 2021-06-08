@@ -142,11 +142,15 @@ var _ = BeforeSuite(func() {
 	peers := peers.New(rebooter, peerUpdateInterval, 1, k8sClient, ctrl.Log.WithName("peers"))
 	Expect(err).ToNot(HaveOccurred())
 
+	timeToAssumeNodeRebooted := peerUpdateInterval
+	timeToAssumeNodeRebooted += dummyDog.GetTimeout()
+	timeToAssumeNodeRebooted += 5 * time.Second
+
 	err = (&PoisonPillRemediationReconciler{
-		Client:   k8sClient,
-		Log:      ctrl.Log.WithName("controllers").WithName("poison-pill-controller"),
-		Rebooter: rebooter,
-		SafeTimeToAssumeNodeRebooted: 90 * time.Second,
+		Client:                       k8sClient,
+		Log:                          ctrl.Log.WithName("controllers").WithName("poison-pill-controller"),
+		Rebooter:                     rebooter,
+		SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
