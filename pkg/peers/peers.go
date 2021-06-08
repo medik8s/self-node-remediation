@@ -102,7 +102,7 @@ func (p *Peers) updatePeers(ctx context.Context) {
 			p.peerList = &v1.NodeList{}
 		}
 		p.log.Error(err, "failed to update peer list")
-		if isHealthy := p.handleError(err); !isHealthy {
+		if isHealthy := p.handleError(); !isHealthy {
 			// we have a problem on this node
 			p.log.Error(err, "we are unhealthy, triggering a reboot")
 			if err := p.rebooter.Reboot(); err != nil {
@@ -121,7 +121,7 @@ func (p *Peers) updatePeers(ctx context.Context) {
 
 // HandleError keeps track of the number of errors reported, and when a certain amount of error occur within a certain
 // time, ask peers if this node is healthy. Returns if the node is considered to be healthy or not.
-func (p *Peers) handleError(newError error) bool {
+func (p *Peers) handleError() bool {
 
 	p.errorCount++
 	if p.errorCount < p.maxErrorsThreshold {
