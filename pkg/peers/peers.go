@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 
@@ -23,7 +22,6 @@ import (
 )
 
 const (
-	nodeNameEnvVar    = "MY_NODE_NAME"
 	hostnameLabelName = "kubernetes.io/hostname"
 
 	// TODO make some of this configurable?
@@ -46,13 +44,13 @@ type Peers struct {
 	httpClient         *http.Client
 }
 
-func New(r reboot.Rebooter, peerUpdateInterval time.Duration, maxErrorsThreshold int, reader client.Reader, log logr.Logger) *Peers {
+func New(myNodeName string, r reboot.Rebooter, peerUpdateInterval time.Duration, maxErrorsThreshold int, reader client.Reader, log logr.Logger) *Peers {
 	return &Peers{
 		Reader:             reader,
 		log:                log,
 		peerUpdateInterval: peerUpdateInterval,
 		maxErrorsThreshold: maxErrorsThreshold,
-		myNodeName:         os.Getenv(nodeNameEnvVar),
+		myNodeName:         myNodeName,
 		rebooter:           r,
 		httpClient:         &http.Client{Timeout: peerTimeout},
 	}
@@ -204,7 +202,12 @@ func (p *Peers) popNodes(nodes *[]v1.Node, count int) []string {
 	//todo maybe we should pick nodes randomly rather than relying on the order returned from api-server
 	addresses := make([]string, count)
 	for i := 0; i < count; i++ {
-		addresses[i] = (*nodes)[i].Status.Addresses[0].Address //todo node might have multiple addresses or none
+		node := (*nodes)[i]
+		if len(node.Status.Addresses) == 0 || node.Status.Addresses[0].Address == "" {
+			p.log.Info("could not get address from node", "node", node.Name)
+			continue
+		}
+		addresses[i] = node.Status.Addresses[0].Address //todo node might have multiple addresses or none
 	}
 
 	*nodes = (*nodes)[count:] //remove popped nodes from the list
