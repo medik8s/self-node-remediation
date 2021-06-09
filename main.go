@@ -119,7 +119,7 @@ func main() {
 		// TODO make the interval configurable
 		// TODO use a long interval for peer updates, and do a separate cheaper "healthcheck" with a lower interval in another loop?
 		// use API reader for not using the cache, which would prevent detecting API errors
-		peerUpdateInterval := 5 * time.Minute
+		peerUpdateInterval := 15 * time.Second
 		maxErrorThreshold := 3
 		myPeers := peers.New(myNodeName, rebooter, peerUpdateInterval, maxErrorThreshold, mgr.GetAPIReader(), ctrl.Log.WithName("peers"))
 		if err = mgr.Add(myPeers); err != nil {
