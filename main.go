@@ -129,7 +129,7 @@ func main() {
 		apiCheckInterval := 15 * time.Second
 		maxErrorThreshold := 3
 		// use API reader for not using the cache, which would prevent detecting API errors
-		apiCheck := apicheck.New(myNodeName, myPeers, rebooter, apiCheckInterval, maxErrorThreshold, mgr.GetAPIReader(), ctrl.Log.WithName("api-check"))
+		apiCheck := apicheck.New(myNodeName, myPeers, rebooter, apiCheckInterval, maxErrorThreshold, mgr.GetConfig(), ctrl.Log.WithName("api-check"))
 		if err = mgr.Add(apiCheck); err != nil {
 			setupLog.Error(err, "failed to add api-check to the manager")
 			os.Exit(1)

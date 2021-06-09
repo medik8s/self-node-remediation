@@ -11,7 +11,9 @@ import (
 	"github.com/go-logr/logr"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	poisonPill "github.com/medik8s/poison-pill/api"
@@ -36,19 +38,20 @@ type ApiConnectivityCheck struct {
 	myNodeName         string
 	peers              *peers.Peers
 	rebooter           reboot.Rebooter
+	cfg                *rest.Config
 	httpClient         *http.Client
 	nodeKey            client.ObjectKey
 }
 
-func New(myNodeName string, p *peers.Peers, r reboot.Rebooter, checkInterval time.Duration, maxErrorsThreshold int, reader client.Reader, log logr.Logger) *ApiConnectivityCheck {
+func New(myNodeName string, p *peers.Peers, r reboot.Rebooter, checkInterval time.Duration, maxErrorsThreshold int, cfg *rest.Config, log logr.Logger) *ApiConnectivityCheck {
 	return &ApiConnectivityCheck{
-		Reader:             reader,
 		log:                log,
 		myNodeName:         myNodeName,
 		checkInterval:      checkInterval,
 		maxErrorsThreshold: maxErrorsThreshold,
 		peers:              p,
 		rebooter:           r,
+		cfg:                cfg,
 		httpClient:         &http.Client{Timeout: peerTimeout},
 		nodeKey: client.ObjectKey{
 			Name: myNodeName,
@@ -58,43 +61,46 @@ func New(myNodeName string, p *peers.Peers, r reboot.Rebooter, checkInterval tim
 
 func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 
+	cs, err := clientset.NewForConfig(c.cfg)
+	if err != nil {
+		return err
+	}
+	client := cs.RESTClient()
+
 	go wait.UntilWithContext(ctx, func(ctx context.Context) {
-		c.checkApi(ctx)
+
+		readerCtx, cancel := context.WithTimeout(ctx, apiServerTimeout)
+		defer cancel()
+
+		result, err := client.Verb(http.MethodGet).RequestURI("/readyz").Do(readerCtx).Raw()
+		if err != nil || string(result) != "ok" {
+			c.log.Error(err, "failed to check api server")
+			if isHealthy := c.handleError(); !isHealthy {
+				// we have a problem on this node
+				c.log.Error(err, "we are unhealthy, triggering a reboot")
+				if err := c.rebooter.Reboot(); err != nil {
+					c.log.Error(err, "failed to trigger reboot")
+				}
+			} else {
+				c.log.Error(err, "peers did not confirm that we are unhealthy, ignoring error")
+			}
+			return
+		}
+
+		// reset error count after a successful API call
+		c.errorCount = 0
+
 	}, c.checkInterval)
 
-	c.log.Info("api connectivty check started")
+	c.log.Info("api connectivity check started")
 
 	<-ctx.Done()
 	return nil
 }
 
-func (c *ApiConnectivityCheck) checkApi(ctx context.Context) {
-	readerCtx, cancel := context.WithTimeout(ctx, apiServerTimeout)
-	defer cancel()
-
-	// get our own node as api server check
-	// TODO check if there is a cheaper call
-	node := &v1.Node{}
-	if err := c.Get(readerCtx, c.nodeKey, node); err != nil {
-		c.log.Error(err, "failed to check api server")
-		if isHealthy := c.handleError(err); !isHealthy {
-			// we have a problem on this node
-			c.log.Error(err, "we are unhealthy, triggering a reboot")
-			if err := c.rebooter.Reboot(); err != nil {
-				c.log.Error(err, "failed to trigger reboot")
-			}
-		} else {
-			c.log.Error(err, "peers did not confirm that we are unhealthy, ignoring error")
-		}
-		return
-	}
-	// reset error count after a successful API call!
-	c.errorCount = 0
-}
-
 // HandleError keeps track of the number of errors reported, and when a certain amount of error occur within a certain
 // time, ask peers if this node is healthy. Returns if the node is considered to be healthy or not.
-func (c *ApiConnectivityCheck) handleError(newError error) bool {
+func (c *ApiConnectivityCheck) handleError() bool {
 
 	c.errorCount++
 	if c.errorCount < c.maxErrorsThreshold {
