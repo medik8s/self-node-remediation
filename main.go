@@ -118,7 +118,7 @@ func main() {
 		rebooter := reboot.NewWatchdogRebooter(watchdog, ctrl.Log.WithName("rebooter"))
 
 		// TODO make the interval configurable
-		peerUpdateInterval := 15 * time.Second
+		peerUpdateInterval := 15 * time.Minute
 		myPeers := peers.New(myNodeName, peerUpdateInterval, mgr.GetClient(), ctrl.Log.WithName("peers"))
 		if err = mgr.Add(myPeers); err != nil {
 			setupLog.Error(err, "failed to add peers to the manager")
