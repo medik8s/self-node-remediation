@@ -44,12 +44,9 @@ spec:
           name: p-pill-port
           protocol: TCP
         resources:
-          limits:
-            cpu: 100m
-            memory: 30Mi
           requests:
             cpu: 100m
-            memory: 20Mi
+            memory: 50Mi
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
       dnsPolicy: ClusterFirst
