@@ -23,7 +23,6 @@ import (
 	"github.com/medik8s/poison-pill/pkg/reboot"
 )
 
-
 type ApiConnectivityCheck struct {
 	client.Reader
 	config      *ApiConnectivityCheckConfig
