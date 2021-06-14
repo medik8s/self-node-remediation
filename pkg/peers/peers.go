@@ -35,6 +35,7 @@ func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Read
 	return &Peers{
 		Reader:             reader,
 		log:                log,
+		peerList:           &v1.NodeList{},
 		peerUpdateInterval: peerUpdateInterval,
 		myNodeName:         myNodeName,
 		mutex:              sync.Mutex{},

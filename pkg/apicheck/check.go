@@ -65,16 +65,26 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	client := cs.RESTClient()
+	restClient := cs.RESTClient()
 
 	go wait.UntilWithContext(ctx, func(ctx context.Context) {
 
 		readerCtx, cancel := context.WithTimeout(ctx, apiServerTimeout)
 		defer cancel()
 
-		result, err := client.Verb(http.MethodGet).RequestURI("/readyz").Do(readerCtx).Raw()
-		if err != nil || string(result) != "ok" {
-			c.log.Error(err, "failed to check api server")
+		result := restClient.Verb(http.MethodGet).RequestURI("/readyz").Do(readerCtx)
+		failure := ""
+		if result.Error() != nil {
+			failure = fmt.Sprintf("api server readyz endpoint error: %v", result.Error())
+		} else {
+			statusCode := 0
+			result.StatusCode(&statusCode)
+			if statusCode != 200 {
+				failure = fmt.Sprintf("api server readyz endpoint status code: %v", statusCode)
+			}
+		}
+		if failure != "" {
+			c.log.Error(fmt.Errorf(failure), "failed to check api server")
 			if isHealthy := c.handleError(); !isHealthy {
 				// we have a problem on this node
 				c.log.Error(err, "we are unhealthy, triggering a reboot")
