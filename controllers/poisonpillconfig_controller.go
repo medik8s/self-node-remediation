@@ -83,8 +83,18 @@ func (r *PoisonPillConfigReconciler) syncConfigDaemonSet(ppc *poisonpillv1alpha1
 	data := render.MakeRenderData()
 	data.Data["Image"] = os.Getenv("POISON_PILL_IMAGE")
 	data.Data["Namespace"] = ppc.Namespace
-	data.Data["WatchdogPath"] = ppc.Spec.WatchdogFilePath
-	data.Data["TimeToAssumeNodeRebooted"] = fmt.Sprintf("\"%d\"", ppc.Spec.SafeTimeToAssumeNodeRebootedSeconds)
+
+	watchdogPath := ppc.Spec.WatchdogFilePath
+	if watchdogPath == "" {
+		watchdogPath = "/dev/watchdog1"
+	}
+	data.Data["WatchdogPath"] = watchdogPath
+
+	timeToAssumeNodeRebooted := ppc.Spec.SafeTimeToAssumeNodeRebootedSeconds
+	if timeToAssumeNodeRebooted == 0 {
+		timeToAssumeNodeRebooted = 180
+	}
+	data.Data["TimeToAssumeNodeRebooted"] = fmt.Sprintf("\"%d\"", timeToAssumeNodeRebooted)
 
 	objs, err := render.RenderDir(r.InstallFileFolder, &data)
 	if err != nil {
