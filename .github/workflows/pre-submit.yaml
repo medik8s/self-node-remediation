@@ -21,3 +21,6 @@ jobs:
     - name: Build and test
       run: make manifests generate docker-build
 
+    - name: TestMutations
+      run: make test-mutation-ci
+
