@@ -46,7 +46,18 @@ var (
 		Key:    "node.kubernetes.io/unschedulable",
 		Effect: v1.TaintEffectNoSchedule,
 	}
+
+	lastSeenPprNamespace    string
+	isLastSeenPprWasMachine bool
 )
+
+func GetLastSeenPprNamespace() string {
+	return lastSeenPprNamespace
+}
+
+func IsLastSeenPprWasMachine() bool {
+	return isLastSeenPprWasMachine
+}
 
 // PoisonPillRemediationReconciler reconciles a PoisonPillRemediation object
 type PoisonPillRemediationReconciler struct {
@@ -88,6 +99,8 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 		r.logger.Error(err, "failed to get PPR")
 		return ctrl.Result{}, err
 	}
+
+	lastSeenPprNamespace = req.Namespace
 
 	node, err := r.getNodeFromPpr(ppr)
 	if err != nil {
@@ -223,6 +236,7 @@ func (r *PoisonPillRemediationReconciler) getNodeFromPpr(ppr *v1alpha1.PoisonPil
 
 	for _, ownerRef := range ppr.OwnerReferences {
 		if ownerRef.Kind == "Machine" {
+			isLastSeenPprWasMachine = true
 			return r.getNodeFromMachine(ownerRef, ppr.Namespace)
 		}
 	}
