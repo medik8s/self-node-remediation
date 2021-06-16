@@ -127,6 +127,7 @@ func (c *ApiConnectivityCheck) handleError() bool {
 	}
 
 	apiErrorsResponsesSum := 0
+	nrAllNodes := len(nodesToAsk)
 	// nodesToAsk is being reduced in every iteration, iterate until no nodes left to ask
 	for i := 0; len(nodesToAsk) > 0; i++ {
 
@@ -164,7 +165,7 @@ func (c *ApiConnectivityCheck) handleError() bool {
 		if apiErrorsResponses > 0 {
 			apiErrorsResponsesSum += apiErrorsResponses
 			//todo consider using [m|n]hc.spec.maxUnhealthy instead of 50%
-			if apiErrorsResponsesSum > len(c.peers.GetPeers().Items)/2 { //already reached more than 50% of the nodes and all of them returned api error
+			if apiErrorsResponsesSum > nrAllNodes/2 { //already reached more than 50% of the nodes and all of them returned api error
 				//assuming this is a control plane failure as others can't access api-server as well
 				c.log.Info("More than 50% of the nodes couldn't access the api-server, assuming this is a control plane failure")
 				return true
