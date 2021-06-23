@@ -74,6 +74,10 @@ var _ = Describe("ppc controller Test", func() {
 			envVars := getEnvVarMap(container.Env)
 			Expect(envVars["WATCHDOG_PATH"].Value).To(Equal(config.Spec.WatchdogFilePath))
 			Expect(envVars["TIME_TO_ASSUME_NODE_REBOOTED"].Value).To(Equal("123"))
+
+			Expect(len(ds.OwnerReferences)).To(Equal(1))
+			Expect(ds.OwnerReferences[0].Name).To(Equal(config.Name))
+			Expect(ds.OwnerReferences[0].Kind).To(Equal("PoisonPillConfig"))
 		})
 	})
 
