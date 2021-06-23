@@ -48,6 +48,6 @@ func (r *WatchdogRebooter) Reboot() error {
 // softwareReboot performs software reboot by running systemctl reboot
 func (r *WatchdogRebooter) softwareReboot() error {
 	// hostPID: true and privileged:true required to run this
-	rebootCmd := exec.Command("/usr/bin/nsenter", "-m/proc/1/ns/mnt", "/bin/systemctl", "reboot")
+	rebootCmd := exec.Command("/usr/bin/nsenter", "-m/proc/1/ns/mnt", "/bin/systemctl", "reboot", "--force", "--force")
 	return rebootCmd.Run()
 }
