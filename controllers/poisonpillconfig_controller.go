@@ -24,7 +24,6 @@ import (
 	"github.com/medik8s/poison-pill/pkg/apply"
 	"github.com/medik8s/poison-pill/pkg/render"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"os"
@@ -120,10 +119,6 @@ func (r *PoisonPillConfigReconciler) syncK8sResource(cr *poisonpillv1alpha1.Pois
 		}
 	}
 
-	if in.GetOwnerReferences() != nil {
-		r.Log.Info("found owner ref", "owners", in.GetOwnerReferences())
-		in.SetOwnerReferences([]metav1.OwnerReference{})
-	}
 	if err := apply.ApplyObject(context.TODO(), r.Client, in); err != nil {
 		return fmt.Errorf("failed to apply object %v with err: %v", in, err)
 	}
