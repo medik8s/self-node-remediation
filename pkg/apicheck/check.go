@@ -23,10 +23,8 @@ import (
 
 const (
 	// TODO make some of this configurable?
-	apiServerTimeout = 5 * time.Second
-	peerProtocol     = "http"
-	peerPort         = 30001
-	peerTimeout      = 10 * time.Second
+	peerProtocol = "http"
+	peerPort     = 30001
 )
 
 type ApiConnectivityCheck struct {
@@ -41,20 +39,34 @@ type ApiConnectivityCheck struct {
 	cfg                *rest.Config
 	httpClient         *http.Client
 	nodeKey            client.ObjectKey
+	apiServerTimeout   time.Duration
 }
 
-func New(myNodeName string, p *peers.Peers, r reboot.Rebooter, checkInterval time.Duration, maxErrorsThreshold int, cfg *rest.Config, log logr.Logger) *ApiConnectivityCheck {
+type ApiConnectivityCheckConfig struct {
+	Log                logr.Logger
+	MyNodeName         string
+	CheckInterval      time.Duration
+	MaxErrorsThreshold int
+	Peers              *peers.Peers
+	Rebooter           reboot.Rebooter
+	Cfg                *rest.Config
+	ApiServerTimeout   time.Duration
+	PeerTimeout        time.Duration
+}
+
+func New(config *ApiConnectivityCheckConfig) *ApiConnectivityCheck {
 	return &ApiConnectivityCheck{
-		log:                log,
-		myNodeName:         myNodeName,
-		checkInterval:      checkInterval,
-		maxErrorsThreshold: maxErrorsThreshold,
-		peers:              p,
-		rebooter:           r,
-		cfg:                cfg,
-		httpClient:         &http.Client{Timeout: peerTimeout},
+		log:                config.Log,
+		myNodeName:         config.MyNodeName,
+		checkInterval:      config.CheckInterval,
+		maxErrorsThreshold: config.MaxErrorsThreshold,
+		peers:              config.Peers,
+		rebooter:           config.Rebooter,
+		cfg:                config.Cfg,
+		httpClient:         &http.Client{Timeout: config.PeerTimeout},
+		apiServerTimeout:   config.ApiServerTimeout,
 		nodeKey: client.ObjectKey{
-			Name: myNodeName,
+			Name: config.MyNodeName,
 		},
 	}
 }
@@ -69,7 +81,7 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 
 	go wait.UntilWithContext(ctx, func(ctx context.Context) {
 
-		readerCtx, cancel := context.WithTimeout(ctx, apiServerTimeout)
+		readerCtx, cancel := context.WithTimeout(ctx, c.apiServerTimeout)
 		defer cancel()
 
 		result := restClient.Verb(http.MethodGet).RequestURI("/readyz").Do(readerCtx)
