@@ -125,18 +125,34 @@ func main() {
 
 		// TODO make the interval configurable
 		peerUpdateInterval := 15 * time.Minute
-		myPeers := peers.New(myNodeName, peerUpdateInterval, mgr.GetClient(), ctrl.Log.WithName("peers"))
+		peerApiServerTimeout := 5 * time.Second
+
+		myPeers := peers.New(myNodeName, peerUpdateInterval, mgr.GetClient(), ctrl.Log.WithName("peers"), peerApiServerTimeout)
 		if err = mgr.Add(myPeers); err != nil {
 			setupLog.Error(err, "failed to add peers to the manager")
 			os.Exit(1)
 		}
 
 		// TODO make the interval and error threshold configurable?
-		apiCheckInterval := 15 * time.Second
-		maxErrorThreshold := 3
-		// use API reader for not using the cache, which would prevent detecting API errors
-		apiCheck := apicheck.New(myNodeName, myPeers, rebooter, apiCheckInterval, maxErrorThreshold, mgr.GetConfig(), ctrl.Log.WithName("api-check"))
-		if err = mgr.Add(apiCheck); err != nil {
+		apiCheckInterval := 15 * time.Second //the frequency for api-server connectivity check
+		maxErrorThreshold := 3               //after this threshold, the node will start contacting its peers
+		apiServerTimeout := 5 * time.Second  //timeout for each api-connectivity check
+		peerTimeout := 5 * time.Second       //timeout for each peer request
+
+		apiConnectivityCheckConfig := &apicheck.ApiConnectivityCheckConfig{
+			Log:                ctrl.Log.WithName("api-check"),
+			MyNodeName:         myNodeName,
+			CheckInterval:      apiCheckInterval,
+			MaxErrorsThreshold: maxErrorThreshold,
+			Peers:              myPeers,
+			Rebooter:           rebooter,
+			Cfg:                mgr.GetConfig(),
+			ApiServerTimeout:   apiServerTimeout,
+			PeerTimeout:        peerTimeout,
+		}
+
+		apiChecker := apicheck.New(apiConnectivityCheckConfig)
+		if err = mgr.Add(apiChecker); err != nil {
 			setupLog.Error(err, "failed to add api-check to the manager")
 			os.Exit(1)
 		}
@@ -150,17 +166,19 @@ func main() {
 		timeToAssumeNodeRebooted := time.Duration(timeToAssumeNodeRebootedInt) * time.Second
 
 		// but the reboot time needs be at least the time we know we need for determining a node issue and trigger the reboot!
-		minTimeToAssumeNodeRebooted := time.Duration(maxErrorThreshold) * apiCheckInterval
+		minTimeToAssumeNodeRebooted := (apiCheckInterval + apiServerTimeout)*time.Duration(maxErrorThreshold) +
+			peerApiServerTimeout + (10+1)*peerTimeout
 		// then add the watchdog timeout
 		if watchdog != nil {
 			minTimeToAssumeNodeRebooted += watchdog.GetTimeout()
 		}
 		// and add some buffer
-		minTimeToAssumeNodeRebooted += 5 * time.Second
+		minTimeToAssumeNodeRebooted += 15 * time.Second
 
 		if timeToAssumeNodeRebooted < minTimeToAssumeNodeRebooted {
 			timeToAssumeNodeRebooted = minTimeToAssumeNodeRebooted
 		}
+		setupLog.Info("Time to assume that unhealthy node has been rebooted: %v", timeToAssumeNodeRebooted)
 
 		if err = (&controllers.PoisonPillRemediationReconciler{
 			Client:                       mgr.GetClient(),

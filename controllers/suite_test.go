@@ -145,9 +145,20 @@ var _ = BeforeSuite(func() {
 
 	rebooter := reboot.NewWatchdogRebooter(dummyDog, ctrl.Log.WithName("rebooter"))
 
-	peers := peers.New(unhealthyNodeName, peerUpdateInterval, k8sClient, ctrl.Log.WithName("peers"))
+	peerApiServerTimeout := 5 * time.Second
+	peers := peers.New(unhealthyNodeName, peerUpdateInterval, k8sClient, ctrl.Log.WithName("peers"), peerApiServerTimeout)
 
-	apiCheck := apicheck.New(unhealthyNodeName, peers, rebooter, apiCheckInterval, maxErrorThreshold, cfg, ctrl.Log.WithName("api-check"))
+	apiConnectivityCheckConfig := &apicheck.ApiConnectivityCheckConfig{
+		Log:                ctrl.Log.WithName("api-check"),
+		MyNodeName:         unhealthyNodeName,
+		CheckInterval:      apiCheckInterval,
+		MaxErrorsThreshold: maxErrorThreshold,
+		Peers:              peers,
+		Rebooter:           rebooter,
+		Cfg:                cfg,
+	}
+
+	apiCheck := apicheck.New(apiConnectivityCheckConfig)
 
 	timeToAssumeNodeRebooted := time.Duration(maxErrorThreshold) * apiCheckInterval
 	timeToAssumeNodeRebooted += dummyDog.GetTimeout()
