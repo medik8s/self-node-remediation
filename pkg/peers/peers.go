@@ -18,7 +18,6 @@ import (
 
 const (
 	hostnameLabelName = "kubernetes.io/hostname"
-	apiServerTimeout  = 5 * time.Second
 )
 
 type Peers struct {
@@ -29,9 +28,10 @@ type Peers struct {
 	peerUpdateInterval time.Duration
 	myNodeName         string
 	mutex              sync.Mutex
+	apiServerTimeout   time.Duration
 }
 
-func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Reader, log logr.Logger) *Peers {
+func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Reader, log logr.Logger, apiServerTimeout time.Duration) *Peers {
 	return &Peers{
 		Reader:             reader,
 		log:                log,
@@ -39,6 +39,7 @@ func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Read
 		peerUpdateInterval: peerUpdateInterval,
 		myNodeName:         myNodeName,
 		mutex:              sync.Mutex{},
+		apiServerTimeout:   apiServerTimeout,
 	}
 }
 
@@ -51,7 +52,7 @@ func (p *Peers) Start(ctx context.Context) error {
 		Name: p.myNodeName,
 	}
 
-	readerCtx, cancel := context.WithTimeout(ctx, apiServerTimeout)
+	readerCtx, cancel := context.WithTimeout(ctx, p.apiServerTimeout)
 	defer cancel()
 	if err := p.Get(readerCtx, key, myNode); err != nil {
 		p.log.Error(err, "failed to get own node")
@@ -80,7 +81,7 @@ func (p *Peers) updatePeers(ctx context.Context) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	readerCtx, cancel := context.WithTimeout(ctx, apiServerTimeout)
+	readerCtx, cancel := context.WithTimeout(ctx, p.apiServerTimeout)
 	defer cancel()
 
 	nodes := &v1.NodeList{}
