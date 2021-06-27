@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"strconv"
 	"time"
 
@@ -102,125 +103,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	if !isManager {
-		setupLog.Info("Starting as a poison pill agent that should run as part of the daemonset")
-
-		myNodeName := os.Getenv(nodeNameEnvVar)
-		if myNodeName == "" {
-			setupLog.Error(errors.New("failed to get own node name"), "node name was empty",
-				"env var name", nodeNameEnvVar)
-		}
-
-		watchdog, err := watchdog.NewLinux(ctrl.Log.WithName("watchdog"))
-		if err != nil {
-			setupLog.Error(err, "failed to init watchdog, using soft reboot")
-		}
-		if watchdog != nil {
-			if err = mgr.Add(watchdog); err != nil {
-				setupLog.Error(err, "failed to add watchdog to the manager")
-				os.Exit(1)
-			}
-		}
-		// it's fine when the watchdog is nil!
-		rebooter := reboot.NewWatchdogRebooter(watchdog, ctrl.Log.WithName("rebooter"))
-
-		// TODO make the interval configurable
-		peerUpdateInterval := 15 * time.Minute
-		peerApiServerTimeout := 5 * time.Second
-
-		myPeers := peers.New(myNodeName, peerUpdateInterval, mgr.GetClient(), ctrl.Log.WithName("peers"), peerApiServerTimeout)
-		if err = mgr.Add(myPeers); err != nil {
-			setupLog.Error(err, "failed to add peers to the manager")
-			os.Exit(1)
-		}
-
-		// TODO make the interval and error threshold configurable?
-		apiCheckInterval := 15 * time.Second //the frequency for api-server connectivity check
-		maxErrorThreshold := 3               //after this threshold, the node will start contacting its peers
-		apiServerTimeout := 5 * time.Second  //timeout for each api-connectivity check
-		peerTimeout := 5 * time.Second       //timeout for each peer request
-
-		apiConnectivityCheckConfig := &apicheck.ApiConnectivityCheckConfig{
-			Log:                ctrl.Log.WithName("api-check"),
-			MyNodeName:         myNodeName,
-			CheckInterval:      apiCheckInterval,
-			MaxErrorsThreshold: maxErrorThreshold,
-			Peers:              myPeers,
-			Rebooter:           rebooter,
-			Cfg:                mgr.GetConfig(),
-			ApiServerTimeout:   apiServerTimeout,
-			PeerTimeout:        peerTimeout,
-		}
-
-		apiChecker := apicheck.New(apiConnectivityCheckConfig)
-		if err = mgr.Add(apiChecker); err != nil {
-			setupLog.Error(err, "failed to add api-check to the manager")
-			os.Exit(1)
-		}
-
-		// determine safe reboot time
-		timeToAssumeNodeRebootedInt, err := strconv.Atoi(os.Getenv("TIME_TO_ASSUME_NODE_REBOOTED"))
-		if err != nil {
-			setupLog.Error(err, "failed to convert env variable TIME_TO_ASSUME_NODE_REBOOTED to int")
-			os.Exit(1)
-		}
-		timeToAssumeNodeRebooted := time.Duration(timeToAssumeNodeRebootedInt) * time.Second
-
-		// but the reboot time needs be at least the time we know we need for determining a node issue and trigger the reboot!
-		minTimeToAssumeNodeRebooted := (apiCheckInterval + apiServerTimeout)*time.Duration(maxErrorThreshold) +
-			peerApiServerTimeout + (10+1)*peerTimeout
-		// then add the watchdog timeout
-		if watchdog != nil {
-			minTimeToAssumeNodeRebooted += watchdog.GetTimeout()
-		}
-		// and add some buffer
-		minTimeToAssumeNodeRebooted += 15 * time.Second
-
-		if timeToAssumeNodeRebooted < minTimeToAssumeNodeRebooted {
-			timeToAssumeNodeRebooted = minTimeToAssumeNodeRebooted
-		}
-		setupLog.Info("Time to assume that unhealthy node has been rebooted: %v", timeToAssumeNodeRebooted)
-
-		if err = (&controllers.PoisonPillRemediationReconciler{
-			Client:                       mgr.GetClient(),
-			Log:                          ctrl.Log.WithName("controllers").WithName("PoisonPillRemediation"),
-			Scheme:                       mgr.GetScheme(),
-			Rebooter:                     rebooter,
-			SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
-			MyNodeName:                   myNodeName,
-		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "PoisonPillRemediation")
-			os.Exit(1)
-		}
-
-		// TODO make this also a Runnable and let the manager start it
-		setupLog.Info("starting web server")
-		go pa.Start()
-
+	if isManager {
+		initPoisonPillManager(err, mgr)
 	} else {
-		setupLog.Info("Starting as a manager that installs the daemonset")
-		if err = (&controllers.PoisonPillConfigReconciler{
-			Client:            mgr.GetClient(),
-			Log:               ctrl.Log.WithName("controllers").WithName("PoisonPillConfig"),
-			Scheme:            mgr.GetScheme(),
-			InstallFileFolder: "./install",
-		}).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "PoisonPillConfig")
-			os.Exit(1)
-		}
-		ns, err := getDeploymentNamespace()
-		if err != nil {
-			setupLog.Error(err, "unable to get the deployment namespace")
-			os.Exit(1)
-		}
-		if err = (&poisonpillv1alpha1.PoisonPillConfig{}).SetupWebhookWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create webhook", "webhook", "PoisonPillConfig")
-			os.Exit(1)
-		}
-		if err = newConfigIfNotExist(mgr.GetClient(), ns); err != nil {
-			setupLog.Error(err, "failed to create a default poison pill config CR")
-			os.Exit(1)
-		}
+		initPoisonPillAgent(mgr)
 	}
 
 	//+kubebuilder:scaffold:builder
@@ -239,6 +125,130 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func initPoisonPillManager(err error, mgr manager.Manager) {
+	setupLog.Info("Starting as a manager that installs the daemonset")
+	if err = (&controllers.PoisonPillConfigReconciler{
+		Client:            mgr.GetClient(),
+		Log:               ctrl.Log.WithName("controllers").WithName("PoisonPillConfig"),
+		Scheme:            mgr.GetScheme(),
+		InstallFileFolder: "./install",
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "PoisonPillConfig")
+		os.Exit(1)
+	}
+	ns, err := getDeploymentNamespace()
+	if err != nil {
+		setupLog.Error(err, "unable to get the deployment namespace")
+		os.Exit(1)
+	}
+	if err = (&poisonpillv1alpha1.PoisonPillConfig{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "PoisonPillConfig")
+		os.Exit(1)
+	}
+	if err = newConfigIfNotExist(mgr.GetClient(), ns); err != nil {
+		setupLog.Error(err, "failed to create a default poison pill config CR")
+		os.Exit(1)
+	}
+}
+
+func initPoisonPillAgent(mgr manager.Manager) {
+	setupLog.Info("Starting as a poison pill agent that should run as part of the daemonset")
+
+	myNodeName := os.Getenv(nodeNameEnvVar)
+	if myNodeName == "" {
+		setupLog.Error(errors.New("failed to get own node name"), "node name was empty",
+			"env var name", nodeNameEnvVar)
+	}
+
+	watchdog, err := watchdog.NewLinux(ctrl.Log.WithName("watchdog"))
+	if err != nil {
+		setupLog.Error(err, "failed to init watchdog, using soft reboot")
+	}
+	if watchdog != nil {
+		if err = mgr.Add(watchdog); err != nil {
+			setupLog.Error(err, "failed to add watchdog to the manager")
+			os.Exit(1)
+		}
+	}
+	// it's fine when the watchdog is nil!
+	rebooter := reboot.NewWatchdogRebooter(watchdog, ctrl.Log.WithName("rebooter"))
+
+	// TODO make the interval configurable
+	peerUpdateInterval := 15 * time.Minute
+	peerApiServerTimeout := 5 * time.Second
+
+	myPeers := peers.New(myNodeName, peerUpdateInterval, mgr.GetClient(), ctrl.Log.WithName("peers"), peerApiServerTimeout)
+	if err = mgr.Add(myPeers); err != nil {
+		setupLog.Error(err, "failed to add peers to the manager")
+		os.Exit(1)
+	}
+
+	// TODO make the interval and error threshold configurable?
+	apiCheckInterval := 15 * time.Second //the frequency for api-server connectivity check
+	maxErrorThreshold := 3               //after this threshold, the node will start contacting its peers
+	apiServerTimeout := 5 * time.Second  //timeout for each api-connectivity check
+	peerTimeout := 5 * time.Second       //timeout for each peer request
+
+	apiConnectivityCheckConfig := &apicheck.ApiConnectivityCheckConfig{
+		Log:                ctrl.Log.WithName("api-check"),
+		MyNodeName:         myNodeName,
+		CheckInterval:      apiCheckInterval,
+		MaxErrorsThreshold: maxErrorThreshold,
+		Peers:              myPeers,
+		Rebooter:           rebooter,
+		Cfg:                mgr.GetConfig(),
+		ApiServerTimeout:   apiServerTimeout,
+		PeerTimeout:        peerTimeout,
+	}
+
+	apiChecker := apicheck.New(apiConnectivityCheckConfig)
+	if err = mgr.Add(apiChecker); err != nil {
+		setupLog.Error(err, "failed to add api-check to the manager")
+		os.Exit(1)
+	}
+
+	// determine safe reboot time
+	timeToAssumeNodeRebootedInt, err := strconv.Atoi(os.Getenv("TIME_TO_ASSUME_NODE_REBOOTED"))
+	if err != nil {
+		setupLog.Error(err, "failed to convert env variable TIME_TO_ASSUME_NODE_REBOOTED to int")
+		os.Exit(1)
+	}
+	timeToAssumeNodeRebooted := time.Duration(timeToAssumeNodeRebootedInt) * time.Second
+
+	// but the reboot time needs be at least the time we know we need for determining a node issue and trigger the reboot!
+	minTimeToAssumeNodeRebooted := (apiCheckInterval+apiServerTimeout)*time.Duration(maxErrorThreshold) +
+		peerApiServerTimeout + (10+1)*peerTimeout
+	// then add the watchdog timeout
+	if watchdog != nil {
+		minTimeToAssumeNodeRebooted += watchdog.GetTimeout()
+	}
+	// and add some buffer
+	minTimeToAssumeNodeRebooted += 15 * time.Second
+
+	if timeToAssumeNodeRebooted < minTimeToAssumeNodeRebooted {
+		timeToAssumeNodeRebooted = minTimeToAssumeNodeRebooted
+	}
+	setupLog.Info("Time to assume that unhealthy node has been rebooted: %v", timeToAssumeNodeRebooted)
+
+	pprReconciler := &controllers.PoisonPillRemediationReconciler{
+		Client:                       mgr.GetClient(),
+		Log:                          ctrl.Log.WithName("controllers").WithName("PoisonPillRemediation"),
+		Scheme:                       mgr.GetScheme(),
+		Rebooter:                     rebooter,
+		SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
+		MyNodeName:                   myNodeName,
+	}
+
+	if err = pprReconciler.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "PoisonPillRemediation")
+		os.Exit(1)
+	}
+
+	// TODO make this also a Runnable and let the manager start it
+	setupLog.Info("starting web server")
+	go pa.Start(pprReconciler)
 }
 
 // newConfigIfNotExist creates a new PoisonPillConfig object
