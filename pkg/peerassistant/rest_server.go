@@ -3,13 +3,12 @@ package peerassistant
 import (
 	"fmt"
 	"github.com/gorilla/mux"
+	"github.com/medik8s/poison-pill/controllers"
 	"log"
 	"net/http"
 )
 
-const (
-//port = 30001
-)
+var pprReconciler *controllers.PoisonPillRemediationReconciler
 
 func healthCheck(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -26,6 +25,7 @@ func handleRequests() {
 	log.Fatal(http.ListenAndServe(":30001", nil))
 }
 
-func Start() {
+func Start(poisonPillRemediationReconciler *controllers.PoisonPillRemediationReconciler) {
+	pprReconciler = poisonPillRemediationReconciler
 	handleRequests()
 }

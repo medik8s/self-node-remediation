@@ -4,7 +4,6 @@ import (
 	"context"
 	poisonPillApis "github.com/medik8s/poison-pill/api"
 	"github.com/medik8s/poison-pill/api/v1alpha1"
-	"github.com/medik8s/poison-pill/controllers"
 	corev1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -52,8 +51,8 @@ func init() {
 func isHealthy(nodeName string) poisonPillApis.HealthCheckResponse {
 	logger.Info("checking health for", "node", nodeName)
 
-	namespace := controllers.GetLastSeenPprNamespace()
-	isMachine := controllers.IsLastSeenPprWasMachine()
+	namespace := pprReconciler.GetLastSeenPprNamespace()
+	isMachine := pprReconciler.WasLastSeenPprMachine()
 
 	if isMachine {
 		return isHealthyMachine(nodeName, namespace)

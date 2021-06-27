@@ -47,16 +47,19 @@ var (
 		Effect: v1.TaintEffectNoSchedule,
 	}
 
-	lastSeenPprNamespace    string
-	isLastSeenPprWasMachine bool
+	lastSeenPprNamespace  string
+	wasLastSeenPprMachine bool
 )
 
-func GetLastSeenPprNamespace() string {
+//GetLastSeenPprNamespace returns the namespace of the last reconciled PPR
+func (r *PoisonPillRemediationReconciler) GetLastSeenPprNamespace() string {
 	return lastSeenPprNamespace
 }
 
-func IsLastSeenPprWasMachine() bool {
-	return isLastSeenPprWasMachine
+//WasLastSeenPprMachine returns the a boolean indicating if the last reconcile PPR
+//was pointing an unhealthy machine or a node
+func (r *PoisonPillRemediationReconciler) WasLastSeenPprMachine() bool {
+	return wasLastSeenPprMachine
 }
 
 // PoisonPillRemediationReconciler reconciles a PoisonPillRemediation object
@@ -236,7 +239,7 @@ func (r *PoisonPillRemediationReconciler) getNodeFromPpr(ppr *v1alpha1.PoisonPil
 
 	for _, ownerRef := range ppr.OwnerReferences {
 		if ownerRef.Kind == "Machine" {
-			isLastSeenPprWasMachine = true
+			wasLastSeenPprMachine = true
 			return r.getNodeFromMachine(ownerRef, ppr.Namespace)
 		}
 	}
