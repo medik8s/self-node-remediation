@@ -107,7 +107,8 @@ func main() {
 
 		myNodeName := os.Getenv(nodeNameEnvVar)
 		if myNodeName == "" {
-			setupLog.Error(err, "failed to get own node name", "env var name", nodeNameEnvVar)
+			setupLog.Error(errors.New("failed to get own node name"), "node name was empty",
+				"env var name", nodeNameEnvVar)
 		}
 
 		watchdog, err := watchdog.NewLinux(ctrl.Log.WithName("watchdog"))
