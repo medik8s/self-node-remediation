@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -53,12 +54,16 @@ var (
 
 //GetLastSeenPprNamespace returns the namespace of the last reconciled PPR
 func (r *PoisonPillRemediationReconciler) GetLastSeenPprNamespace() string {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
 	return lastSeenPprNamespace
 }
 
 //WasLastSeenPprMachine returns the a boolean indicating if the last reconcile PPR
 //was pointing an unhealthy machine or a node
 func (r *PoisonPillRemediationReconciler) WasLastSeenPprMachine() bool {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
 	return wasLastSeenPprMachine
 }
 
@@ -74,6 +79,7 @@ type PoisonPillRemediationReconciler struct {
 	// this should be at least worst-case time to reach a conclusion from the other peers * request context timeout + watchdog interval + maxFailuresThreshold * reconcileInterval + padding
 	SafeTimeToAssumeNodeRebooted time.Duration
 	MyNodeName                   string
+	mutex                        sync.Mutex
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -103,7 +109,9 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{}, err
 	}
 
+	r.mutex.Lock()
 	lastSeenPprNamespace = req.Namespace
+	r.mutex.Unlock()
 
 	node, err := r.getNodeFromPpr(ppr)
 	if err != nil {
@@ -239,7 +247,9 @@ func (r *PoisonPillRemediationReconciler) getNodeFromPpr(ppr *v1alpha1.PoisonPil
 
 	for _, ownerRef := range ppr.OwnerReferences {
 		if ownerRef.Kind == "Machine" {
+			r.mutex.Lock()
 			wasLastSeenPprMachine = true
+			r.mutex.Unlock()
 			return r.getNodeFromMachine(ownerRef, ppr.Namespace)
 		}
 	}
