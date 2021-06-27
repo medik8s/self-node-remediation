@@ -104,7 +104,7 @@ func main() {
 	}
 
 	if isManager {
-		initPoisonPillManager(err, mgr)
+		initPoisonPillManager(mgr)
 	} else {
 		initPoisonPillAgent(mgr)
 	}
@@ -127,9 +127,9 @@ func main() {
 	}
 }
 
-func initPoisonPillManager(err error, mgr manager.Manager) {
+func initPoisonPillManager(mgr manager.Manager) {
 	setupLog.Info("Starting as a manager that installs the daemonset")
-	if err = (&controllers.PoisonPillConfigReconciler{
+	if err := (&controllers.PoisonPillConfigReconciler{
 		Client:            mgr.GetClient(),
 		Log:               ctrl.Log.WithName("controllers").WithName("PoisonPillConfig"),
 		Scheme:            mgr.GetScheme(),
