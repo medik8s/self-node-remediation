@@ -13,9 +13,16 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"time"
 )
 
-const machineAnnotation = "machine.openshift.io/machine" //todo this is openshift specific
+const (
+	machineAnnotation = "machine.openshift.io/machine" //todo this is openshift specific
+	//IMPORTANT! this MUST be less than apicheck.peerTimeout.
+	//The difference between them should allow some time for sending the request over the network
+	//todo enforce this, possibly as part of the grpc PR
+	apiServerTimeout = 4 * time.Second
+)
 
 var (
 	client dynamic.Interface
@@ -60,7 +67,10 @@ func isHealthyNode(nodeName string, namespace string) poisonPillApis.HealthCheck
 }
 
 func isHealthyByPpr(pprName string, pprNamespace string) poisonPillApis.HealthCheckResponse {
-	_, err := client.Resource(pprRes).Namespace(pprNamespace).Get(context.TODO(), pprName, metav1.GetOptions{})
+	ctx, cancelFunc := context.WithTimeout(context.Background(), apiServerTimeout)
+	defer cancelFunc()
+
+	_, err := client.Resource(pprRes).Namespace(pprNamespace).Get(ctx, pprName, metav1.GetOptions{})
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			logger.Info("healthy")
@@ -75,7 +85,10 @@ func isHealthyByPpr(pprName string, pprNamespace string) poisonPillApis.HealthCh
 }
 
 func isHealthyMachine(nodeName string, namespace string) poisonPillApis.HealthCheckResponse {
-	node, err := client.Resource(nodeRes).Namespace("").Get(context.TODO(), nodeName, metav1.GetOptions{})
+	ctx, cancelFunc := context.WithTimeout(context.Background(), apiServerTimeout)
+	defer cancelFunc()
+
+	node, err := client.Resource(nodeRes).Namespace("").Get(ctx, nodeName, metav1.GetOptions{})
 	if err != nil {
 		logger.Error(err, "api error")
 		return poisonPillApis.ApiError
