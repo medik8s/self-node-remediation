@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	v1 "k8s.io/api/apps/v1"
 	"os"
 
 	"github.com/go-logr/logr"
@@ -73,6 +74,7 @@ func (r *PoisonPillConfigReconciler) Reconcile(ctx context.Context, req ctrl.Req
 func (r *PoisonPillConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&poisonpillv1alpha1.PoisonPillConfig{}).
+		Owns(&v1.DaemonSet{}).
 		Complete(r)
 }
 
