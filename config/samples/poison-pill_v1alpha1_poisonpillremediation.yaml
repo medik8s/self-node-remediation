@@ -2,6 +2,4 @@ apiVersion: poison-pill.medik8s.io/v1alpha1
 kind: PoisonPillRemediation
 metadata:
   name: poisonpillremediation-sample
-spec:
-  # Add fields here
-  foo: bar
+spec: {}
