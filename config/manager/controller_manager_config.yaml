@@ -9,10 +9,3 @@ webhook:
 leaderElection:
   leaderElect: true
   resourceName: 547f6cb6.medik8s.io
-env:
-  - name: MY_NODE_NAME
-    valueFrom:
-      fieldRef:
-        fieldPath: spec.nodeName
-  - name: POISON_PILL_IMAGE
-    value: quay.io/medik8s/poison-pill-operator:latest
