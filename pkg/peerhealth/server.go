@@ -130,7 +130,7 @@ func (s Server) IsHealthy(ctx context.Context, request *HealthRequest) (*HealthR
 	if namespace == "" {
 		// we didn't see a PPR yet, so the node is healthy
 		// but we need to check for API error, so let's get node
-		if _, err := s.getNode(nodeName); err != nil {
+		if _, err := s.getNode(ctx, nodeName); err != nil {
 			// TODO do we need to deal with isNotFound, and if so, how?
 			s.log.Info("no PPR seen yet, and API server issue, returning API error", "api error", err)
 			return toResponse(poisonPillApis.ApiError)
@@ -140,18 +140,18 @@ func (s Server) IsHealthy(ctx context.Context, request *HealthRequest) (*HealthR
 	}
 
 	if isMachine {
-		return toResponse(s.isHealthyMachine(nodeName, namespace))
+		return toResponse(s.isHealthyMachine(ctx, nodeName, namespace))
 	} else {
-		return toResponse(s.isHealthyNode(nodeName, namespace))
+		return toResponse(s.isHealthyNode(ctx, nodeName, namespace))
 	}
 }
 
-func (s Server) isHealthyNode(nodeName string, namespace string) poisonPillApis.HealthCheckResponseCode {
-	return s.isHealthyByPpr(nodeName, namespace)
+func (s Server) isHealthyNode(ctx context.Context, nodeName string, namespace string) poisonPillApis.HealthCheckResponseCode {
+	return s.isHealthyByPpr(ctx, nodeName, namespace)
 }
 
-func (s Server) isHealthyMachine(nodeName string, namespace string) poisonPillApis.HealthCheckResponseCode {
-	node, err := s.getNode(nodeName)
+func (s Server) isHealthyMachine(ctx context.Context, nodeName string, namespace string) poisonPillApis.HealthCheckResponseCode {
+	node, err := s.getNode(ctx, nodeName)
 	if err != nil {
 		return poisonPillApis.ApiError
 	}
@@ -170,11 +170,11 @@ func (s Server) isHealthyMachine(nodeName string, namespace string) poisonPillAp
 		return poisonPillApis.Unhealthy //todo is this the correct response?
 	}
 
-	return s.isHealthyByPpr(machineName, namespace)
+	return s.isHealthyByPpr(ctx, machineName, namespace)
 }
 
-func (s Server) isHealthyByPpr(pprName string, pprNamespace string) poisonPillApis.HealthCheckResponseCode {
-	_, err := s.client.Resource(pprRes).Namespace(pprNamespace).Get(context.TODO(), pprName, metav1.GetOptions{})
+func (s Server) isHealthyByPpr(ctx context.Context, pprName string, pprNamespace string) poisonPillApis.HealthCheckResponseCode {
+	_, err := s.client.Resource(pprRes).Namespace(pprNamespace).Get(ctx, pprName, metav1.GetOptions{})
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			s.log.Info("healthy")
@@ -188,8 +188,8 @@ func (s Server) isHealthyByPpr(pprName string, pprNamespace string) poisonPillAp
 	return poisonPillApis.Unhealthy
 }
 
-func (s Server) getNode(nodeName string) (*unstructured.Unstructured, error) {
-	node, err := s.client.Resource(nodeRes).Namespace("").Get(context.TODO(), nodeName, metav1.GetOptions{})
+func (s Server) getNode(ctx context.Context, nodeName string) (*unstructured.Unstructured, error) {
+	node, err := s.client.Resource(nodeRes).Namespace("").Get(ctx, nodeName, metav1.GetOptions{})
 	if err != nil {
 		s.log.Error(err, "api error")
 		return nil, err

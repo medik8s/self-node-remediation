@@ -11,7 +11,7 @@ import (
 
 const (
 	// TODO make this configurable?
-	peerTimeout = 10 * time.Second
+	peerDialTimeout = 10 * time.Second
 )
 
 type Client struct {
@@ -30,8 +30,10 @@ func NewClient(serverAddr string, log logr.Logger, clientCreds credentials.Trans
 		opts = append(opts, grpc.WithInsecure())
 	}
 
+	// this option implies WithBlock()
 	opts = append(opts, grpc.WithReturnConnectionError())
-	ctx, cancel := context.WithTimeout(context.Background(), peerTimeout)
+
+	ctx, cancel := context.WithTimeout(context.Background(), peerDialTimeout)
 	defer cancel()
 
 	conn, err := grpc.DialContext(ctx, serverAddr, opts...)
