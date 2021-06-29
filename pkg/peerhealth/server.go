@@ -24,7 +24,6 @@ import (
 )
 
 const (
-	defaultPort       = 30001
 	connectionTimeout = 5 * time.Second
 	machineAnnotation = "machine.openshift.io/machine" //todo this is openshift specific
 )
@@ -60,10 +59,6 @@ func NewServer(ppr *controllers.PoisonPillRemediationReconciler, conf *rest.Conf
 		return nil, err
 	}
 
-	if port == 0 {
-		port = defaultPort
-	}
-
 	return &Server{
 		client:     c,
 		ppr:        ppr,
@@ -82,7 +77,7 @@ func (s *Server) Start(ctx context.Context) error {
 		return err
 	}
 
-	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", s.port))
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", s.port))
 	if err != nil {
 		s.log.Error(err, "failed to listen")
 		return err
