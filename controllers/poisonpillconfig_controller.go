@@ -19,14 +19,14 @@ package controllers
 import (
 	"context"
 	"fmt"
-	v1 "k8s.io/api/apps/v1"
 	"os"
 
 	"github.com/go-logr/logr"
 	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
 	"github.com/medik8s/poison-pill/pkg/apply"
 	"github.com/medik8s/poison-pill/pkg/render"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	v1 "k8s.io/api/apps/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -55,7 +55,7 @@ func (r *PoisonPillConfigReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	config := &poisonpillv1alpha1.PoisonPillConfig{}
 	if err := r.Client.Get(context.Background(), req.NamespacedName, config); err != nil {
-		if apierrors.IsNotFound(err) {
+		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "failed to fetch cr")
