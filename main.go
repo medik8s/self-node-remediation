@@ -54,7 +54,8 @@ import (
 )
 
 const (
-	nodeNameEnvVar = "MY_NODE_NAME"
+	nodeNameEnvVar        = "MY_NODE_NAME"
+	peerHealthDefaultPort = 30001
 )
 
 var (
@@ -212,6 +213,7 @@ func initPoisonPillAgent(mgr manager.Manager) {
 		CertReader:         certReader,
 		ApiServerTimeout:   apiServerTimeout,
 		PeerTimeout:        peerTimeout,
+		PeerHealthPort:     peerHealthDefaultPort,
 	}
 
 	apiChecker := apicheck.New(apiConnectivityCheckConfig)
@@ -259,7 +261,7 @@ func initPoisonPillAgent(mgr manager.Manager) {
 
 	setupLog.Info("init grpc server")
 	// TODO make port configurable?
-	server, err := peerhealth.NewServer(pprReconciler, mgr.GetConfig(), ctrl.Log.WithName("peerhealth").WithName("server"), 0, certReader)
+	server, err := peerhealth.NewServer(pprReconciler, mgr.GetConfig(), ctrl.Log.WithName("peerhealth").WithName("server"), peerHealthDefaultPort, certReader)
 	if err != nil {
 		setupLog.Error(err, "failed to init grpc server")
 		os.Exit(1)

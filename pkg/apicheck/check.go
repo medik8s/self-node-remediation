@@ -38,6 +38,7 @@ type ApiConnectivityCheck struct {
 	nodeKey            client.ObjectKey
 	certReader         certificates.CertStorageReader
 	apiServerTimeout   time.Duration
+	peerHealthPort     int
 }
 
 type ApiConnectivityCheckConfig struct {
@@ -51,6 +52,7 @@ type ApiConnectivityCheckConfig struct {
 	CertReader         certificates.CertStorageReader
 	ApiServerTimeout   time.Duration
 	PeerTimeout        time.Duration
+	PeerHealthPort     int
 }
 
 func New(config *ApiConnectivityCheckConfig) *ApiConnectivityCheck {
@@ -64,6 +66,7 @@ func New(config *ApiConnectivityCheckConfig) *ApiConnectivityCheck {
 		cfg:                config.Cfg,
 		certReader:         config.CertReader,
 		apiServerTimeout:   config.ApiServerTimeout,
+		peerHealthPort:     config.PeerHealthPort,
 		nodeKey: client.ObjectKey{
 			Name: config.MyNodeName,
 		},
@@ -226,7 +229,8 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, result
 		return
 	}
 
-	client, err := peerhealth.NewClient(endpointIp, c.log.WithName("peerhealth client"), clientCreds)
+	// TODO does this work with IPv6?
+	client, err := peerhealth.NewClient(fmt.Sprintf("%v:%v", endpointIp, c.peerHealthPort), c.log.WithName("peerhealth client"), clientCreds)
 	if err != nil {
 		c.log.Error(err, "failed to init grpc client")
 		results <- poisonPill.RequestFailed
