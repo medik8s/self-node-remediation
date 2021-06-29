@@ -20,10 +20,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -165,14 +163,9 @@ func initPoisonPillAgent(mgr manager.Manager) {
 			"env var name", nodeNameEnvVar)
 	}
 
-	// get our namespace
-	// TODO maybe use an env var in the pod using downward api for the namespace?
-	namespace := ""
-	if data, err := ioutil.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err != nil {
-		setupLog.Error(err, "unable to get namespace")
-		os.Exit(1)
-	} else if namespace = strings.TrimSpace(string(data)); len(namespace) == 0 {
-		setupLog.Error(err, "found empty namespace")
+	ns, err := getDeploymentNamespace()
+	if err != nil {
+		setupLog.Error(err, "unable to get the deployment namespace")
 		os.Exit(1)
 	}
 
@@ -206,7 +199,7 @@ func initPoisonPillAgent(mgr manager.Manager) {
 	peerTimeout := 5 * time.Second       //timeout for each peer request
 
 	// init certificate reader
-	certReader := certificates.NewSecretCertStorage(mgr.GetClient(), ctrl.Log.WithName("SecretCertStorage"), namespace)
+	certReader := certificates.NewSecretCertStorage(mgr.GetClient(), ctrl.Log.WithName("SecretCertStorage"), ns)
 
 	apiConnectivityCheckConfig := &apicheck.ApiConnectivityCheckConfig{
 		Log:                ctrl.Log.WithName("api-check"),
