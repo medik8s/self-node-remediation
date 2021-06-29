@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 
@@ -35,6 +36,8 @@ const (
 	caPemKey   = "caPem"
 	certPemKey = "certPem"
 	keyPemKey  = "keyPem"
+
+	apiTimeout = 10 * time.Second
 )
 
 var _ CertStorageReader = &SecretCertStorage{}
@@ -68,7 +71,9 @@ func (s *SecretCertStorage) GetCerts() (caPem, certPem, keyPem *bytes.Buffer, er
 			Namespace: s.namespace,
 			Name:      secretName,
 		}
-		if err := s.Get(context.Background(), key, certSecret); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
+		defer cancel()
+		if err := s.Get(ctx, key, certSecret); err != nil {
 			return nil, nil, nil, err
 		}
 		s.secret = certSecret
@@ -100,7 +105,9 @@ func (s *SecretCertStorage) StoreCerts(caPem, certPem, keyPem *bytes.Buffer) err
 		},
 		Type: v1.SecretTypeOpaque,
 	}
-	if err := s.Create(context.Background(), secret); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
+	defer cancel()
+	if err := s.Create(ctx, secret); err != nil {
 		if errors.IsAlreadyExists(err) {
 			s.log.Info("certificates already stored in secret")
 			return nil
