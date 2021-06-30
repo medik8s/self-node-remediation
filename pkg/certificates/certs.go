@@ -47,11 +47,7 @@ func selfSign(cert *x509.Certificate, privKey *rsa.PrivateKey) ([]byte, error) {
 }
 
 func sign(cert *x509.Certificate, ca *x509.Certificate, certPubKey *rsa.PublicKey, caPrivKey *rsa.PrivateKey) ([]byte, error) {
-	certBytes, err := x509.CreateCertificate(rand.Reader, cert, ca, certPubKey, caPrivKey)
-	if err != nil {
-		return nil, err
-	}
-	return certBytes, nil
+	return x509.CreateCertificate(rand.Reader, cert, ca, certPubKey, caPrivKey)
 }
 
 func certToPEM(cert []byte) (*bytes.Buffer, error) {
