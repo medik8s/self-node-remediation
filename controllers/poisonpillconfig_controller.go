@@ -22,16 +22,19 @@ import (
 	"os"
 
 	"github.com/go-logr/logr"
-	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
-	"github.com/medik8s/poison-pill/pkg/apply"
-	"github.com/medik8s/poison-pill/pkg/render"
 	v1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+
+	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
+	"github.com/medik8s/poison-pill/pkg/apply"
+	"github.com/medik8s/poison-pill/pkg/certificates"
+	"github.com/medik8s/poison-pill/pkg/render"
 )
 
 // PoisonPillConfigReconciler reconciles a PoisonPillConfig object
@@ -59,6 +62,11 @@ func (r *PoisonPillConfigReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "failed to fetch cr")
+		return ctrl.Result{}, err
+	}
+
+	if err := r.syncCerts(config); err != nil {
+		logger.Error(err, "error syncing certs")
 		return ctrl.Result{}, err
 	}
 
@@ -124,6 +132,38 @@ func (r *PoisonPillConfigReconciler) syncK8sResource(cr *poisonpillv1alpha1.Pois
 
 	if err := apply.ApplyObject(context.TODO(), r.Client, in); err != nil {
 		return fmt.Errorf("failed to apply object %v with err: %v", in, err)
+	}
+	return nil
+}
+
+func (r *PoisonPillConfigReconciler) syncCerts(cr *poisonpillv1alpha1.PoisonPillConfig) error {
+
+	r.Log.Info("Syncing certs")
+	// check if certs exists already
+	st := certificates.NewSecretCertStorage(r.Client, r.Log.WithName("SecretCertStorage"), cr.Namespace)
+	pem, _, _, err := st.GetCerts()
+	if err != nil && !errors.IsNotFound(err) {
+		r.Log.Error(err, "Failed to get cert secret")
+		return err
+	}
+	if pem != nil {
+		r.Log.Info("Cert secret already exists")
+		// TODO check validity: if expired, create new, restart daemonset!
+		return nil
+	}
+	// create certs
+	r.Log.Info("Creating new certs")
+	ca, cert, key, err := certificates.CreateCerts()
+	if err != nil {
+		r.Log.Error(err, "Failed to create certs")
+		return err
+	}
+	// store certs
+	r.Log.Info("Storing certs in new secret")
+	err = st.StoreCerts(ca, cert, key)
+	if err != nil {
+		r.Log.Error(err, "Failed to store certs in secret")
+		return err
 	}
 	return nil
 }
