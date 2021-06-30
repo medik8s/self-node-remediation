@@ -140,16 +140,8 @@ func initPoisonPillManager(mgr manager.Manager) {
 		setupLog.Error(err, "unable to create controller", "controller", "PoisonPillConfig")
 		os.Exit(1)
 	}
-	ns, err := getDeploymentNamespace()
-	if err != nil {
-		setupLog.Error(err, "unable to get the deployment namespace")
-		os.Exit(1)
-	}
-	if err = (&poisonpillv1alpha1.PoisonPillConfig{}).SetupWebhookWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "PoisonPillConfig")
-		os.Exit(1)
-	}
-	if err = newConfigIfNotExist(mgr.GetClient(), ns); err != nil {
+
+	if err := newConfigIfNotExist(mgr.GetClient()); err != nil {
 		setupLog.Error(err, "failed to create a default poison pill config CR")
 		os.Exit(1)
 	}
@@ -278,10 +270,16 @@ func initPoisonPillAgent(mgr manager.Manager) {
 
 // newConfigIfNotExist creates a new PoisonPillConfig object
 // to initialize the rest of the deployment objects creation.
-func newConfigIfNotExist(c client.Client, namespace string) error {
+func newConfigIfNotExist(c client.Client) error {
+	ns, err := getDeploymentNamespace()
+	if err != nil {
+		return errors.Wrap(err, "unable to get the deployment namespace")
+	}
+
 	config := poisonpillv1alpha1.NewDefaultPoisonPillConfig()
-	config.SetNamespace(namespace)
-	err := c.Create(context.Background(), &config, &client.CreateOptions{})
+	config.SetNamespace(ns)
+
+	err = c.Create(context.Background(), &config, &client.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
 		return errors.Wrap(err, "failed to create a default poison pill config CR")
 	}

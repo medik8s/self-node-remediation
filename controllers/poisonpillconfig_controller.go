@@ -22,9 +22,9 @@ import (
 	"os"
 
 	"github.com/go-logr/logr"
-
 	v1 "k8s.io/api/apps/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/errors"
+
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -58,7 +58,7 @@ func (r *PoisonPillConfigReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	config := &poisonpillv1alpha1.PoisonPillConfig{}
 	if err := r.Client.Get(context.Background(), req.NamespacedName, config); err != nil {
-		if apierrors.IsNotFound(err) {
+		if errors.IsNotFound(err) {
 			return ctrl.Result{}, nil
 		}
 		logger.Error(err, "failed to fetch cr")
@@ -142,7 +142,7 @@ func (r *PoisonPillConfigReconciler) syncCerts(cr *poisonpillv1alpha1.PoisonPill
 	// check if certs exists already
 	st := certificates.NewSecretCertStorage(r.Client, r.Log.WithName("SecretCertStorage"), cr.Namespace)
 	pem, _, _, err := st.GetCerts()
-	if err != nil && !apierrors.IsNotFound(err) {
+	if err != nil && !errors.IsNotFound(err) {
 		r.Log.Error(err, "Failed to get cert secret")
 		return err
 	}
