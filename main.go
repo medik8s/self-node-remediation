@@ -197,7 +197,7 @@ func initPoisonPillAgent(mgr manager.Manager) {
 	apiCheckInterval := 15 * time.Second  //the frequency for api-server connectivity check
 	maxErrorThreshold := 3                //after this threshold, the node will start contacting its peers
 	apiServerTimeout := 5 * time.Second   //timeout for each api-connectivity check
-	peerDialTimeout := 10 * time.Second   //timeout for establishing connection to peer
+	peerDialTimeout := 5 * time.Second    //timeout for establishing connection to peer
 	peerRequestTimeout := 5 * time.Second //timeout for each peer request
 
 	// init certificate reader
