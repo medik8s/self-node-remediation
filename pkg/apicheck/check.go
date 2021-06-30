@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -31,6 +32,7 @@ type ApiConnectivityCheck struct {
 	config      *ApiConnectivityCheckConfig
 	errorCount  int
 	clientCreds credentials.TransportCredentials
+	mutex       sync.Mutex
 }
 
 type ApiConnectivityCheckConfig struct {
@@ -51,6 +53,7 @@ type ApiConnectivityCheckConfig struct {
 func New(config *ApiConnectivityCheckConfig) *ApiConnectivityCheck {
 	return &ApiConnectivityCheck{
 		config: config,
+		mutex:  sync.Mutex{},
 	}
 }
 
@@ -203,14 +206,10 @@ func (c *ApiConnectivityCheck) popNodes(nodes *[]v1.Node, count int) []string {
 //getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer into the given channel
 func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, results chan<- poisonPill.HealthCheckResponseCode) {
 
-	if c.clientCreds == nil {
-		clientCreds, err := certificates.GetClientCredentialsFromCerts(c.config.CertReader)
-		if err != nil {
-			c.config.Log.Error(err, "failed to init client credentials")
-			results <- poisonPill.RequestFailed
-			return
-		}
-		c.clientCreds = clientCreds
+	if err := c.initClientCreds(); err != nil {
+		c.config.Log.Error(err, "failed to init client credentials")
+		results <- poisonPill.RequestFailed
+		return
 	}
 
 	// TODO does this work with IPv6?
@@ -236,6 +235,19 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, result
 
 	results <- poisonPill.HealthCheckResponseCode(resp.Status)
 	return
+}
+
+func (c *ApiConnectivityCheck) initClientCreds() error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if c.clientCreds == nil {
+		clientCreds, err := certificates.GetClientCredentialsFromCerts(c.config.CertReader)
+		if err != nil {
+			return err
+		}
+		c.clientCreds = clientCreds
+	}
+	return nil
 }
 
 func (c *ApiConnectivityCheck) sumPeersResponses(nodesBatchCount int, responsesChan chan poisonPill.HealthCheckResponseCode) (int, int, int, int) {
