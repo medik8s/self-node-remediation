@@ -50,7 +50,7 @@ var _ = Describe("Checking health using grpc client and server", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Creating client")
-		phClient, err = NewClient("127.0.0.1:9000", ctrl.Log.WithName("peerhealth test").WithName("phClient"), clientCreds)
+		phClient, err = NewClient("127.0.0.1:9000", 5*time.Second, ctrl.Log.WithName("peerhealth test").WithName("phClient"), clientCreds)
 		Expect(err).ToNot(HaveOccurred())
 
 	})

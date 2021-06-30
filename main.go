@@ -194,10 +194,11 @@ func initPoisonPillAgent(mgr manager.Manager) {
 	}
 
 	// TODO make the interval and error threshold configurable?
-	apiCheckInterval := 15 * time.Second //the frequency for api-server connectivity check
-	maxErrorThreshold := 3               //after this threshold, the node will start contacting its peers
-	apiServerTimeout := 5 * time.Second  //timeout for each api-connectivity check
-	peerTimeout := 5 * time.Second       //timeout for each peer request
+	apiCheckInterval := 15 * time.Second  //the frequency for api-server connectivity check
+	maxErrorThreshold := 3                //after this threshold, the node will start contacting its peers
+	apiServerTimeout := 5 * time.Second   //timeout for each api-connectivity check
+	peerDialTimeout := 10 * time.Second   //timeout for establishing connection to peer
+	peerRequestTimeout := 5 * time.Second //timeout for each peer request
 
 	// init certificate reader
 	certReader := certificates.NewSecretCertStorage(mgr.GetClient(), ctrl.Log.WithName("SecretCertStorage"), ns)
@@ -212,7 +213,8 @@ func initPoisonPillAgent(mgr manager.Manager) {
 		Cfg:                mgr.GetConfig(),
 		CertReader:         certReader,
 		ApiServerTimeout:   apiServerTimeout,
-		PeerTimeout:        peerTimeout,
+		PeerDialTimeout:    peerDialTimeout,
+		PeerRequestTimeout: peerRequestTimeout,
 		PeerHealthPort:     peerHealthDefaultPort,
 	}
 
@@ -231,13 +233,15 @@ func initPoisonPillAgent(mgr manager.Manager) {
 	timeToAssumeNodeRebooted := time.Duration(timeToAssumeNodeRebootedInt) * time.Second
 
 	// but the reboot time needs be at least the time we know we need for determining a node issue and trigger the reboot!
-	minTimeToAssumeNodeRebooted := (apiCheckInterval+apiServerTimeout)*time.Duration(maxErrorThreshold) +
-		peerApiServerTimeout + (10+1)*peerTimeout
-	// then add the watchdog timeout
+	// 1. time for determing node issue
+	minTimeToAssumeNodeRebooted := (apiCheckInterval + apiServerTimeout) * time.Duration(maxErrorThreshold)
+	// 2. time for asking peers (10% batches + 1st smaller batch)
+	minTimeToAssumeNodeRebooted += (10 + 1) * (peerDialTimeout + peerRequestTimeout)
+	// 3. watchdog timeout
 	if wd != nil {
 		minTimeToAssumeNodeRebooted += wd.GetTimeout()
 	}
-	// and add some buffer
+	// 4. some buffer
 	minTimeToAssumeNodeRebooted += 15 * time.Second
 
 	if timeToAssumeNodeRebooted < minTimeToAssumeNodeRebooted {
