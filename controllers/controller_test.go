@@ -1,7 +1,8 @@
-package controllers
+package controllers_test
 
 import (
 	"context"
+	"github.com/medik8s/poison-pill/controllers"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -75,7 +76,7 @@ var _ = Describe("ppr Controller", func() {
 		})
 
 		It("Add unschedulable taint to node to simulate node controller", func() {
-			node.Spec.Taints = append(node.Spec.Taints, *NodeUnschedulableTaint)
+			node.Spec.Taints = append(node.Spec.Taints, *controllers.NodeUnschedulableTaint)
 			Expect(k8sClient.Update(context.TODO(), node)).To(Succeed())
 		})
 
@@ -107,7 +108,7 @@ var _ = Describe("ppr Controller", func() {
 		})
 
 		It("Verify that finalizer was added", func() {
-			Expect(controllerutil.ContainsFinalizer(newPpr, pprFinalizer)).Should(BeTrue(), "finalizer should be added")
+			Expect(controllerutil.ContainsFinalizer(newPpr, controllers.PPRFinalizer)).Should(BeTrue(), "finalizer should be added")
 		})
 
 		It("Verify that watchdog is not receiving food", func() {
@@ -152,7 +153,7 @@ var _ = Describe("ppr Controller", func() {
 				pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
 				newPpr := &poisonpillv1alpha1.PoisonPillRemediation{}
 				Expect(k8sClient.Get(context.TODO(), pprNamespacedName, newPpr)).ToNot(HaveOccurred())
-				return controllerutil.ContainsFinalizer(newPpr, pprFinalizer)
+				return controllerutil.ContainsFinalizer(newPpr, controllers.PPRFinalizer)
 			}, 5*time.Second, 250*time.Millisecond).Should(BeFalse())
 		})
 
