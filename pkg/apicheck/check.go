@@ -214,18 +214,18 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, result
 	}
 
 	// TODO does this work with IPv6?
-	client, err := peerhealth.NewClient(fmt.Sprintf("%v:%v", endpointIp, c.config.PeerHealthPort), c.config.PeerDialTimeout, c.config.Log.WithName("peerhealth client"), c.clientCreds)
+	phClient, err := peerhealth.NewClient(fmt.Sprintf("%v:%v", endpointIp, c.config.PeerHealthPort), c.config.PeerDialTimeout, c.config.Log.WithName("peerhealth client"), c.clientCreds)
 	if err != nil {
 		c.config.Log.Error(err, "failed to init grpc client")
 		results <- poisonPill.RequestFailed
 		return
 	}
-	defer client.Close()
+	defer phClient.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), peerRequestTimeout)
 	defer cancel()
 
-	resp, err := client.IsHealthy(ctx, &peerhealth.HealthRequest{
+	resp, err := phClient.IsHealthy(ctx, &peerhealth.HealthRequest{
 		NodeName: c.config.MyNodeName,
 	})
 	if err != nil {
