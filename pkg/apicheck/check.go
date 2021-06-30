@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"google.golang.org/grpc/credentials"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -27,8 +28,9 @@ const (
 
 type ApiConnectivityCheck struct {
 	client.Reader
-	config     *ApiConnectivityCheckConfig
-	errorCount int
+	config      *ApiConnectivityCheckConfig
+	errorCount  int
+	clientCreds credentials.TransportCredentials
 }
 
 type ApiConnectivityCheckConfig struct {
@@ -201,15 +203,18 @@ func (c *ApiConnectivityCheck) popNodes(nodes *[]v1.Node, count int) []string {
 //getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer into the given channel
 func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, results chan<- poisonPill.HealthCheckResponseCode) {
 
-	clientCreds, err := certificates.GetClientCredentialsFromCerts(c.config.CertReader)
-	if err != nil {
-		c.config.Log.Error(err, "failed to init client credentials")
-		results <- poisonPill.RequestFailed
-		return
+	if c.clientCreds == nil {
+		clientCreds, err := certificates.GetClientCredentialsFromCerts(c.config.CertReader)
+		if err != nil {
+			c.config.Log.Error(err, "failed to init client credentials")
+			results <- poisonPill.RequestFailed
+			return
+		}
+		c.clientCreds = clientCreds
 	}
 
 	// TODO does this work with IPv6?
-	client, err := peerhealth.NewClient(fmt.Sprintf("%v:%v", endpointIp, c.config.PeerHealthPort), c.config.PeerDialTimeout, c.config.Log.WithName("peerhealth client"), clientCreds)
+	client, err := peerhealth.NewClient(fmt.Sprintf("%v:%v", endpointIp, c.config.PeerHealthPort), c.config.PeerDialTimeout, c.config.Log.WithName("peerhealth client"), c.clientCreds)
 	if err != nil {
 		c.config.Log.Error(err, "failed to init grpc client")
 		results <- poisonPill.RequestFailed
