@@ -21,7 +21,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"strconv"
 	"time"
 
@@ -39,6 +38,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	machinev1beta1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 
@@ -230,7 +230,7 @@ func initPoisonPillAgent(mgr manager.Manager) {
 	if timeToAssumeNodeRebooted < minTimeToAssumeNodeRebooted {
 		timeToAssumeNodeRebooted = minTimeToAssumeNodeRebooted
 	}
-	setupLog.Info("Time to assume that unhealthy node has been rebooted: %v", timeToAssumeNodeRebooted)
+	setupLog.Info("Time to assume that unhealthy node has been rebooted", "time", timeToAssumeNodeRebooted)
 
 	pprReconciler := &controllers.PoisonPillRemediationReconciler{
 		Client:                       mgr.GetClient(),
