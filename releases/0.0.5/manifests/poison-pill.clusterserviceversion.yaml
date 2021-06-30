@@ -95,6 +95,18 @@ spec:
           - update
           - watch
         - apiGroups:
+          - ""
+          resources:
+          - secrets
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
           - machine.openshift.io
           resources:
           - machines
@@ -247,10 +259,10 @@ spec:
                 resources:
                   limits:
                     cpu: 100m
-                    memory: 30Mi
+                    memory: 100Mi
                   requests:
                     cpu: 100m
-                    memory: 20Mi
+                    memory: 50Mi
                 securityContext:
                   allowPrivilegeEscalation: false
               securityContext:
