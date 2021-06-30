@@ -10,45 +10,45 @@ import (
 
 func GetServerCredentialsFromCerts(certReader CertStorageReader) (credentials.TransportCredentials, error) {
 
-	caPem, certPem, keyPem, err := certReader.GetCerts()
+	keyPair, pool, err := prepareCredentials(certReader)
 	if err != nil {
 		return nil, err
 	}
 
-	keyPair, err := tls.X509KeyPair(certPem.Bytes(), keyPem.Bytes())
-	if err != nil {
-		return nil, err
-	}
-
-	cp := x509.NewCertPool()
-	if !cp.AppendCertsFromPEM(caPem.Bytes()) {
-		return nil, fmt.Errorf("credentials: failed to append ca cert")
-	}
 	return credentials.NewTLS(&tls.Config{
-		Certificates: []tls.Certificate{keyPair},
+		Certificates: []tls.Certificate{*keyPair},
 		ClientAuth:   tls.RequireAndVerifyClientCert,
-		ClientCAs:    cp,
+		ClientCAs:    pool,
 	}), nil
 }
 
 func GetClientCredentialsFromCerts(certReader CertStorageReader) (credentials.TransportCredentials, error) {
 
-	caPem, certPem, keyPem, err := certReader.GetCerts()
+	keyPair, pool, err := prepareCredentials(certReader)
 	if err != nil {
 		return nil, err
 	}
 
+	return credentials.NewTLS(&tls.Config{
+		Certificates: []tls.Certificate{*keyPair},
+		RootCAs:      pool,
+		ServerName:   fixedCertIP.String(),
+	}), nil
+}
+
+func prepareCredentials(certReader CertStorageReader) (*tls.Certificate, *x509.CertPool, error) {
+	caPem, certPem, keyPem, err := certReader.GetCerts()
+	if err != nil {
+		return nil, nil, err
+	}
+
 	keyPair, err := tls.X509KeyPair(certPem.Bytes(), keyPem.Bytes())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	cp := x509.NewCertPool()
 	if !cp.AppendCertsFromPEM(caPem.Bytes()) {
-		return nil, fmt.Errorf("credentials: failed to append ca cert")
+		return nil, nil, fmt.Errorf("credentials: failed to append ca cert")
 	}
-	return credentials.NewTLS(&tls.Config{
-		Certificates: []tls.Certificate{keyPair},
-		RootCAs:      cp,
-		ServerName:   fixedCertIP.String(),
-	}), nil
+	return &keyPair, cp, nil
 }
