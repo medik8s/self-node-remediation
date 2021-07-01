@@ -9,16 +9,14 @@ result in the node returning to a healthy state, the proposal does allow survivi
 to assume the node has reached a safe state so that it’s workloads can be automatically recovered.
 This work can also be useful for clusters with BMC credentials.
 
-## Backlog
-1. Peer to peer authentication and encryption
-1. Marking the poison pill pod as critical pod to avoid eviction
-1. Ask multiple peers concurrently instead of one by one
-1. create a flow chart to describe the algorithm visually
-1. OLM integration
-
 
 ## Blog Post 
 https://www.openshift.com/blog/kubernetes-self-remediation-aka-poison-pill
 
 ## Project State
-Currently the project is in PoC phase
+The operator is available in [operator hub](https://operatorhub.io/operator/poison-pill-operator)
+
+Should be installed together with [Node Healthcheck Operator](https://operatorhub.io/operator/node-healthcheck-operator)
+
+## Help
+Feel free to open new issue for any technical questions
