@@ -1,0 +1,10 @@
+filters:
+  .*:
+    approvers:
+    - n1r1
+    - slintes
+    reviewers:
+    - n1r1
+    - slintes
+    - rgolangh
+options: {}
