@@ -23,9 +23,6 @@ import (
 	"github.com/medik8s/poison-pill/pkg/reboot"
 )
 
-const (
-	peerRequestTimeout = 10 * time.Second
-)
 
 type ApiConnectivityCheck struct {
 	client.Reader
@@ -221,7 +218,7 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, result
 	}
 	defer phClient.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), peerRequestTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), c.config.PeerRequestTimeout)
 	defer cancel()
 
 	resp, err := phClient.IsHealthy(ctx, &peerhealth.HealthRequest{
