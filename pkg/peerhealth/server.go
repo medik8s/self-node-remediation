@@ -26,6 +26,10 @@ import (
 const (
 	connectionTimeout = 5 * time.Second
 	machineAnnotation = "machine.openshift.io/machine" //todo this is openshift specific
+	//IMPORTANT! this MUST be less than PeerRequestTimeout in apicheck
+	//The difference between them should allow some time for sending the request over the network
+	//todo enforce this
+	apiServerTimeout = 3 * time.Second
 )
 
 var (
@@ -169,7 +173,10 @@ func (s Server) isHealthyMachine(ctx context.Context, nodeName string, namespace
 }
 
 func (s Server) isHealthyByPpr(ctx context.Context, pprName string, pprNamespace string) poisonPillApis.HealthCheckResponseCode {
-	_, err := s.client.Resource(pprRes).Namespace(pprNamespace).Get(ctx, pprName, metav1.GetOptions{})
+	apiCtx, cancelFunc := context.WithTimeout(ctx, apiServerTimeout)
+	defer cancelFunc()
+
+	_, err := s.client.Resource(pprRes).Namespace(pprNamespace).Get(apiCtx, pprName, metav1.GetOptions{})
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			s.log.Info("healthy")
@@ -184,7 +191,10 @@ func (s Server) isHealthyByPpr(ctx context.Context, pprName string, pprNamespace
 }
 
 func (s Server) getNode(ctx context.Context, nodeName string) (*unstructured.Unstructured, error) {
-	node, err := s.client.Resource(nodeRes).Namespace("").Get(ctx, nodeName, metav1.GetOptions{})
+	apiCtx, cancelFunc := context.WithTimeout(ctx, apiServerTimeout)
+	defer cancelFunc()
+
+	node, err := s.client.Resource(nodeRes).Namespace("").Get(apiCtx, nodeName, metav1.GetOptions{})
 	if err != nil {
 		s.log.Error(err, "api error")
 		return nil, err
