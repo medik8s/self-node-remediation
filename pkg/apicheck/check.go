@@ -136,6 +136,11 @@ func (c *ApiConnectivityCheck) handleError() bool {
 			}
 		}
 
+		// but do not ask more then we have
+		if len(nodesToAsk) < nodesBatchCount {
+			nodesBatchCount = len(nodesToAsk)
+		}
+
 		chosenNodesAddresses := c.popNodes(&nodesToAsk, nodesBatchCount)
 		nrAddresses := len(chosenNodesAddresses)
 		responsesChan := make(chan poisonPill.HealthCheckResponseCode, nrAddresses)
@@ -144,7 +149,7 @@ func (c *ApiConnectivityCheck) handleError() bool {
 			go c.getHealthStatusFromPeer(address, responsesChan)
 		}
 
-		healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.sumPeersResponses(nodesBatchCount, responsesChan)
+		healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.sumPeersResponses(nrAddresses, responsesChan)
 
 		if healthyResponses > 0 {
 			c.config.Log.Info("Peer told me I'm healthy.")
@@ -203,8 +208,11 @@ func (c *ApiConnectivityCheck) popNodes(nodes *[]v1.Node, count int) []string {
 //getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer into the given channel
 func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, results chan<- poisonPill.HealthCheckResponseCode) {
 
+	logger := c.config.Log.WithValues("IP", endpointIp)
+	logger.Info("getting health status from peer")
+
 	if err := c.initClientCreds(); err != nil {
-		c.config.Log.Error(err, "failed to init client credentials")
+		logger.Error(err, "failed to init client credentials")
 		results <- poisonPill.RequestFailed
 		return
 	}
@@ -212,7 +220,7 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, result
 	// TODO does this work with IPv6?
 	phClient, err := peerhealth.NewClient(fmt.Sprintf("%v:%v", endpointIp, c.config.PeerHealthPort), c.config.PeerDialTimeout, c.config.Log.WithName("peerhealth client"), c.clientCreds)
 	if err != nil {
-		c.config.Log.Error(err, "failed to init grpc client")
+		logger.Error(err, "failed to init grpc client")
 		results <- poisonPill.RequestFailed
 		return
 	}
@@ -225,10 +233,12 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, result
 		NodeName: c.config.MyNodeName,
 	})
 	if err != nil {
-		c.config.Log.Error(err, "failed to read health response from peer")
+		logger.Error(err, "failed to read health response from peer")
 		results <- poisonPill.RequestFailed
 		return
 	}
+
+	logger.Info("got response from peer", "status", resp.Status)
 
 	results <- poisonPill.HealthCheckResponseCode(resp.Status)
 	return
@@ -255,8 +265,6 @@ func (c *ApiConnectivityCheck) sumPeersResponses(nodesBatchCount int, responsesC
 
 	for i := 0; i < nodesBatchCount; i++ {
 		response := <-responsesChan
-		c.config.Log.Info("got response from peer", "response", response)
-
 		switch response {
 		case poisonPill.Unhealthy:
 			unhealthyResponses++

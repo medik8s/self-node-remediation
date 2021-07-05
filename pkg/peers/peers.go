@@ -18,6 +18,7 @@ import (
 
 const (
 	hostnameLabelName = "kubernetes.io/hostname"
+	workerLabelName   = "node-role.kubernetes.io/worker"
 )
 
 type Peers struct {
@@ -63,8 +64,11 @@ func (p *Peers) Start(ctx context.Context) error {
 		p.log.Error(err, "failed to get own hostname")
 		return err
 	} else {
-		req, _ := labels.NewRequirement(hostnameLabelName, selection.NotEquals, []string{hostname})
-		p.peerSelector = labels.NewSelector().Add(*req)
+		reqNotMe, _ := labels.NewRequirement(hostnameLabelName, selection.NotEquals, []string{hostname})
+		reqWorkers, _ := labels.NewRequirement(workerLabelName, selection.Exists, []string{})
+		selector := labels.NewSelector()
+		selector = selector.Add(*reqNotMe, *reqWorkers)
+		p.peerSelector = selector
 	}
 
 	go wait.UntilWithContext(ctx, func(ctx context.Context) {
