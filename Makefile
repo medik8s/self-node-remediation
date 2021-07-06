@@ -184,4 +184,5 @@ protoc-gen-go-grpc: ## Download protoc-gen-go-grpc locally if necessary.
 .PHONY: e2e-test
 e2e-test:
 	# KUBECONFIG must be set to the cluster, and PP needs to be deployed already
-	go test ./e2e -test.v -timeout 60m
+    # count arg makes the test ignoring cached test results
+	go test ./e2e -test.v -timeout 60m -count=1
