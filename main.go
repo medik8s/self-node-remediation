@@ -136,6 +136,7 @@ func initPoisonPillManager(mgr manager.Manager) {
 		Log:               ctrl.Log.WithName("controllers").WithName("PoisonPillConfig"),
 		Scheme:            mgr.GetScheme(),
 		InstallFileFolder: "./install",
+		DefaultPpcCreator: newConfigIfNotExist,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "PoisonPillConfig")
 		os.Exit(1)
