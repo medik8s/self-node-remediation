@@ -134,7 +134,7 @@ func (s Server) IsHealthy(ctx context.Context, request *HealthRequest) (*HealthR
 			s.log.Info("no PPR seen yet, and API server issue, returning API error", "api error", err)
 			return toResponse(poisonPillApis.ApiError)
 		}
-		s.log.Info("no PPR seen yet, assuming healthy")
+		s.log.Info("no PPR seen yet, node is healthy")
 		return toResponse(poisonPillApis.Healthy)
 	}
 
@@ -179,14 +179,14 @@ func (s Server) isHealthyByPpr(ctx context.Context, pprName string, pprNamespace
 	_, err := s.client.Resource(pprRes).Namespace(pprNamespace).Get(apiCtx, pprName, metav1.GetOptions{})
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			s.log.Info("healthy")
+			s.log.Info("node is healthy")
 			return poisonPillApis.Healthy
 		}
 		s.log.Error(err, "api error")
 		return poisonPillApis.ApiError
 	}
 
-	s.log.Info("unhealthy")
+	s.log.Info("node is unhealthy")
 	return poisonPillApis.Unhealthy
 }
 
