@@ -22,9 +22,9 @@ import (
 	"os"
 
 	"github.com/go-logr/logr"
-
 	v1 "k8s.io/api/apps/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/errors"
+
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -43,12 +43,14 @@ type PoisonPillConfigReconciler struct {
 	Log               logr.Logger
 	Scheme            *runtime.Scheme
 	InstallFileFolder string
+	DefaultPpcCreator func(c client.Client) error
 }
 
 //+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillconfigs,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillconfigs/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillconfigs/finalizers,verbs=update
-//+kubebuilder:rbac:groups="apps",resources=daemonsets,verbs=get;list;watch;update;patch;create
+//+kubebuilder:rbac:groups="apps",resources=daemonsets,verbs=get;list;watch;update;patch;create;delete
+//+kubebuilder:rbac:groups="apps",resources=daemonsets/finalizers,verbs=update
 //+kubebuilder:rbac:groups="security.openshift.io",resources=securitycontextconstraints,verbs=use,resourceNames=privileged
 //+kubebuilder:rbac:groups=machine.openshift.io,resources=machines,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=machine.openshift.io,resources=machines/status,verbs=get;update;patch
@@ -58,8 +60,9 @@ func (r *PoisonPillConfigReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	config := &poisonpillv1alpha1.PoisonPillConfig{}
 	if err := r.Client.Get(context.Background(), req.NamespacedName, config); err != nil {
-		if apierrors.IsNotFound(err) {
-			return ctrl.Result{}, nil
+		if errors.IsNotFound(err) {
+			err := r.DefaultPpcCreator(r.Client)
+			return ctrl.Result{}, err
 		}
 		logger.Error(err, "failed to fetch cr")
 		return ctrl.Result{}, err
@@ -142,7 +145,7 @@ func (r *PoisonPillConfigReconciler) syncCerts(cr *poisonpillv1alpha1.PoisonPill
 	// check if certs exists already
 	st := certificates.NewSecretCertStorage(r.Client, r.Log.WithName("SecretCertStorage"), cr.Namespace)
 	pem, _, _, err := st.GetCerts()
-	if err != nil && !apierrors.IsNotFound(err) {
+	if err != nil && !errors.IsNotFound(err) {
 		r.Log.Error(err, "Failed to get cert secret")
 		return err
 	}
