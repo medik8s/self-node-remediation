@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
@@ -61,15 +63,12 @@ var _ = Describe("Poison Pill E2E", func() {
 		oldBootTime, err = getBootTime(node)
 		Expect(err).ToNot(HaveOccurred())
 
+		ensurePPRunning(workers)
 	})
 
 	AfterEach(func() {
 		// restart pp pods for resetting logs...
-		for _, worker := range workers.Items {
-			restartPPPod(&worker)
-		}
-		// let things settle...
-		time.Sleep(30 * time.Second)
+		restartPPPods(workers)
 	})
 
 	Describe("With API connectivity", func() {
@@ -86,7 +85,7 @@ var _ = Describe("Poison Pill E2E", func() {
 
 			AfterEach(func() {
 				if ppr != nil {
-					_ = k8sClient.Delete(context.Background(), ppr)
+					deleteAndWait(ppr)
 				}
 			})
 
@@ -145,7 +144,7 @@ var _ = Describe("Poison Pill E2E", func() {
 
 			AfterEach(func() {
 				if ppr != nil {
-					_ = k8sClient.Delete(context.Background(), ppr)
+					deleteAndWait(ppr)
 				}
 			})
 
@@ -171,24 +170,26 @@ var _ = Describe("Poison Pill E2E", func() {
 			//    - verify node does not reboot and isn't deleted
 
 			BeforeEach(func() {
-				for i, _ := range workers.Items {
+				wg := sync.WaitGroup{}
+				for i := range workers.Items {
+					wg.Add(1)
 					worker := workers.Items[i]
 					go func() {
 						defer GinkgoRecover()
+						defer wg.Done()
 						killApiConnection(&worker, apiIPs, true)
 					}()
 				}
-
-				// we can't check the boot time while it has no api connectivity, and it will not be restored by a reboot
-				// so wait until connection was restored
-				time.Sleep(time.Duration(reconnectInterval.Seconds()+10) * time.Second)
+				wg.Wait()
+				// give things a bit time to settle after API connection is restored
+				time.Sleep(10 * time.Second)
 			})
 
 			AfterEach(func() {
 				// nothing to do
 			})
 
-			It("should not reboot and not re-create node", func() {
+			It("should not have rebooted and not re-created node", func() {
 				// order matters
 				// - because the 2nd check has a small timeout only
 				checkNoNodeRecreate(node, oldUID)
@@ -310,21 +311,8 @@ func composeScript(commandTemplate string, ips []string) string {
 func checkNoNodeRecreate(node *v1.Node, oldUID types.UID) {
 	By("checking if node was recreated")
 	logger.Info("UID", "old", oldUID)
-	// Note: short timeout because this check runs after api connection was restored,
-	// and multiple minutes were spent already on this test
-	EventuallyWithOffset(1, func() types.UID {
-		key := client.ObjectKey{
-			Name: node.GetName(),
-		}
-		newNode := &v1.Node{}
-		if err := k8sClient.Get(context.Background(), key, newNode); err != nil {
-			logger.Error(err, "error getting node")
-			return "xxx"
-		}
-		newUID := newNode.GetUID()
-		logger.Info("UID", "new", newUID)
-		return newUID
-	}, 1*time.Minute, 10*time.Second).Should(Equal(oldUID))
+	ExpectWithOffset(1, k8sClient.Get(context.Background(), client.ObjectKeyFromObject(node), node)).ToNot(HaveOccurred())
+	Expect(node.UID).To(Equal(oldUID))
 }
 
 func checkNoReboot(node *v1.Node, oldBootTime *time.Time) {
@@ -336,6 +324,7 @@ func checkNoReboot(node *v1.Node, oldBootTime *time.Time) {
 	EventuallyWithOffset(1, func() time.Time {
 		newBootTime, err := getBootTime(node)
 		if err != nil {
+			logger.Error(err, "failed to get boot time, might retry")
 			return time.Time{}
 		}
 		logger.Info("boot time", "new", newBootTime)
@@ -353,13 +342,14 @@ func checkPPLogs(node *v1.Node, expected []string) {
 		var err error
 		logs, err = utils.GetLogs(k8sClientSet, pod)
 		if err != nil {
+			logger.Error(err, "failed to get logs, might retry")
 			return ""
 		}
 		return logs
 	}, 3*time.Minute, 10*time.Second).ShouldNot(BeEmpty(), "failed to get logs")
 
 	for _, exp := range expected {
-		Expect(logs).To(ContainSubstring(exp), "logs don t contain expected string, did the pod restart?")
+		ExpectWithOffset(1, logs).To(ContainSubstring(exp), "logs don't contain expected string, did the pod restart?")
 	}
 }
 
@@ -371,24 +361,43 @@ func findPPPod(node *v1.Node) *v1.Pod {
 			return &pod
 		}
 	}
+	Fail("didn't find PP pod")
 	return nil
+}
+
+func restartPPPods(nodes *v1.NodeList) {
+	wg := sync.WaitGroup{}
+	for i := range nodes.Items {
+		wg.Add(1)
+		node := &nodes.Items[i]
+		go func() {
+			defer GinkgoRecover()
+			defer wg.Done()
+			restartPPPod(node)
+		}()
+	}
+	wg.Wait()
 }
 
 func restartPPPod(node *v1.Node) {
 	By("restarting pp pod for resetting logs")
 	pod := findPPPod(node)
 	ExpectWithOffset(1, pod).ToNot(BeNil())
-	ExpectWithOffset(1, k8sClient.Delete(context.Background(), pod))
+	oldPodUID := pod.GetUID()
+
+	deleteAndWait(pod)
 
 	// wait for restart
-	oldPodUID := pod.GetUID()
+	var newPod *v1.Pod
 	EventuallyWithOffset(1, func() types.UID {
-		newPod := findPPPod(node)
+		newPod = findPPPod(node)
 		if newPod == nil {
 			return oldPodUID
 		}
 		return newPod.GetUID()
 	}, 2*time.Minute, 10*time.Second).ShouldNot(Equal(oldPodUID))
+
+	utils.WaitForPodReady(k8sClient, newPod)
 }
 
 func getApiIPs() []string {
@@ -403,4 +412,38 @@ func getApiIPs() []string {
 		ips = append(ips, addr.IP)
 	}
 	return ips
+}
+
+func deleteAndWait(resource client.Object) {
+	// Delete
+	EventuallyWithOffset(1, func() error {
+		err := k8sClient.Delete(context.Background(), resource)
+		if errors.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}, 2*time.Minute, 10*time.Second).ShouldNot(HaveOccurred(), "failed to delete resource")
+	// Wait until deleted
+	EventuallyWithOffset(1, func() bool {
+		err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(resource), resource)
+		if errors.IsNotFound(err) {
+			return true
+		}
+		return false
+	}, 2*time.Minute, 10*time.Second).Should(BeTrue(), "resource not deleted in time")
+}
+
+func ensurePPRunning(nodes *v1.NodeList) {
+	wg := sync.WaitGroup{}
+	for i := range nodes.Items {
+		wg.Add(1)
+		node := &nodes.Items[i]
+		go func() {
+			defer GinkgoRecover()
+			defer wg.Done()
+			pod := findPPPod(node)
+			utils.WaitForPodReady(k8sClient, pod)
+		}()
+	}
+	wg.Wait()
 }
