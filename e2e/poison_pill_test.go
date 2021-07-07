@@ -162,22 +162,35 @@ var _ = Describe("Poison Pill E2E", func() {
 
 		})
 
-		Context("Healthy node (no API connection for all)", func() {
+		Context("All nodes (no API connection for all)", func() {
 
 			// no api connectivity
 			// c) api issue
 			//    - kill connectivity on all nodes
 			//    - verify node does not reboot and isn't deleted
 
+			uids := make(map[string]types.UID)
+			bootTimes := make(map[string]*time.Time)
+
 			BeforeEach(func() {
 				wg := sync.WaitGroup{}
 				for i := range workers.Items {
 					wg.Add(1)
-					worker := workers.Items[i]
+					worker := &workers.Items[i]
+
+					// save old UID first
+					Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(worker), worker)).ToNot(HaveOccurred())
+					uids[worker.GetName()] = worker.GetUID()
+
+					// and the lat boot time
+					t, err := getBootTime(worker)
+					Expect(err).ToNot(HaveOccurred())
+					bootTimes[worker.GetName()] = t
+
 					go func() {
 						defer GinkgoRecover()
 						defer wg.Done()
-						killApiConnection(&worker, apiIPs, true)
+						killApiConnection(worker, apiIPs, true)
 					}()
 				}
 				wg.Wait()
@@ -189,14 +202,28 @@ var _ = Describe("Poison Pill E2E", func() {
 				// nothing to do
 			})
 
-			It("should not have rebooted and not re-created node", func() {
-				// order matters
-				// - because the 2nd check has a small timeout only
-				checkNoNodeRecreate(node, oldUID)
-				checkNoReboot(node, oldBootTime)
+			It("should not have rebooted and not be re-created", func() {
 
-				// check logs to make sure that the actual peer health check did run
-				checkPPLogs(node, []string{"failed to check api server", "nodes couldn't access the api-server"})
+				// all nodes should satisfy this test
+				wg := sync.WaitGroup{}
+				for i := range workers.Items {
+					wg.Add(1)
+					worker := &workers.Items[i]
+					go func() {
+						defer GinkgoRecover()
+						defer wg.Done()
+
+						// order matters
+						// - because the 2nd check has a small timeout only
+						checkNoNodeRecreate(worker, uids[worker.GetName()])
+						checkNoReboot(worker, bootTimes[worker.GetName()])
+
+						// check logs to make sure that the actual peer health check did run
+						checkPPLogs(worker, []string{"failed to check api server", "nodes couldn't access the api-server"})
+					}()
+				}
+				wg.Wait()
+
 			})
 		})
 	})
