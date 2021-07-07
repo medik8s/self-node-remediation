@@ -333,9 +333,7 @@ func (r *PoisonPillRemediationReconciler) restoreNode(nodeToRestore *v1.Node) (c
 	nodeToRestore.Spec.Taints = taints
 	nodeToRestore.Spec.Unschedulable = false
 	nodeToRestore.CreationTimestamp = metav1.Now()
-
-	//todo should we also delete conditions that made the node reach the unhealthy state?
-	//I'm afraid we might cause remediation loops
+	nodeToRestore.Status = v1.NodeStatus{}
 
 	if err := r.Client.Create(context.TODO(), nodeToRestore); err != nil {
 		if apiErrors.IsAlreadyExists(err) {
