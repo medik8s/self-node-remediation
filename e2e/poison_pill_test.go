@@ -354,15 +354,25 @@ func checkPPLogs(node *v1.Node, expected []string) {
 }
 
 func findPPPod(node *v1.Node) *v1.Pod {
-	pods := &v1.PodList{}
-	ExpectWithOffset(2, k8sClient.List(context.Background(), pods)).ToNot(HaveOccurred())
-	for _, pod := range pods.Items {
-		if strings.HasPrefix(pod.GetName(), "poison-pill-ds") && pod.Spec.NodeName == node.GetName() {
-			return &pod
+	// long timeout, after deployment of PP it takes some time until it is up and running
+	var ppPod *v1.Pod
+	EventuallyWithOffset(2, func() bool {
+		pods := &v1.PodList{}
+		err := k8sClient.List(context.Background(), pods)
+		if err != nil && !errors.IsNotFound(err) {
+			logger.Error(err, "failed to list pods")
+			return false
 		}
-	}
-	Fail("didn't find PP pod")
-	return nil
+		for i := range pods.Items {
+			pod := pods.Items[i]
+			if strings.HasPrefix(pod.GetName(), "poison-pill-ds") && pod.Spec.NodeName == node.GetName() {
+				ppPod = &pod
+				return true
+			}
+		}
+		return false
+	}, 5*time.Minute, 10*time.Second).Should(BeTrue(), "didn't find PP pod")
+	return ppPod
 }
 
 func restartPPPods(nodes *v1.NodeList) {
