@@ -102,9 +102,9 @@ func (p *Peers) updatePeers(ctx context.Context) {
 	p.peerList = nodes
 }
 
-func (p *Peers) GetPeers() v1.NodeList {
+func (p *Peers) GetPeers() *v1.NodeList {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	return p.peerList
+	return p.peerList.DeepCopy()
 }
