@@ -40,6 +40,8 @@ import (
 
 const (
 	PPRFinalizer = "poison-pill.medik8s.io/ppr-finalizer"
+	//finalizer will be removed only after remediationCooldown has passed since node created
+	remediationCooldown = 20 * time.Second
 )
 
 var (
@@ -137,16 +139,27 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 			return ctrl.Result{Requeue: true}, nil
 		}
 
-		r.logger.Info("node has been restored", "node name", node.Name)
-
 		//remove finalizer as remediation completed (successfully or not)
 		if controllerutil.ContainsFinalizer(ppr, PPRFinalizer) {
+			now := time.Now()
+			cooldownTime := node.CreationTimestamp.Add(remediationCooldown)
+
+			//it takes some time to kubelet to update its node conditions after we re-created it
+			//let's wait some time until it does (we could also check lastHeartBeat time but this feel safer)
+			//without that, MHC might think the node is unhealthy again, and will end up with remediation loop
+			if cooldownTime.Before(now) {
+				timeToRequeue := now.Sub(cooldownTime) + time.Second
+				return ctrl.Result{RequeueAfter: timeToRequeue}, nil
+			}
+
 			controllerutil.RemoveFinalizer(ppr, PPRFinalizer)
 			if err := r.Client.Update(context.Background(), ppr); err != nil {
 				r.logger.Error(err, "failed to remove finalizer from ppr")
 				return ctrl.Result{}, err
 			}
 		}
+
+		r.logger.Info("node has been restored", "node name", node.Name)
 
 		//todo this means we only allow one remediation attempt per ppr. we could add some config to
 		//ppr which states max remediation attempts, and the timeout to consider a remediation failed.
