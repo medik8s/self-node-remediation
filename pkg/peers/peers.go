@@ -24,7 +24,7 @@ const (
 type Peers struct {
 	client.Reader
 	log                logr.Logger
-	peerList           *v1.NodeList
+	peerList           v1.NodeList
 	peerSelector       labels.Selector
 	peerUpdateInterval time.Duration
 	myNodeName         string
@@ -36,7 +36,7 @@ func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Read
 	return &Peers{
 		Reader:             reader,
 		log:                log,
-		peerList:           &v1.NodeList{},
+		peerList:           v1.NodeList{},
 		peerUpdateInterval: peerUpdateInterval,
 		myNodeName:         myNodeName,
 		mutex:              sync.Mutex{},
@@ -88,12 +88,12 @@ func (p *Peers) updatePeers(ctx context.Context) {
 	readerCtx, cancel := context.WithTimeout(ctx, p.apiServerTimeout)
 	defer cancel()
 
-	nodes := &v1.NodeList{}
+	nodes := v1.NodeList{}
 	// get some nodes, but not ourself
-	if err := p.List(readerCtx, nodes, client.MatchingLabelsSelector{Selector: p.peerSelector}); err != nil {
+	if err := p.List(readerCtx, &nodes, client.MatchingLabelsSelector{Selector: p.peerSelector}); err != nil {
 		if errors.IsNotFound(err) {
 			// we are the only node at the moment... reset peerList
-			p.peerList = &v1.NodeList{}
+			p.peerList = v1.NodeList{}
 		}
 		p.log.Error(err, "failed to update peer list")
 		return
@@ -106,5 +106,5 @@ func (p *Peers) GetPeers() *v1.NodeList {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	return p.peerList
+	return p.peerList.DeepCopy()
 }
