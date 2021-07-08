@@ -49,7 +49,7 @@ spec:
           protocol: TCP
         resources:
           requests:
-            cpu: 100m
+            cpu: 20m
             memory: 50Mi
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
