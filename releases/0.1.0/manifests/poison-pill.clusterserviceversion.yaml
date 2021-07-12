@@ -244,6 +244,7 @@ spec:
                     fieldRef:
                       fieldPath: spec.nodeName
                 - name: POISON_PILL_IMAGE
+                  value: quay.io/medik8s/poison-pill-operator:0.1.0
                 - name: DEPLOYMENT_NAMESPACE
                   valueFrom:
                     fieldRef:
