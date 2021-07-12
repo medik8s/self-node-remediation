@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	unhealthyNodeName string = "node1"
-	peerNodeName      string = "node2"
-	pprNamespace      string = "default"
+	unhealthyNodeName   string = "node1"
+	peerNodeName        string = "node2"
+	pprNamespace        string = "default"
+	remediationCooldown        = 20 * time.Second
 )
 
 var _ = Describe("ppr Controller", func() {
@@ -148,13 +149,22 @@ var _ = Describe("ppr Controller", func() {
 			}, 5*time.Second, 250*time.Millisecond).Should(BeFalse())
 		})
 
+		It("Verify that finalizer exists for remediation cooldown", func() {
+			Consistently(func() bool {
+				pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
+				newPpr := &poisonpillv1alpha1.PoisonPillRemediation{}
+				Expect(k8sClient.Get(context.TODO(), pprNamespacedName, newPpr)).ToNot(HaveOccurred())
+				return controllerutil.ContainsFinalizer(newPpr, controllers.PPRFinalizer)
+			}, remediationCooldown-3*time.Second, 250*time.Millisecond).Should(BeTrue())
+		})
+
 		It("Verify that finalizer was removed and PPR can be deleted", func() {
 			Eventually(func() bool {
 				pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
 				newPpr := &poisonpillv1alpha1.PoisonPillRemediation{}
 				Expect(k8sClient.Get(context.TODO(), pprNamespacedName, newPpr)).ToNot(HaveOccurred())
 				return controllerutil.ContainsFinalizer(newPpr, controllers.PPRFinalizer)
-			}, 5*time.Second, 250*time.Millisecond).Should(BeFalse())
+			}, remediationCooldown+3*time.Second, 250*time.Millisecond).Should(BeFalse())
 		})
 
 	})
