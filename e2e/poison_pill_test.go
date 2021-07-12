@@ -398,7 +398,7 @@ func findPPPod(node *v1.Node) *v1.Pod {
 			}
 		}
 		return false
-	}, 5*time.Minute, 10*time.Second).Should(BeTrue(), "didn't find PP pod")
+	}, 9*time.Minute, 10*time.Second).Should(BeTrue(), "didn't find PP pod")
 	return ppPod
 }
 
