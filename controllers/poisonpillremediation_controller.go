@@ -147,8 +147,8 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 			//it takes some time to kubelet to update its node conditions after we re-created it
 			//let's wait some time until it does (we could also check lastHeartBeat time but this feel safer)
 			//without that, MHC might think the node is unhealthy again, and will end up with remediation loop
-			if cooldownTime.Before(now) {
-				timeToRequeue := now.Sub(cooldownTime) + time.Second
+			if cooldownTime.After(now) {
+				timeToRequeue := cooldownTime.Sub(now) + time.Second
 				return ctrl.Result{RequeueAfter: timeToRequeue}, nil
 			}
 
