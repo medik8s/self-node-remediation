@@ -153,7 +153,7 @@ var _ = Describe("ppr Controller", func() {
 			Consistently(func() bool {
 				pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
 				newPpr := &poisonpillv1alpha1.PoisonPillRemediation{}
-				Expect(k8sClient.Get(context.TODO(), pprNamespacedName, newPpr)).ToNot(HaveOccurred())
+				Expect(k8sClient.Get(context.TODO(), pprNamespacedName, newPpr)).To(Succeed())
 				return controllerutil.ContainsFinalizer(newPpr, controllers.PPRFinalizer)
 			}, remediationCooldown-3*time.Second, 250*time.Millisecond).Should(BeTrue())
 		})
@@ -162,7 +162,7 @@ var _ = Describe("ppr Controller", func() {
 			Eventually(func() bool {
 				pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
 				newPpr := &poisonpillv1alpha1.PoisonPillRemediation{}
-				Expect(k8sClient.Get(context.TODO(), pprNamespacedName, newPpr)).ToNot(HaveOccurred())
+				Expect(k8sClient.Get(context.TODO(), pprNamespacedName, newPpr)).To(Succeed())
 				return controllerutil.ContainsFinalizer(newPpr, controllers.PPRFinalizer)
 			}, remediationCooldown+3*time.Second, 250*time.Millisecond).Should(BeFalse())
 		})

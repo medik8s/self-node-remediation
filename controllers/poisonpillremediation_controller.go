@@ -148,7 +148,7 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 			//let's wait some time until it does (we could also check lastHeartBeat time but this feel safer)
 			//without that, MHC might think the node is unhealthy again, and will end up with remediation loop
 			if cooldownTime.After(now) {
-				timeToRequeue := cooldownTime.Sub(now) + time.Second
+				timeToRequeue := time.Until(cooldownTime) + time.Second
 				return ctrl.Result{RequeueAfter: timeToRequeue}, nil
 			}
 
