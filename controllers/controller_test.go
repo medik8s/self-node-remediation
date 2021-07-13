@@ -149,6 +149,22 @@ var _ = Describe("ppr Controller", func() {
 			}, 5*time.Second, 250*time.Millisecond).Should(BeFalse())
 		})
 
+		It("Verify that finalizer exists until node updates status", func() {
+			Consistently(func() bool {
+				pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
+				newPpr := &poisonpillv1alpha1.PoisonPillRemediation{}
+				Expect(k8sClient.Get(context.TODO(), pprNamespacedName, newPpr)).To(Succeed())
+				return controllerutil.ContainsFinalizer(newPpr, controllers.PPRFinalizer)
+			}, remediationCooldown, 250*time.Millisecond).Should(BeTrue())
+		})
+
+		It("Update node's last hearbeat time", func() {
+			//we simulate kubelet coming up, this is required to remove the finalizer
+			node.Status.Conditions = make([]v1.NodeCondition, 1)
+			node.Status.Conditions[0].LastHeartbeatTime = metav1.Now()
+			Expect(k8sClient.Status().Update(context.Background(), node)).To(Succeed())
+		})
+
 		It("Verify that finalizer exists for remediation cooldown", func() {
 			Consistently(func() bool {
 				pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
@@ -164,7 +180,7 @@ var _ = Describe("ppr Controller", func() {
 				newPpr := &poisonpillv1alpha1.PoisonPillRemediation{}
 				Expect(k8sClient.Get(context.TODO(), pprNamespacedName, newPpr)).To(Succeed())
 				return controllerutil.ContainsFinalizer(newPpr, controllers.PPRFinalizer)
-			}, remediationCooldown+3*time.Second, 250*time.Millisecond).Should(BeFalse())
+			}, 10*time.Second, 250*time.Millisecond).Should(BeFalse())
 		})
 
 	})
