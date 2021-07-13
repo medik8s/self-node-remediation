@@ -41,7 +41,7 @@ import (
 const (
 	PPRFinalizer = "poison-pill.medik8s.io/ppr-finalizer"
 	//finalizer will be removed only after remediationCooldown has passed since node created
-	remediationCooldown = 20 * time.Second
+	remediationCooldown = 60 * time.Second
 )
 
 var (
