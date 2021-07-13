@@ -40,8 +40,6 @@ import (
 
 const (
 	PPRFinalizer = "poison-pill.medik8s.io/ppr-finalizer"
-	//finalizer will be removed only after remediationCooldown has passed since node created
-	remediationCooldown = 20 * time.Second
 )
 
 var (
@@ -139,17 +137,15 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 			return ctrl.Result{Requeue: true}, nil
 		}
 
-		//remove finalizer as remediation completed (successfully or not)
 		if controllerutil.ContainsFinalizer(ppr, PPRFinalizer) {
-			now := time.Now()
-			cooldownTime := node.CreationTimestamp.Add(remediationCooldown)
-
-			//it takes some time to kubelet to update its node conditions after we re-created it
-			//let's wait some time until it does (we could also check lastHeartBeat time but this feel safer)
-			//without that, MHC might think the node is unhealthy again, and will end up with remediation loop
-			if cooldownTime.Before(now) {
-				timeToRequeue := now.Sub(cooldownTime) + time.Second
-				return ctrl.Result{RequeueAfter: timeToRequeue}, nil
+			readyCond := r.getReadyCond(node)
+			if readyCond == nil || readyCond.Status != v1.ConditionTrue {
+				//don't remove finalizer until the node is back online
+				//this helps to prevent remediation loops
+				//note that it means we block ppr deletion forever for node that were not remediated
+				//todo consider add some timeout, should be quite long to allow bm reboot (at least 10 minutes)
+				r.logger.Info("waiting for node to become ready before removing ppr finalizer")
+				return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 			}
 
 			controllerutil.RemoveFinalizer(ppr, PPRFinalizer)
@@ -229,6 +225,24 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 	}
 
 	return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
+}
+
+//returns the lastHeartbeatTime of the first condition, if exists. Otherwise returns the zero value
+func (r *PoisonPillRemediationReconciler) getLastHeartbeatTime(node *v1.Node) time.Time {
+	var lastHeartbeat metav1.Time
+	if node.Status.Conditions != nil && len(node.Status.Conditions) > 0 {
+		lastHeartbeat = node.Status.Conditions[0].LastHeartbeatTime
+	}
+	return lastHeartbeat.Time
+}
+
+func (r *PoisonPillRemediationReconciler) getReadyCond(node *v1.Node) *v1.NodeCondition {
+	for _, cond := range node.Status.Conditions {
+		if cond.Type == v1.NodeReady {
+			return &cond
+		}
+	}
+	return nil
 }
 
 func (r *PoisonPillRemediationReconciler) updatePprStatus(node *v1.Node, ppr *v1alpha1.PoisonPillRemediation) (ctrl.Result, error) {
