@@ -17,10 +17,10 @@ import (
 )
 
 const (
-	unhealthyNodeName   string = "node1"
-	peerNodeName        string = "node2"
-	pprNamespace        string = "default"
-	remediationCooldown        = 20 * time.Second
+	unhealthyNodeName   = "node1"
+	peerNodeName        = "node2"
+	pprNamespace        = "default"
+	remediationCooldown = 60 * time.Second
 )
 
 var _ = Describe("ppr Controller", func() {
