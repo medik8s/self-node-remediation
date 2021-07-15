@@ -154,6 +154,11 @@ func initPoisonPillManager(mgr manager.Manager) {
 		setupLog.Error(err, "failed to create a default poison pill config CR")
 		os.Exit(1)
 	}
+
+	if err := newDefaultTemplateIfNotExist(mgr.GetClient()); err != nil {
+		setupLog.Error(err, "failed to create default remediation template")
+		os.Exit(1)
+	}
 }
 
 func initPoisonPillAgent(mgr manager.Manager) {
@@ -285,6 +290,23 @@ func newConfigIfNotExist(c client.Client, namespace string) error {
 	err := c.Create(context.Background(), &config, &client.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
 		return errors.Wrap(err, "failed to create a default poison pill config CR")
+	}
+	return nil
+}
+
+// newDefaultTemplateIfNotExist creates a new PoisonPillRemediationTemplate object
+func newDefaultTemplateIfNotExist(c client.Client) error {
+	ns, err := getDeploymentNamespace()
+	if err != nil {
+		return errors.Wrap(err, "unable to get the deployment namespace")
+	}
+
+	pprt := poisonpillv1alpha1.NewDefaultRemediationTemplate()
+	pprt.SetNamespace(ns)
+
+	err = c.Create(context.Background(), &pprt, &client.CreateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		return errors.Wrap(err, "failed to create a default poison pill template CR")
 	}
 	return nil
 }
