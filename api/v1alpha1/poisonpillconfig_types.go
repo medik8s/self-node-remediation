@@ -25,6 +25,7 @@ import (
 
 const (
 	configCRName                          = "poison-pill-config"
+	templateCRName                        = "poison-pill-default-template"
 	defaultWatchdogPath                   = "/dev/watchdog1"
 	defaultSafetToAssumeNodeRebootTimeout = 180
 )
@@ -86,5 +87,12 @@ func NewDefaultPoisonPillConfig() PoisonPillConfig {
 			WatchdogFilePath:                    defaultWatchdogPath,
 			SafeTimeToAssumeNodeRebootedSeconds: defaultSafetToAssumeNodeRebootTimeout,
 		},
+	}
+}
+
+func NewDefaultRemediationTemplate() PoisonPillRemediationTemplate {
+	return PoisonPillRemediationTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: templateCRName},
+		Spec:       PoisonPillRemediationTemplateSpec{Template: PoisonPillRemediationTemplateResource{Spec: PoisonPillRemediationSpec{}}},
 	}
 }
