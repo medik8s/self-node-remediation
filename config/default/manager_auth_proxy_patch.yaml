@@ -26,7 +26,7 @@ spec:
               fieldRef:
                 fieldPath: spec.nodeName
           - name: POISON_PILL_IMAGE
-            value: ${IMG}
+            value: quay.io/medik8s/poison-pill-operator:${VERSION}
         args:
           - "--health-probe-bind-address=:8081"
           - "--metrics-bind-address=127.0.0.1:8080"
