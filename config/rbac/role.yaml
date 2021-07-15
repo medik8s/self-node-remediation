@@ -121,6 +121,32 @@ rules:
   - patch
   - update
 - apiGroups:
+  - poison-pill.medik8s.io
+  resources:
+  - poisonpillremediationtemplates
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - poison-pill.medik8s.io
+  resources:
+  - poisonpillremediationtemplates/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - poison-pill.medik8s.io
+  resources:
+  - poisonpillremediationtemplates/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - security.openshift.io
   resourceNames:
   - privileged
