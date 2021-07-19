@@ -135,6 +135,7 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 			ppr.Status.NodeBackup = nil
 			if err := r.Client.Status().Update(context.Background(), ppr); err != nil {
 				if apiErrors.IsConflict(err) {
+					// conflicts are expected since all poison pill deamonset pods are competing on the same requests
 					return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 				}
 				r.logger.Error(err, "failed to remove node backup from ppr")
