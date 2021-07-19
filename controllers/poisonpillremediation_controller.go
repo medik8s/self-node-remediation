@@ -134,6 +134,10 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 			//missing apiVersion and Kind for the nodeBackup.
 			ppr.Status.NodeBackup = nil
 			if err := r.Client.Status().Update(context.Background(), ppr); err != nil {
+				if apiErrors.IsConflict(err) {
+					// conflicts are expected since all poison pill deamonset pods are competing on the same requests
+					return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
+				}
 				r.logger.Error(err, "failed to remove node backup from ppr")
 				return ctrl.Result{}, err
 			}
@@ -153,6 +157,9 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 
 			controllerutil.RemoveFinalizer(ppr, PPRFinalizer)
 			if err := r.Client.Update(context.Background(), ppr); err != nil {
+				if apiErrors.IsConflict(err) {
+					return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
+				}
 				r.logger.Error(err, "failed to remove finalizer from ppr")
 				return ctrl.Result{}, err
 			}
@@ -175,6 +182,9 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 
 		controllerutil.AddFinalizer(ppr, PPRFinalizer)
 		if err := r.Client.Update(context.Background(), ppr); err != nil {
+			if apiErrors.IsConflict(err) {
+				return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
+			}
 			r.logger.Error(err, "failed to add finalizer to ppr")
 			return ctrl.Result{}, err
 		}
@@ -336,6 +346,9 @@ func (r *PoisonPillRemediationReconciler) markNodeAsUnschedulable(node *v1.Node)
 	node.Spec.Unschedulable = true
 	r.logger.Info("Marking node as unschedulable", "node name", node.Name)
 	if err := r.Client.Update(context.Background(), node); err != nil {
+		if apiErrors.IsConflict(err) {
+			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
+		}
 		r.logger.Error(err, "failed to mark node as unschedulable")
 		return ctrl.Result{}, err
 	}
