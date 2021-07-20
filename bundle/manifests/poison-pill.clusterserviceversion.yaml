@@ -347,8 +347,8 @@ spec:
   - name: Poison Pill
     url: https://www.medik8s.io/
   maintainers:
-  - email: niry@redhat.com
-    name: Nir
+  - email: medik8s@googlegroups.com
+    name: medik8s team
   maturity: alpha
   provider:
     name: medik8s
