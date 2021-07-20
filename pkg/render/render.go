@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"text/template"
 
@@ -18,7 +17,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 
 	mcfgv1 "github.com/openshift/machine-config-operator/pkg/apis/machineconfiguration.openshift.io/v1"
-	"github.com/openshift/machine-config-operator/pkg/controller/common"
 )
 
 type RenderData struct {
@@ -40,7 +38,6 @@ const (
 	filesDir          = "files"
 	ovsUnitsDir       = "ovs-units"
 	switchdevUnitsDir = "switchdev-units"
-	platformBase      = "bindata/manifests/machine-config"
 )
 
 func MakeRenderData() RenderData {
@@ -144,87 +141,6 @@ func formateDeviceList(devs []DeviceInfo) string {
 		out = out + fmt.Sprintln(dev.PciAddress, dev.NumVfs)
 	}
 	return out
-}
-
-func GenerateMachineConfig(path, name, mcRole string, ovsOffload bool, d *RenderData) (*mcfgv1.MachineConfig, error) {
-	d.Funcs["formateDeviceList"] = formateDeviceList
-
-	exists, err := existsDir(path)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, errors.Errorf("%s is not a directory", path)
-	}
-	files := map[string]string{}
-	units := map[string]string{}
-
-	// if err := filterTemplates(files, path, d); err != nil {
-	// 	return nil, err
-	// }
-
-	p := filepath.Join(path, filesDir)
-	exists, err = existsDir(p)
-	if err != nil {
-		return nil, err
-	}
-	if exists {
-		if err := filterTemplates(files, p, d); err != nil {
-			return nil, err
-		}
-	}
-
-	if ovsOffload {
-		p = filepath.Join(path, ovsUnitsDir)
-		exists, err = existsDir(p)
-		if err != nil {
-			return nil, err
-		}
-		if exists {
-			if err := filterTemplates(units, p, d); err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	p = filepath.Join(path, switchdevUnitsDir)
-	exists, err = existsDir(p)
-	if err != nil {
-		return nil, err
-	}
-	if exists {
-		if err := filterTemplates(units, p, d); err != nil {
-			return nil, err
-		}
-	}
-
-	// keySortVals returns a list of values, sorted by key
-	// we need the lists of files and units to have a stable ordering for the checksum
-	keySortVals := func(m map[string]string) []string {
-		ks := []string{}
-		for k := range m {
-			ks = append(ks, k)
-		}
-		sort.Strings(ks)
-
-		vs := []string{}
-		for _, k := range ks {
-			vs = append(vs, m[k])
-		}
-
-		return vs
-	}
-
-	ignCfg, err := common.TranspileCoreOSConfigToIgn(keySortVals(files), keySortVals(units))
-	if err != nil {
-		return nil, errors.Wrap(err, "error transpiling CoreOS config to Ignition config")
-	}
-	mcfg, err := common.MachineConfigFromIgnConfig(mcRole, name, ignCfg)
-	if err != nil {
-		return nil, errors.Wrap(err, "error creating MachineConfig from Ignition config")
-	}
-
-	return mcfg, nil
 }
 
 // existsDir returns true if path exists and is a directory, false if the path

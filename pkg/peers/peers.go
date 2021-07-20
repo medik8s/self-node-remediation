@@ -98,7 +98,6 @@ func (p *Peers) updatePeers(ctx context.Context) {
 		p.log.Error(err, "failed to update peer list")
 		return
 	}
-	//p.log.Info("peers updated")
 	p.peerList = nodes
 }
 

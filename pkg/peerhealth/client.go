@@ -9,11 +9,6 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-const (
-	// TODO make this configurable?
-	peerDialTimeout = 10 * time.Second
-)
-
 type Client struct {
 	PeerHealthClient
 	conn *grpc.ClientConn
