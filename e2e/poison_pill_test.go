@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	gomegatypes "github.com/onsi/gomega/types"
 	"strconv"
 	"strings"
 	"sync"
@@ -364,20 +365,20 @@ func checkPPLogs(node *v1.Node, expected []string) {
 	pod := findPPPod(node)
 	ExpectWithOffset(1, pod).ToNot(BeNil())
 
-	logs := ""
-	Eventually(func() string {
+	var matchers []gomegatypes.GomegaMatcher
+	for _, exp := range expected {
+		matchers = append(matchers, ContainSubstring(exp))
+	}
+
+	EventuallyWithOffset(1, func() string {
 		var err error
-		logs, err = utils.GetLogs(k8sClientSet, pod)
+		logs, err := utils.GetLogs(k8sClientSet, pod)
 		if err != nil {
 			logger.Error(err, "failed to get logs, might retry")
 			return ""
 		}
 		return logs
-	}, 3*time.Minute, 10*time.Second).ShouldNot(BeEmpty(), "failed to get logs")
-
-	for _, exp := range expected {
-		ExpectWithOffset(1, logs).To(ContainSubstring(exp), "logs don't contain expected string, did the pod restart?")
-	}
+	}, 4*time.Minute, 10*time.Second).Should(And(matchers...), "logs don't contain expected strings")
 }
 
 func findPPPod(node *v1.Node) *v1.Pod {
