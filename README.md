@@ -1,4 +1,4 @@
-# Poison Pill k8s Node Remediation 
+# Poison Pill - Automatic Kubernetes Node Remediation 
 Existing baremetal remediation strategies utilize BMC credentials to power-cycle and/or reprovision the host.
 However there are also environments that either do not include BMCs, or there are policies
 in place that prevent them from being utilized.  Such environments would also benefit from
@@ -10,8 +10,8 @@ to assume the node has reached a safe state so that it’s workloads can be auto
 This work can also be useful for clusters with BMC credentials.
 
 
-## Blog Post 
-https://www.openshift.com/blog/kubernetes-self-remediation-aka-poison-pill
+## More Info
+https://www.medik8s.io/PoisonPill/
 
 ## Project State
 The operator is available in [operator hub](https://operatorhub.io/operator/poison-pill-operator)
@@ -19,4 +19,4 @@ The operator is available in [operator hub](https://operatorhub.io/operator/pois
 Should be installed together with [Node Healthcheck Operator](https://operatorhub.io/operator/node-healthcheck-operator)
 
 ## Help
-Feel free to open new issue for any technical questions
+Feel free to join our google group to get more info - https://groups.google.com/g/medik8s
