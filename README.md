@@ -11,7 +11,7 @@ This work can also be useful for clusters with BMC credentials.
 
 
 ## More Info
-https://www.medik8s.io/PoisonPill/
+https://www.medik8s.io/
 
 ## Project State
 The operator is available in [operator hub](https://operatorhub.io/operator/poison-pill-operator)
