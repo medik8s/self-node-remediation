@@ -113,7 +113,7 @@ func (c *ApiConnectivityCheck) handleError() bool {
 	}
 
 	c.config.Log.Info("Error count exceeds threshold, trying to ask other nodes if I'm healthy")
-	nodesToAsk := c.config.Peers.GetPeers().Items
+	nodesToAsk := c.config.Peers.GetPeersAddresses()
 	if nodesToAsk == nil || len(nodesToAsk) == 0 {
 		c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, nothing we can do, so consider the node being healthy")
 		//todo maybe we need to check if this happens too much and reboot
@@ -178,7 +178,7 @@ func (c *ApiConnectivityCheck) handleError() bool {
 	return false
 }
 
-func (c *ApiConnectivityCheck) popNodes(nodes *[]v1.Node, count int) []string {
+func (c *ApiConnectivityCheck) popNodes(nodes *[][]v1.NodeAddress, count int) []string {
 	nrOfNodes := len(*nodes)
 	if nrOfNodes == 0 {
 		return []string{}
@@ -191,12 +191,12 @@ func (c *ApiConnectivityCheck) popNodes(nodes *[]v1.Node, count int) []string {
 	//todo maybe we should pick nodes randomly rather than relying on the order returned from api-server
 	addresses := make([]string, count)
 	for i := 0; i < count; i++ {
-		node := (*nodes)[i]
-		if len(node.Status.Addresses) == 0 || node.Status.Addresses[0].Address == "" {
-			c.config.Log.Info("could not get address from node", "node", node.Name)
+		nodeAddresses := (*nodes)[i]
+		if len(nodeAddresses) == 0 || nodeAddresses[0].Address == "" {
+			c.config.Log.Info("ignoring node without IP address")
 			continue
 		}
-		addresses[i] = node.Status.Addresses[0].Address //todo node might have multiple addresses or none
+		addresses[i] = nodeAddresses[0].Address //todo node might have multiple addresses or none
 	}
 
 	*nodes = (*nodes)[count:] //remove popped nodes from the list
