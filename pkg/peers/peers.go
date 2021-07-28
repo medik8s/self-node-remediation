@@ -24,23 +24,23 @@ const (
 type Peers struct {
 	client.Reader
 	log                logr.Logger
-	peerList           v1.NodeList
 	peerSelector       labels.Selector
 	peerUpdateInterval time.Duration
 	myNodeName         string
 	mutex              sync.Mutex
 	apiServerTimeout   time.Duration
+	peersAddresses     [][]v1.NodeAddress
 }
 
 func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Reader, log logr.Logger, apiServerTimeout time.Duration) *Peers {
 	return &Peers{
 		Reader:             reader,
 		log:                log,
-		peerList:           v1.NodeList{},
 		peerUpdateInterval: peerUpdateInterval,
 		myNodeName:         myNodeName,
 		mutex:              sync.Mutex{},
 		apiServerTimeout:   apiServerTimeout,
+		peersAddresses:     [][]v1.NodeAddress{},
 	}
 }
 
@@ -93,17 +93,30 @@ func (p *Peers) updatePeers(ctx context.Context) {
 	if err := p.List(readerCtx, &nodes, client.MatchingLabelsSelector{Selector: p.peerSelector}); err != nil {
 		if errors.IsNotFound(err) {
 			// we are the only node at the moment... reset peerList
-			p.peerList = v1.NodeList{}
+			p.peersAddresses = [][]v1.NodeAddress{}
 		}
 		p.log.Error(err, "failed to update peer list")
 		return
 	}
-	p.peerList = nodes
+	nodesCount := len(nodes.Items)
+	addresses := make([][]v1.NodeAddress, nodesCount)
+	for i, node := range nodes.Items {
+		addresses[i] = node.Status.Addresses
+	}
+	p.peersAddresses = addresses
 }
 
-func (p *Peers) GetPeers() *v1.NodeList {
+func (p *Peers) GetPeersAddresses() [][]v1.NodeAddress {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	return p.peerList.DeepCopy()
+	//we don't want the caller to be able to change the addresses
+	//so we create a deep copy and return it
+	addressesCopy := make([][]v1.NodeAddress, len(p.peersAddresses))
+	for i := range p.peersAddresses {
+		addressesCopy[i] = make([]v1.NodeAddress, len(p.peersAddresses[i]))
+		copy(addressesCopy, p.peersAddresses)
+	}
+
+	return addressesCopy
 }
