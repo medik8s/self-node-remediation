@@ -131,6 +131,7 @@ var _ = BeforeSuite(func() {
 		Log:               ctrl.Log.WithName("controllers").WithName("poison-pill-config-controller"),
 		InstallFileFolder: "../install/",
 		Scheme:            scheme.Scheme,
+		Namespace:         namespace,
 	}).SetupWithManager(k8sManager)
 
 	// peers need their own node on start

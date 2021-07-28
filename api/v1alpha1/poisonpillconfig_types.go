@@ -24,7 +24,7 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 const (
-	configCRName                          = "poison-pill-config"
+	ConfigCRName                          = "poison-pill-config"
 	templateCRName                        = "poison-pill-default-template"
 	defaultWatchdogPath                   = "/dev/watchdog1"
 	defaultSafetToAssumeNodeRebootTimeout = 180
@@ -82,7 +82,7 @@ func init() {
 
 func NewDefaultPoisonPillConfig() PoisonPillConfig {
 	return PoisonPillConfig{
-		ObjectMeta: metav1.ObjectMeta{Name: configCRName},
+		ObjectMeta: metav1.ObjectMeta{Name: ConfigCRName},
 		Spec: PoisonPillConfigSpec{
 			WatchdogFilePath:                    defaultWatchdogPath,
 			SafeTimeToAssumeNodeRebootedSeconds: defaultSafetToAssumeNodeRebootTimeout,
