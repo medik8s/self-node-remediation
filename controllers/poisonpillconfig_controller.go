@@ -44,6 +44,7 @@ type PoisonPillConfigReconciler struct {
 	Scheme            *runtime.Scheme
 	InstallFileFolder string
 	DefaultPpcCreator func(c client.Client) error
+	Namespace         string
 }
 
 //+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillconfigs,verbs=get;list;watch;create;update;patch;delete
@@ -57,6 +58,12 @@ type PoisonPillConfigReconciler struct {
 
 func (r *PoisonPillConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.Log.WithValues("poisonpillconfig", req.NamespacedName)
+
+	if req.Name != poisonpillv1alpha1.ConfigCRName || req.Namespace != r.Namespace {
+		logger.Info(fmt.Sprintf("ignoring poisonpillconfig CRs that are not named '%s' or not in the namespace of the operator: '%s'",
+			poisonpillv1alpha1.ConfigCRName, r.Namespace))
+		return ctrl.Result{}, nil
+	}
 
 	config := &poisonpillv1alpha1.PoisonPillConfig{}
 	if err := r.Client.Get(context.Background(), req.NamespacedName, config); err != nil {

@@ -41,7 +41,7 @@ var _ = Describe("ppc controller Test", func() {
 		config.APIVersion = "poison-pill.medik8s.io/v1alpha1"
 		config.Spec.WatchdogFilePath = "/dev/foo"
 		config.Spec.SafeTimeToAssumeNodeRebootedSeconds = 123
-		config.Name = "config-sample"
+		config.Name = poisonpillv1alpha1.ConfigCRName
 		config.Namespace = namespace
 
 		It("Config CR should be created", func() {
