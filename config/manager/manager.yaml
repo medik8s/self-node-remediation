@@ -51,11 +51,8 @@ spec:
           initialDelaySeconds: 5
           periodSeconds: 10
         resources:
-          limits:
-            cpu: 100m
-            memory: 100Mi
           requests:
             cpu: 20m
-            memory: 50Mi
+            memory: 110Mi
       serviceAccountName: controller-manager
       terminationGracePeriodSeconds: 10
