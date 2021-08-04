@@ -114,27 +114,28 @@ var _ = Describe("ppc controller Test", func() {
 
 	Context("Wrong poison pill config CR", func() {
 		var dsResourceVersion string
-		ds := &appsv1.DaemonSet{}
-		key := types.NamespacedName{
-			Namespace: namespace,
-			Name:      dsName,
-		}
+		var key types.NamespacedName
+		var ds *appsv1.DaemonSet
+		BeforeEach(func() {
+			ds = &appsv1.DaemonSet{}
+			key = types.NamespacedName{
+				Namespace: namespace,
+				Name:      dsName,
+			}
 
-		It("get DS resource version", func() {
+			By("get DS resource version")
 			Expect(k8sClient.Get(context.Background(), key, ds)).To(Succeed())
 			dsResourceVersion = ds.ResourceVersion
-		})
 
-		config := &poisonpillv1alpha1.PoisonPillConfig{}
-		config.Kind = "PoisonPillConfig"
-		config.APIVersion = "poison-pill.medik8s.io/v1alpha1"
-		config.Name = "not-the-expected-name"
-		config.Spec.WatchdogFilePath = "foo"
-		config.Spec.SafeTimeToAssumeNodeRebootedSeconds = 9999
-		config.Namespace = namespace
+			By("create a config CR")
+			config := &poisonpillv1alpha1.PoisonPillConfig{}
+			config.Kind = "PoisonPillConfig"
+			config.APIVersion = "poison-pill.medik8s.io/v1alpha1"
+			config.Name = "not-the-expected-name"
+			config.Spec.WatchdogFilePath = "foo"
+			config.Spec.SafeTimeToAssumeNodeRebootedSeconds = 9999
+			config.Namespace = namespace
 
-		It("Create config CR", func() {
-			Expect(k8sClient).To(Not(BeNil()))
 			Expect(k8sClient.Create(context.Background(), config)).To(Succeed())
 		})
 
