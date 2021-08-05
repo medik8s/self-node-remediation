@@ -1,6 +1,6 @@
 module github.com/medik8s/poison-pill
 
-go 1.15
+go 1.16
 
 require (
 	github.com/Masterminds/goutils v1.1.1 // indirect
