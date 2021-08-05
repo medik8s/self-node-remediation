@@ -18,12 +18,11 @@ import (
 )
 
 var _ = Describe("ppc controller Test", func() {
+	dsName := "poison-pill-ds"
 
 	Context("DS installation", func() {
 		dummyPoisonPillImage := "poison-pill-image"
 		os.Setenv("POISON_PILL_IMAGE", dummyPoisonPillImage)
-
-		dsName := "poison-pill-ds"
 
 		nsToCreate := &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
@@ -41,7 +40,7 @@ var _ = Describe("ppc controller Test", func() {
 		config.APIVersion = "poison-pill.medik8s.io/v1alpha1"
 		config.Spec.WatchdogFilePath = "/dev/foo"
 		config.Spec.SafeTimeToAssumeNodeRebootedSeconds = 123
-		config.Name = "config-sample"
+		config.Name = poisonpillv1alpha1.ConfigCRName
 		config.Namespace = namespace
 
 		It("Config CR should be created", func() {
@@ -110,6 +109,41 @@ var _ = Describe("ppc controller Test", func() {
 
 			Expect(createdConfig.Spec.WatchdogFilePath).To(Equal("/dev/watchdog1"))
 			Expect(createdConfig.Spec.SafeTimeToAssumeNodeRebootedSeconds).To(Equal(180))
+		})
+	})
+
+	Context("Wrong poison pill config CR", func() {
+		var dsResourceVersion string
+		var key types.NamespacedName
+		var ds *appsv1.DaemonSet
+		BeforeEach(func() {
+			ds = &appsv1.DaemonSet{}
+			key = types.NamespacedName{
+				Namespace: namespace,
+				Name:      dsName,
+			}
+
+			By("get DS resource version")
+			Expect(k8sClient.Get(context.Background(), key, ds)).To(Succeed())
+			dsResourceVersion = ds.ResourceVersion
+
+			By("create a config CR")
+			config := &poisonpillv1alpha1.PoisonPillConfig{}
+			config.Kind = "PoisonPillConfig"
+			config.APIVersion = "poison-pill.medik8s.io/v1alpha1"
+			config.Name = "not-the-expected-name"
+			config.Spec.WatchdogFilePath = "foo"
+			config.Spec.SafeTimeToAssumeNodeRebootedSeconds = 9999
+			config.Namespace = namespace
+
+			Expect(k8sClient.Create(context.Background(), config)).To(Succeed())
+		})
+
+		It("Daemonset should not be changed", func() {
+			Consistently(func() string {
+				Expect(k8sClient.Get(context.Background(), key, ds)).To(Succeed())
+				return ds.ResourceVersion
+			}, 20*time.Second, 1*time.Second).Should(Equal(dsResourceVersion))
 		})
 	})
 

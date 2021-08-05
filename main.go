@@ -131,12 +131,19 @@ func main() {
 
 func initPoisonPillManager(mgr manager.Manager) {
 	setupLog.Info("Starting as a manager that installs the daemonset")
+	ns, err := getDeploymentNamespace()
+	if err != nil {
+		setupLog.Error(err, "failed to get deployed namespace from env var")
+		os.Exit(1)
+	}
+
 	if err := (&controllers.PoisonPillConfigReconciler{
 		Client:            mgr.GetClient(),
 		Log:               ctrl.Log.WithName("controllers").WithName("PoisonPillConfig"),
 		Scheme:            mgr.GetScheme(),
 		InstallFileFolder: "./install",
 		DefaultPpcCreator: newConfigIfNotExist,
+		Namespace:         ns,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "PoisonPillConfig")
 		os.Exit(1)
