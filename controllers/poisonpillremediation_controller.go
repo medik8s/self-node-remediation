@@ -19,6 +19,8 @@ package controllers
 import (
 	"context"
 	"errors"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"sync"
 	"time"
 
@@ -172,6 +174,18 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{}, nil
 	}
 
+	hasPoisonPillPod, err := r.hasPoisonPillAgentPod(node)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	//if the unhealthy node doesn't have the poison pill agent pod, the node might not reboot, and we might end up
+	//in deleting a running node
+	if !hasPoisonPillPod {
+		r.logger.Error(errors.New("node is missing poison pill agent pod, which means the node might not reboot when we'll delete the node. Skipping remediation"), "")
+		return ctrl.Result{}, nil
+	}
+
 	if !controllerutil.ContainsFinalizer(ppr, PPRFinalizer) {
 		if !ppr.DeletionTimestamp.IsZero() {
 			//ppr is going to be deleted before we started any remediation action, so taking no-op
@@ -238,6 +252,27 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 	}
 
 	return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
+}
+
+func (r *PoisonPillRemediationReconciler) hasPoisonPillAgentPod(node *v1.Node) (bool, error) {
+	podList := &v1.PodList{}
+
+	selector := labels.NewSelector()
+	requirement, _ := labels.NewRequirement("app", selection.Equals, []string{"poison-pill-agent"})
+	selector = selector.Add(*requirement)
+
+	err := r.Client.List(context.Background(), podList, &client.ListOptions{LabelSelector: selector})
+	if err != nil {
+		r.logger.Error(err, "failed to list poison pill agent pods")
+		return false, err
+	}
+
+	for _, pod := range podList.Items {
+		if pod.Spec.NodeName == node.Name {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 //returns the lastHeartbeatTime of the first condition, if exists. Otherwise returns the zero value
