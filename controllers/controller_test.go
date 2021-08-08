@@ -3,6 +3,8 @@ package controllers_test
 import (
 	"context"
 	"github.com/medik8s/poison-pill/controllers"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -35,6 +37,40 @@ var _ = Describe("ppr Controller", func() {
 
 	ppr := &poisonpillv1alpha1.PoisonPillRemediation{}
 
+	Context("Unhealthy node without poison-pill pod", func() {
+		//if the unhealthy node doesn't have the poison-pill pod
+		//we don't want to delete the node, since it might never
+		//be in a safe state (i.e. rebooted)
+
+		BeforeEach(func() {
+			ppr := &poisonpillv1alpha1.PoisonPillRemediation{}
+			ppr.Name = unhealthyNodeName
+			ppr.Namespace = pprNamespace
+
+			Expect(k8sClient.Create(context.TODO(), ppr)).To(Succeed(), "failed to create ppr CR")
+		})
+
+		AfterEach(func() {
+			Expect(k8sClient.Delete(context.Background(), ppr)).To(Succeed(), "failed to delete ppr CR")
+		})
+
+		It("ppr should not have finalizers", func() {
+			pprKey := client.ObjectKey{
+				Namespace: pprNamespace,
+				Name:      unhealthyNodeName,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.Background(), pprKey, ppr)
+			}, 10*time.Second, 200*time.Millisecond).Should(Succeed())
+
+			Consistently(func() []string {
+				Expect(k8sClient.Get(context.Background(), pprKey, ppr)).To(Succeed())
+				//if no finalizer was set, it means we didn't start remediation process
+				return ppr.Finalizers
+			}, 10*time.Second, 250*time.Millisecond).Should(BeEmpty())
+		})
+	})
+
 	Context("Unhealthy node with api-server access", func() {
 
 		It("Disable api-server failure", func() {
@@ -59,9 +95,41 @@ var _ = Describe("ppr Controller", func() {
 			Expect(node.CreationTimestamp).ToNot(BeZero())
 		})
 
+		Context("simulate daemonset pods assigned to nodes", func() {
+			//since we don't have a scheduler in test, we need to do its work and create pp pod for that node
+			BeforeEach(func() {
+				pod := &v1.Pod{}
+				pod.Spec.NodeName = unhealthyNodeName
+				pod.Labels = map[string]string{"app": "poison-pill-agent"}
+				pod.Name = "poison-pill"
+				pod.Namespace = namespace
+				container := v1.Container{
+					Name:  "foo",
+					Image: "foo",
+				}
+				pod.Spec.Containers = []v1.Container{container}
+				Expect(k8sClient.Create(context.Background(), pod)).To(Succeed())
+			})
+
+			It("poison pill agent pod should exist", func() {
+				podList := &v1.PodList{}
+
+				selector := labels.NewSelector()
+				requirement, _ := labels.NewRequirement("app", selection.Equals, []string{"poison-pill-agent"})
+				selector = selector.Add(*requirement)
+
+				Eventually(func() int {
+					Expect(k8sClient.List(context.Background(), podList, &client.ListOptions{LabelSelector: selector})).To(Succeed())
+					return len(podList.Items)
+				}, 5*time.Second, 250*time.Millisecond).Should(Equal(1))
+
+			})
+		})
+
 		beforePPR := time.Now()
 
 		It("Create ppr for unhealthy node", func() {
+			ppr = &poisonpillv1alpha1.PoisonPillRemediation{}
 			ppr.Name = unhealthyNodeName
 			ppr.Namespace = pprNamespace
 			Expect(k8sClient.Create(context.TODO(), ppr)).To(Succeed(), "failed to create ppr CR")

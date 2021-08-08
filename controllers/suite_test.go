@@ -19,6 +19,7 @@ package controllers_test
 import (
 	"context"
 	"errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"os"
 	"path/filepath"
 	"testing"
@@ -125,6 +126,14 @@ var _ = BeforeSuite(func() {
 		false,
 	}
 	Expect(k8sClient).ToNot(BeNil())
+
+	nsToCreate := &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: namespace,
+		},
+	}
+
+	Expect(k8sClient.Create(context.Background(), nsToCreate)).To(Succeed())
 
 	err = (&controllers.PoisonPillConfigReconciler{
 		Client:            k8sManager.GetClient(),
