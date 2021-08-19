@@ -10,7 +10,6 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -23,17 +22,6 @@ var _ = Describe("ppc controller Test", func() {
 	Context("DS installation", func() {
 		dummyPoisonPillImage := "poison-pill-image"
 		os.Setenv("POISON_PILL_IMAGE", dummyPoisonPillImage)
-
-		nsToCreate := &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: namespace,
-			},
-		}
-
-		It("Create poison-pill namespace", func() {
-			Expect(k8sClient).To(Not(BeNil()))
-			Expect(k8sClient.Create(context.Background(), nsToCreate)).To(Succeed())
-		})
 
 		config := &poisonpillv1alpha1.PoisonPillConfig{}
 		config.Kind = "PoisonPillConfig"
