@@ -66,7 +66,7 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 		readerCtx, cancel := context.WithTimeout(ctx, c.config.ApiServerTimeout)
 		defer cancel()
 
-		result := restClient.Verb(http.MethodGet).RequestURI("/readyz").Do(readerCtx)
+		result := restClient.Verb(http.MethodGet).RequestURI("/readyz?exclude=shutdown").Do(readerCtx)
 		failure := ""
 		if result.Error() != nil {
 			failure = fmt.Sprintf("api server readyz endpoint error: %v", result.Error())
