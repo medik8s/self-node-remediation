@@ -3,6 +3,7 @@ package watchdog
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"sync"
 	"syscall"
 	"time"
@@ -36,6 +37,21 @@ type watchdogInfo struct {
 	identity        [32]byte
 }
 
+func enableSoftdog() error {
+	enableSoftdogCmd := exec.Command("/usr/bin/nsenter", "-m/proc/1/ns/mnt", "modprobe", "softdog")
+	return enableSoftdogCmd.Run()
+}
+
+func checkWatchdogExists(watchdogFilePath string) error {
+	if _, err := os.Stat(watchdogFilePath); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("watchdog device not found: %v", err)
+		}
+		return fmt.Errorf("failed to check for watchdog device: %v", err)
+	}
+	return nil
+}
+
 func NewLinux(log logr.Logger) (Watchdog, error) {
 	mutex.Lock()
 	if linuxWatchDogInstantiated {
@@ -45,11 +61,19 @@ func NewLinux(log logr.Logger) (Watchdog, error) {
 	linuxWatchDogInstantiated = true
 	mutex.Unlock()
 
-	if _, err := os.Stat(watchdogDevice); err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("watchdog device not found: %v", err)
+	if err := checkWatchdogExists(watchdogDevice); err != nil {
+		log.Error(err, "watchdog file path couldn't be accessed")
+		log.Info("trying to enable softdog")
+
+		if err := enableSoftdog(); err != nil {
+			log.Error(err, "failed to enable softdog")
+			return nil, err
 		}
-		return nil, fmt.Errorf("failed to check for watchdog device: %v", err)
+
+		if err := checkWatchdogExists(watchdogDevice); err != nil {
+			log.Error(err, "softdog file path couldn't be accessed")
+			return nil, err
+		}
 	}
 
 	wd := &linuxWatchdog{
