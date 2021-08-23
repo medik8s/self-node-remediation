@@ -7,15 +7,15 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/medik8s/poison-pill/controllers"
 	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
+	"github.com/medik8s/poison-pill/controllers"
 )
 
 const (
@@ -109,6 +109,9 @@ var _ = Describe("ppr Controller", func() {
 				}
 				pod.Spec.Containers = []v1.Container{container}
 				Expect(k8sClient.Create(context.Background(), pod)).To(Succeed())
+
+				pod.Status.Phase = v1.PodRunning
+				Expect(k8sClient.Status().Update(context.Background(), pod)).To(Succeed())
 			})
 
 			It("poison pill agent pod should exist", func() {

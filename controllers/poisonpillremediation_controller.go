@@ -28,12 +28,12 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/selection"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
 
 	"github.com/medik8s/poison-pill/api/v1alpha1"
 	"github.com/medik8s/poison-pill/pkg/reboot"
@@ -175,7 +175,7 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{}, nil
 	}
 
-	hasPoisonPillPod, err := r.hasPoisonPillAgentPod(node)
+	hasPoisonPillPod, err := r.hasRunningPoisonPillAgentPod(node)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -183,7 +183,7 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 	//if the unhealthy node doesn't have the poison pill agent pod, the node might not reboot, and we might end up
 	//in deleting a running node
 	if !hasPoisonPillPod {
-		r.logger.Error(errors.New("node is missing poison pill agent pod, which means the node might not reboot when we'll delete the node. Skipping remediation"), "")
+		r.logger.Error(errors.New("node is missing a running poison pill agent pod, which means the node might not reboot when we'll delete the node. Skipping remediation"), "")
 		return ctrl.Result{}, nil
 	}
 
@@ -255,7 +255,7 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 	return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 }
 
-func (r *PoisonPillRemediationReconciler) hasPoisonPillAgentPod(node *v1.Node) (bool, error) {
+func (r *PoisonPillRemediationReconciler) hasRunningPoisonPillAgentPod(node *v1.Node) (bool, error) {
 	podList := &v1.PodList{}
 
 	selector := labels.NewSelector()
@@ -270,7 +270,7 @@ func (r *PoisonPillRemediationReconciler) hasPoisonPillAgentPod(node *v1.Node) (
 
 	for _, pod := range podList.Items {
 		if pod.Spec.NodeName == node.Name {
-			return true, nil
+			return pod.Status.Phase == v1.PodRunning, nil
 		}
 	}
 	return false, nil
