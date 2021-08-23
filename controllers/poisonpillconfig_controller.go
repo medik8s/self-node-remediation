@@ -106,7 +106,7 @@ func (r *PoisonPillConfigReconciler) syncConfigDaemonSet(ppc *poisonpillv1alpha1
 
 	watchdogPath := ppc.Spec.WatchdogFilePath
 	if watchdogPath == "" {
-		watchdogPath = "/dev/watchdog1"
+		watchdogPath = "/dev/watchdog"
 	}
 	data.Data["WatchdogPath"] = watchdogPath
 

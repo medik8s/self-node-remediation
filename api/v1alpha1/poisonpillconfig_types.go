@@ -26,7 +26,7 @@ import (
 const (
 	ConfigCRName                          = "poison-pill-config"
 	templateCRName                        = "poison-pill-default-template"
-	defaultWatchdogPath                   = "/dev/watchdog1"
+	defaultWatchdogPath                   = "/dev/watchdog"
 	defaultSafetToAssumeNodeRebootTimeout = 180
 )
 
@@ -36,7 +36,7 @@ type PoisonPillConfigSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// WatchdogFilePath is the watchdog file path that should be available on each node, e.g. /dev/watchdog
-	// +kubebuilder:default=/dev/watchdog1
+	// +kubebuilder:default=/dev/watchdog
 	WatchdogFilePath string `json:"watchdogFilePath,omitempty"`
 
 	// SafeTimeToAssumeNodeRebootedSeconds is the time after which the healthy poison pill
