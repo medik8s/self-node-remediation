@@ -95,7 +95,7 @@ var _ = Describe("ppc controller Test", func() {
 				return k8sClient.Get(context.Background(), configKey, createdConfig)
 			}, 5*time.Second, 250*time.Millisecond).Should(BeNil())
 
-			Expect(createdConfig.Spec.WatchdogFilePath).To(Equal("/dev/watchdog1"))
+			Expect(createdConfig.Spec.WatchdogFilePath).To(Equal("/dev/watchdog"))
 			Expect(createdConfig.Spec.SafeTimeToAssumeNodeRebootedSeconds).To(Equal(180))
 		})
 	})

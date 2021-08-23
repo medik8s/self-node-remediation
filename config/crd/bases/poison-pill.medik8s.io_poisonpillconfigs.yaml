@@ -51,7 +51,7 @@ spec:
                 minimum: 0
                 type: integer
               watchdogFilePath:
-                default: /dev/watchdog1
+                default: /dev/watchdog
                 description: WatchdogFilePath is the watchdog file path that should
                   be available on each node, e.g. /dev/watchdog
                 type: string
