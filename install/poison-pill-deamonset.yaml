@@ -16,6 +16,11 @@ spec:
         control-plane: controller-manager
         app: poison-pill-agent
     spec:
+      volumes:
+        - name: devices
+          hostPath:
+            path: /dev
+            type: Directory
       serviceAccountName: poison-pill-controller-manager
       priorityClassName: system-node-critical
       hostPID: true
@@ -39,6 +44,9 @@ spec:
             value: {{.TimeToAssumeNodeRebooted}}
         image: {{.Image}}
         imagePullPolicy: Always
+        volumeMounts:
+          - name: devices
+            mountPath: /dev
         securityContext:
           privileged: true
           hostPID: true
