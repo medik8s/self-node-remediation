@@ -28,12 +28,12 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/selection"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
 
 	"github.com/medik8s/poison-pill/api/v1alpha1"
 	"github.com/medik8s/poison-pill/pkg/reboot"
@@ -91,7 +91,7 @@ func (r *PoisonPillRemediationReconciler) SetupWithManager(mgr ctrl.Manager) err
 		Complete(r)
 }
 
-//+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list
+//+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillremediationtemplates,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillremediationtemplates/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillremediationtemplates/finalizers,verbs=update
