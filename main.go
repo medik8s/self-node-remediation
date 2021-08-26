@@ -20,6 +20,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/medik8s/poison-pill/pkg/utils"
 	"os"
 	"strconv"
 	"time"
@@ -56,6 +57,7 @@ import (
 const (
 	nodeNameEnvVar        = "MY_NODE_NAME"
 	peerHealthDefaultPort = 30001
+	isRebootCapableLabel  = "is-reboot-capable"
 )
 
 var (
@@ -199,16 +201,25 @@ func initPoisonPillAgent(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
+	wasWatchdogInitiated := false
 	wd, err := watchdog.NewLinux(ctrl.Log.WithName("watchdog"))
 	if err != nil {
 		setupLog.Error(err, "failed to init watchdog, using soft reboot")
 	}
+
 	if wd != nil {
 		if err = mgr.Add(wd); err != nil {
 			setupLog.Error(err, "failed to add watchdog to the manager")
 			os.Exit(1)
 		}
+		wasWatchdogInitiated = true
 	}
+
+	if err = utils.UpdatePodIsRebootCapableLabel(wasWatchdogInitiated, myNodeName, mgr); err != nil {
+		setupLog.Error(err, "failed to update pod's label", "label", isRebootCapableLabel)
+		os.Exit(1)
+	}
+
 	// it's fine when the watchdog is nil!
 	rebooter := reboot.NewWatchdogRebooter(wd, ctrl.Log.WithName("rebooter"))
 
