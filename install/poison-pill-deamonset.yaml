@@ -15,6 +15,7 @@ spec:
       labels:
         control-plane: controller-manager
         app: poison-pill-agent
+        is-reboot-capable: unknown
     spec:
       volumes:
         - name: devices
@@ -56,6 +57,8 @@ spec:
             value: "{{.PeerRequestTimeout}}"
           - name: MAX_API_ERROR_THRESHOLD
             value: "{{.MaxApiErrorThreshold}}"
+          - name: IS_SOFTWARE_REBOOT_ENABLED
+            value: {{.IsSoftwareRebootEnabled}}
         image: {{.Image}}
         imagePullPolicy: Always
         volumeMounts:

@@ -53,6 +53,12 @@ spec:
                   "m", "h". timeout for each api-connectivity check
                 pattern: ^0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$
                 type: string
+              isSoftwareRebootEnabled:
+                default: true
+                description: IsSoftwareRebootEnabled indicates whether poison pill
+                  agent will do software reboot, if the watchdog device can not be
+                  used or will use watchdog only, without a fallback to software reboot
+                type: boolean
               maxApiErrorThreshold:
                 default: 3
                 description: Valid time units are "ns", "us" (or "µs"), "ms", "s",
