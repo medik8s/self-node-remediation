@@ -145,7 +145,7 @@ var _ = Describe("ppr Controller", func() {
 					return true
 				}
 				return node.Spec.Unschedulable
-			}, 5*time.Second, 250*time.Millisecond).Should(BeFalse())
+			}, 95*time.Second, 250*time.Millisecond).Should(BeFalse())
 		})
 
 		It("Verify that finalizer exists until node updates status", func() {
