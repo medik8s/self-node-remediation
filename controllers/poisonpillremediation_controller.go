@@ -42,6 +42,12 @@ import (
 
 const (
 	PPRFinalizer = "poison-pill.medik8s.io/ppr-finalizer"
+
+	//we need to restore the node only after the cluster realized it can reschecudle the affected workloads
+	//as of writing this lines, kubernetes will check for pods with non-existent node once in 20s, and allows
+	//40s of grace period for the node to reappear before it deletes the pods.
+	//see here: https://github.com/kubernetes/kubernetes/blob/7a0638da76cb9843def65708b661d2c6aa58ed5a/pkg/controller/podgc/gc_controller.go#L43-L47
+	restoreNodeAfter = 90 * time.Second
 )
 
 var (
@@ -245,7 +251,8 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 	}
 
 	r.logger.Info("deleting unhealthy node", "node name", node.Name)
-	if err := r.Client.Delete(context.TODO(), node); err != nil {
+
+	if err := r.Client.Delete(context.Background(), node); err != nil {
 		if !apiErrors.IsNotFound(err) {
 			r.logger.Error(err, "failed to delete the unhealthy node")
 			return ctrl.Result{}, err
@@ -397,6 +404,15 @@ func (r *PoisonPillRemediationReconciler) handleDeletedNode(ppr *v1alpha1.Poison
 		r.logger.Error(err, "remediation failed")
 		// there is nothing we can do about it, stop reconciling
 		return ctrl.Result{}, nil
+	}
+
+	//todo this assumes the node has been deleted on time, but this is not necessarily the case
+	minRestoreNodeTime := ppr.Status.TimeAssumedRebooted.Add(restoreNodeAfter)
+	if time.Now().Before(minRestoreNodeTime) {
+		//we wait some time before we restore the node to let the cluster realize that the node has been deleted
+		//so workloads can be rescheduled elsewhere
+		r.logger.Info("waiting some time before node restore")
+		return ctrl.Result{RequeueAfter: minRestoreNodeTime.Sub(time.Now()) + time.Second}, nil
 	}
 
 	return r.restoreNode(ppr.Status.NodeBackup)
