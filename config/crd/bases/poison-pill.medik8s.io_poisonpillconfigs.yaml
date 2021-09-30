@@ -40,6 +40,50 @@ spec:
           spec:
             description: PoisonPillConfigSpec defines the desired state of PoisonPillConfig
             properties:
+              apiCheckInterval:
+                default: 15s
+                description: the frequency for api-server connectivity check Valid
+                  time units are "ns", "us" (or "µs"), "ms", "s", "m", "h". the frequency
+                  for api-server connectivity check
+                pattern: ^0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$
+                type: string
+              apiServerTimeout:
+                default: 5s
+                description: Valid time units are "ns", "us" (or "µs"), "ms", "s",
+                  "m", "h". timeout for each api-connectivity check
+                pattern: ^0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$
+                type: string
+              maxApiErrorThreshold:
+                default: 3
+                description: Valid time units are "ns", "us" (or "µs"), "ms", "s",
+                  "m", "h". after this threshold, the node will start contacting its
+                  peers
+                minimum: 1
+                type: integer
+              peerApiServerTimeout:
+                default: 5s
+                description: Valid time units are "ns", "us" (or "µs"), "ms", "s",
+                  "m", "h".
+                pattern: ^0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$
+                type: string
+              peerDialTimeout:
+                default: 5s
+                description: Valid time units are "ns", "us" (or "µs"), "ms", "s",
+                  "m", "h". timeout for establishing connection to peer
+                pattern: ^0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$
+                type: string
+              peerRequestTimeout:
+                default: 5s
+                description: Valid time units are "ns", "us" (or "µs"), "ms", "s",
+                  "m", "h". timeout for each peer request
+                pattern: ^0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$
+                type: string
+              peerUpdateInterval:
+                default: 15m
+                description: Valid time units are "ns", "us" (or "µs"), "ms", "s",
+                  "m", "h".
+                pattern: ^0|([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$
+                type: string
               safeTimeToAssumeNodeRebootedSeconds:
                 default: 180
                 description: SafeTimeToAssumeNodeRebootedSeconds is the time after
