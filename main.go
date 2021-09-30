@@ -168,6 +168,22 @@ func initPoisonPillManager(mgr manager.Manager) {
 	}
 }
 
+func getDurEnvVarOrDie(varName string) time.Duration {
+	intVar := getIntEnvVarOrDie(varName)
+	return time.Duration(intVar) * time.Second
+}
+
+func getIntEnvVarOrDie(varName string) int {
+	// determine safe reboot time
+	varVal := os.Getenv(varName)
+	intVar, err := strconv.Atoi(varVal)
+	if err != nil {
+		setupLog.Error(err, "failed to convert env variable to int", "var name", varName, "var value", varVal)
+		os.Exit(1)
+	}
+	return intVar
+}
+
 func initPoisonPillAgent(mgr manager.Manager) {
 	setupLog.Info("Starting as a poison pill agent that should run as part of the daemonset")
 
@@ -197,8 +213,8 @@ func initPoisonPillAgent(mgr manager.Manager) {
 	rebooter := reboot.NewWatchdogRebooter(wd, ctrl.Log.WithName("rebooter"))
 
 	// TODO make the interval configurable
-	peerUpdateInterval := 15 * time.Minute
-	peerApiServerTimeout := 5 * time.Second
+	peerUpdateInterval := getDurEnvVarOrDie("PEER_UPDATE_INTERVAL")
+	peerApiServerTimeout := getDurEnvVarOrDie("PEER_API_SERVER_TIMEOUT")
 
 	myPeers := peers.New(myNodeName, peerUpdateInterval, mgr.GetClient(), ctrl.Log.WithName("peers"), peerApiServerTimeout)
 	if err = mgr.Add(myPeers); err != nil {
@@ -207,11 +223,11 @@ func initPoisonPillAgent(mgr manager.Manager) {
 	}
 
 	// TODO make the interval and error threshold configurable?
-	apiCheckInterval := 15 * time.Second  //the frequency for api-server connectivity check
-	maxErrorThreshold := 3                //after this threshold, the node will start contacting its peers
-	apiServerTimeout := 5 * time.Second   //timeout for each api-connectivity check
-	peerDialTimeout := 5 * time.Second    //timeout for establishing connection to peer
-	peerRequestTimeout := 5 * time.Second //timeout for each peer request
+	apiCheckInterval := getDurEnvVarOrDie("API_CHECK_INTERVAL")       //the frequency for api-server connectivity check
+	maxErrorThreshold := getIntEnvVarOrDie("MAX_API_ERROR_THRESHOLD") //after this threshold, the node will start contacting its peers
+	apiServerTimeout := getDurEnvVarOrDie("API_SERVER_TIMEOUT")       //timeout for each api-connectivity check
+	peerDialTimeout := getDurEnvVarOrDie("PEER_DIAL_TIMEOUT")         //timeout for establishing connection to peer
+	peerRequestTimeout := getDurEnvVarOrDie("PEER_REQUEST_TIMEOUT")   //timeout for each peer request
 
 	// init certificate reader
 	certReader := certificates.NewSecretCertStorage(mgr.GetClient(), ctrl.Log.WithName("SecretCertStorage"), ns)
@@ -238,12 +254,7 @@ func initPoisonPillAgent(mgr manager.Manager) {
 	}
 
 	// determine safe reboot time
-	timeToAssumeNodeRebootedInt, err := strconv.Atoi(os.Getenv("TIME_TO_ASSUME_NODE_REBOOTED"))
-	if err != nil {
-		setupLog.Error(err, "failed to convert env variable TIME_TO_ASSUME_NODE_REBOOTED to int")
-		os.Exit(1)
-	}
-	timeToAssumeNodeRebooted := time.Duration(timeToAssumeNodeRebootedInt) * time.Second
+	timeToAssumeNodeRebooted := getDurEnvVarOrDie("TIME_TO_ASSUME_NODE_REBOOTED")
 
 	// but the reboot time needs be at least the time we know we need for determining a node issue and trigger the reboot!
 	// 1. time for determing node issue
