@@ -42,6 +42,20 @@ spec:
             value: {{.WatchdogPath}}
           - name: TIME_TO_ASSUME_NODE_REBOOTED
             value: {{.TimeToAssumeNodeRebooted}}
+          - name: PEER_API_SERVER_TIMEOUT
+            value: "{{.PeerApiServerTimeout}}"
+          - name: API_CHECK_INTERVAL
+            value: "{{.ApiCheckInterval}}"
+          - name: PEER_UPDATE_INTERVAL
+            value: "{{.PeerUpdateInterval}}"
+          - name: API_SERVER_TIMEOUT
+            value: "{{.ApiServerTimeout}}"
+          - name: PEER_DIAL_TIMEOUT
+            value: "{{.PeerDialTimeout}}"
+          - name: PEER_REQUEST_TIMEOUT
+            value: "{{.PeerRequestTimeout}}"
+          - name: MAX_API_ERROR_THRESHOLD
+            value: "{{.MaxApiErrorThreshold}}"
         image: {{.Image}}
         imagePullPolicy: Always
         volumeMounts:
