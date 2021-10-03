@@ -110,6 +110,14 @@ func (r *PoisonPillConfigReconciler) syncConfigDaemonSet(ppc *poisonpillv1alpha1
 	}
 	data.Data["WatchdogPath"] = watchdogPath
 
+	data.Data["PeerApiServerTimeout"] = ppc.Spec.PeerApiServerTimeout.Seconds()
+	data.Data["ApiCheckInterval"] = ppc.Spec.ApiCheckInterval.Seconds()
+	data.Data["PeerUpdateInterval"] = ppc.Spec.PeerUpdateInterval.Seconds()
+	data.Data["ApiServerTimeout"] = ppc.Spec.ApiServerTimeout.Seconds()
+	data.Data["PeerDialTimeout"] = ppc.Spec.PeerDialTimeout.Seconds()
+	data.Data["PeerRequestTimeout"] = ppc.Spec.PeerRequestTimeout.Seconds()
+	data.Data["MaxApiErrorThreshold"] = ppc.Spec.MaxApiErrorThreshold
+
 	timeToAssumeNodeRebooted := ppc.Spec.SafeTimeToAssumeNodeRebootedSeconds
 	if timeToAssumeNodeRebooted == 0 {
 		timeToAssumeNodeRebooted = 180
