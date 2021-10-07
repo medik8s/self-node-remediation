@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"errors"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
@@ -26,5 +27,5 @@ func GetPoisonPillAgentPod(nodeName string, r client.Reader) (*v1.Pod, error) {
 		}
 	}
 
-	return nil, nil
+	return nil, errors.New("failed to find poison pill pod matching the given node")
 }
