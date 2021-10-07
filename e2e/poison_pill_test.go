@@ -72,6 +72,15 @@ var _ = Describe("Poison Pill E2E", func() {
 		restartPPPods(workers)
 	})
 
+	JustAfterEach(func() {
+		By("printing poison pill log of healthy node")
+		healthyNode := &workers.Items[1]
+		pod := findPPPod(healthyNode)
+		logs, err := utils.GetLogs(k8sClientSet, pod)
+		Expect(err).ToNot(HaveOccurred())
+		logger.Info("logs of healthy poison-pill pod", "logs", logs)
+	})
+
 	Describe("With API connectivity", func() {
 		Context("creating a PPR", func() {
 			// normal remediation
