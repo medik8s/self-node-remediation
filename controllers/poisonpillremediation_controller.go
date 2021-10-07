@@ -28,9 +28,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/selection"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -41,8 +39,8 @@ import (
 )
 
 const (
-	PPRFinalizer = "poison-pill.medik8s.io/ppr-finalizer"
-
+	PPRFinalizer         = "poison-pill.medik8s.io/ppr-finalizer"
+	isRebootCapableLabel = "is-reboot-capable"
 	//we need to restore the node only after the cluster realized it can reschecudle the affected workloads
 	//as of writing this lines, kubernetes will check for pods with non-existent node once in 20s, and allows
 	//40s of grace period for the node to reappear before it deletes the pods.
@@ -97,7 +95,7 @@ func (r *PoisonPillRemediationReconciler) SetupWithManager(mgr ctrl.Manager) err
 		Complete(r)
 }
 
-//+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+//+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;update
 //+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillremediationtemplates,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillremediationtemplates/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillremediationtemplates/finalizers,verbs=update
@@ -181,15 +179,31 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{}, nil
 	}
 
-	hasPoisonPillPod, err := r.hasRunningPoisonPillAgentPod(node)
+	hasRunningPoisonPillPod := false
+
+	pod, err := utils.GetPoisonPillAgentPod(node.Name, r.Client)
+
 	if err != nil {
+		r.logger.Error(err, "failed to get poison pill agent pod resource")
 		return ctrl.Result{}, err
+	}
+
+	if pod != nil && pod.Status.Phase == v1.PodRunning {
+		hasRunningPoisonPillPod = true
 	}
 
 	//if the unhealthy node doesn't have the poison pill agent pod, the node might not reboot, and we might end up
 	//in deleting a running node
-	if !hasPoisonPillPod {
+	if !hasRunningPoisonPillPod {
 		r.logger.Error(errors.New("node is missing a running poison pill agent pod, which means the node might not reboot when we'll delete the node. Skipping remediation"), "")
+		return ctrl.Result{}, nil
+	}
+
+	//if the unhealthy node has the poison pill agent pod, but the is-reboot-capable label is unknown/false/doesn't exist
+	//the node might not reboot, and we might end up in deleting a running node
+	if pod.Labels == nil || pod.Labels[isRebootCapableLabel] != "true" {
+		labelVal := utils.GetLabelValue(pod, isRebootCapableLabel)
+		r.logger.Error(errors.New("agent isRebootCapable label is not true, which means the node might not reboot when we'll delete the node. Skipping remediation"), "", "label value", labelVal)
 		return ctrl.Result{}, nil
 	}
 
@@ -260,27 +274,6 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 	}
 
 	return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
-}
-
-func (r *PoisonPillRemediationReconciler) hasRunningPoisonPillAgentPod(node *v1.Node) (bool, error) {
-	podList := &v1.PodList{}
-
-	selector := labels.NewSelector()
-	requirement, _ := labels.NewRequirement("app", selection.Equals, []string{"poison-pill-agent"})
-	selector = selector.Add(*requirement)
-
-	err := r.Client.List(context.Background(), podList, &client.ListOptions{LabelSelector: selector})
-	if err != nil {
-		r.logger.Error(err, "failed to list poison pill agent pods")
-		return false, err
-	}
-
-	for _, pod := range podList.Items {
-		if pod.Spec.NodeName == node.Name {
-			return pod.Status.Phase == v1.PodRunning, nil
-		}
-	}
-	return false, nil
 }
 
 //returns the lastHeartbeatTime of the first condition, if exists. Otherwise returns the zero value

@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	unhealthyNodeName = "node1"
-	peerNodeName      = "node2"
-	pprNamespace      = "default"
+	unhealthyNodeName    = "node1"
+	peerNodeName         = "node2"
+	pprNamespace         = "default"
+	isRebootCapableLabel = "is-reboot-capable"
 )
 
 var _ = Describe("ppr Controller", func() {
@@ -36,6 +37,100 @@ var _ = Describe("ppr Controller", func() {
 	}
 
 	ppr := &poisonpillv1alpha1.PoisonPillRemediation{}
+
+	Context("Unhealthy node with poison-pill pod but unable to reboot", func() {
+		//if the unhealthy node doesn't have watchdog and it's is-reboot-capable label is unknown or false
+		//we don't want to delete the node, since it will never
+		//be in a safe state (i.e. rebooted)
+
+		BeforeEach(func() {
+			ppr := &poisonpillv1alpha1.PoisonPillRemediation{}
+			ppr.Name = unhealthyNodeName
+			ppr.Namespace = pprNamespace
+
+			Expect(k8sClient.Create(context.TODO(), ppr)).To(Succeed(), "failed to create ppr CR")
+		})
+
+		AfterEach(func() {
+			Expect(k8sClient.Delete(context.Background(), ppr)).To(Succeed(), "failed to delete ppr CR")
+		})
+
+		Context("simulate daemonset pods assigned to nodes", func() {
+			//since we don't have a scheduler in test, we need to do its work and create pp pod for that node
+			rebootCapableLabelValue := "unknown"
+			pod := &v1.Pod{}
+
+			JustBeforeEach(func() {
+				pod.Spec.NodeName = unhealthyNodeName
+				pod.Labels = map[string]string{"app": "poison-pill-agent"}
+				pod.Labels[isRebootCapableLabel] = rebootCapableLabelValue
+				pod.Name = "poison-pill"
+				pod.Namespace = namespace
+				var gracePeriod int64 = 0
+				pod.Spec.TerminationGracePeriodSeconds = &gracePeriod
+				container := v1.Container{
+					Name:  "foo",
+					Image: "foo",
+				}
+				pod.Spec.Containers = []v1.Container{container}
+
+				Eventually(func() error {
+					return k8sClient.Create(context.Background(), pod)
+				}, 15*time.Second, 200*time.Millisecond).Should(Succeed())
+
+				pod.Status.Phase = v1.PodRunning
+				Expect(k8sClient.Status().Update(context.Background(), pod)).To(Succeed())
+			})
+
+			AfterEach(func() {
+				//without setting resource version to an empty string the test will fail
+				//as it tries to create the pod with resource version which is not acceptable
+				pod.ResourceVersion = ""
+
+				Eventually(func() error {
+					return k8sClient.Delete(context.Background(), pod)
+				}, 5*time.Second, 100*time.Millisecond).Should(Succeed())
+			})
+
+			It("ppr should not have finalizers when is-reboot-capable label is unknown", func() {
+				pprKey := client.ObjectKey{
+					Namespace: pprNamespace,
+					Name:      unhealthyNodeName,
+				}
+
+				Eventually(func() error {
+					return k8sClient.Get(context.Background(), pprKey, ppr)
+				}, 10*time.Second, 200*time.Millisecond).Should(Succeed())
+
+				Consistently(func() []string {
+					Expect(k8sClient.Get(context.Background(), pprKey, ppr)).To(Succeed())
+					//if no finalizer was set, it means we didn't start remediation process
+					return ppr.Finalizers
+				}, 10*time.Second, 250*time.Millisecond).Should(BeEmpty())
+			})
+
+			BeforeEach(func() {
+				rebootCapableLabelValue = "false"
+			})
+
+			It("ppr should not have finalizers when is-reboot-capable label is false", func() {
+				pprKey := client.ObjectKey{
+					Namespace: pprNamespace,
+					Name:      unhealthyNodeName,
+				}
+
+				Eventually(func() error {
+					return k8sClient.Get(context.Background(), pprKey, ppr)
+				}, 10*time.Second, 200*time.Millisecond).Should(Succeed())
+
+				Consistently(func() []string {
+					Expect(k8sClient.Get(context.Background(), pprKey, ppr)).To(Succeed())
+					//if no finalizer was set, it means we didn't start remediation process
+					return ppr.Finalizers
+				}, 10*time.Second, 250*time.Millisecond).Should(BeEmpty())
+			})
+		})
+	})
 
 	Context("Unhealthy node without poison-pill pod", func() {
 		//if the unhealthy node doesn't have the poison-pill pod
@@ -101,6 +196,7 @@ var _ = Describe("ppr Controller", func() {
 				pod := &v1.Pod{}
 				pod.Spec.NodeName = unhealthyNodeName
 				pod.Labels = map[string]string{"app": "poison-pill-agent"}
+				pod.Labels[isRebootCapableLabel] = "true"
 				pod.Name = "poison-pill"
 				pod.Namespace = namespace
 				container := v1.Container{
