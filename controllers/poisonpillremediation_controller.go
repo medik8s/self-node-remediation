@@ -179,24 +179,11 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{}, nil
 	}
 
-	hasRunningPoisonPillPod := false
-
 	pod, err := utils.GetPoisonPillAgentPod(node.Name, r.Client)
 
 	if err != nil {
 		r.logger.Error(err, "failed to get poison pill agent pod resource")
 		return ctrl.Result{}, err
-	}
-
-	if pod != nil && pod.Status.Phase == v1.PodRunning {
-		hasRunningPoisonPillPod = true
-	}
-
-	//if the unhealthy node doesn't have the poison pill agent pod, the node might not reboot, and we might end up
-	//in deleting a running node
-	if !hasRunningPoisonPillPod {
-		r.logger.Error(errors.New("node is missing a running poison pill agent pod, which means the node might not reboot when we'll delete the node. Skipping remediation"), "")
-		return ctrl.Result{}, nil
 	}
 
 	//if the unhealthy node has the poison pill agent pod, but the is-reboot-capable label is unknown/false/doesn't exist

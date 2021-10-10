@@ -72,6 +72,15 @@ var _ = Describe("Poison Pill E2E", func() {
 		restartPPPods(workers)
 	})
 
+	JustAfterEach(func() {
+		By("printing poison pill log of healthy node")
+		healthyNode := &workers.Items[1]
+		pod := findPPPod(healthyNode)
+		logs, err := utils.GetLogs(k8sClientSet, pod)
+		Expect(err).ToNot(HaveOccurred())
+		logger.Info("logs of healthy poison-pill pod", "logs", logs)
+	})
+
 	Describe("With API connectivity", func() {
 		Context("creating a PPR", func() {
 			// normal remediation
@@ -276,7 +285,7 @@ func checkNodeRecreate(node *v1.Node, oldUID types.UID) {
 		newUID := newNode.GetUID()
 		logger.Info("UID", "new", newUID)
 		return newUID
-	}, 5*time.Minute, 10*time.Second).ShouldNot(Equal(oldUID))
+	}, 7*time.Minute, 10*time.Second).ShouldNot(Equal(oldUID))
 }
 
 func checkReboot(node *v1.Node, oldBootTime *time.Time) {
@@ -314,6 +323,15 @@ func killApiConnection(node *v1.Node, apiIPs []string, withReconnect bool) {
 	}
 	defer cancel()
 	_, err := utils.ExecCommandOnNode(k8sClient, command, node, ctx)
+
+	if withReconnect {
+		//in case the sleep didn't work
+		deadline, _ := ctx.Deadline()
+		EventuallyWithOffset(1, func() bool {
+			return time.Now().After(deadline)
+		}, reconnectInterval+nodeExecTimeout+time.Second, 1*time.Second).Should(BeTrue())
+	}
+
 	// deadline exceeded is ok... the command does not return because of the killed connection
 	Expect(err).To(
 		Or(
@@ -378,7 +396,7 @@ func checkPPLogs(node *v1.Node, expected []string) {
 			return ""
 		}
 		return logs
-	}, 4*time.Minute, 10*time.Second).Should(And(matchers...), "logs don't contain expected strings")
+	}, 6*time.Minute, 10*time.Second).Should(And(matchers...), "logs don't contain expected strings")
 }
 
 func findPPPod(node *v1.Node) *v1.Pod {
