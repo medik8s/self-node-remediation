@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	isRebootCapableLabel = "is-reboot-capable"
+	isRebootCapableAnnotation = "is-reboot-capable.poison-pill.medik8s.io"
 )
 
 // updateLabel updates the pod's label (key) to the given value
@@ -25,13 +25,16 @@ func updateLabel(labelKey string, labelValue bool, pod *v1.Pod, c client.Client)
 	return err
 }
 
-// UpdatePodIsRebootCapableLabel updates the is-reboot-capable label to be true if any kind
+// UpdateNodeWithIsRebootCapableAnnotation updates the is-reboot-capable node annotation to be true if any kind
 // of reboot is enabled and false if there isn't watchdog and software reboot is disabled
-func UpdatePodIsRebootCapableLabel(watchdogInitiated bool, nodeName string, mgr manager.Manager) error {
-	//get pod in order to update its label
-	pod, err := GetPoisonPillAgentPod(nodeName, mgr.GetAPIReader())
-	if err != nil {
-		return errors.Wrapf(err, "failed to list poison pill agent pods")
+func UpdateNodeWithIsRebootCapableAnnotation(watchdogInitiated bool, nodeName string, mgr manager.Manager) error {
+	node := &v1.Node{}
+	key := client.ObjectKey{
+		Name: nodeName,
+	}
+
+	if err := mgr.GetAPIReader().Get(context.Background(), key, node); err != nil {
+		return errors.Wrapf(err, "failed to retrieve my node: "+nodeName)
 	}
 
 	softwareRebootEnabledEnv := os.Getenv("IS_SOFTWARE_REBOOT_ENABLED")
@@ -39,13 +42,22 @@ func UpdatePodIsRebootCapableLabel(watchdogInitiated bool, nodeName string, mgr 
 	if err != nil {
 		return errors.Wrapf(err, "failed to convert IS_SOFTWARE_REBOOT_ENABLED env valueto boolean. value is: %s", softwareRebootEnabledEnv)
 	}
-	if watchdogInitiated || softwareRebootEnabled {
-		err = updateLabel(isRebootCapableLabel, true, pod, mgr.GetClient())
-		return err
+
+	if node.Annotations == nil {
+		node.Annotations = map[string]string{}
 	}
 
-	err = updateLabel(isRebootCapableLabel, false, pod, mgr.GetClient())
-	return err
+	if watchdogInitiated || softwareRebootEnabled {
+		node.Annotations[isRebootCapableAnnotation] = "true"
+	} else {
+		node.Annotations[isRebootCapableAnnotation] = "false"
+	}
+
+	if err := mgr.GetClient().Update(context.Background(), node); err != nil {
+		return errors.Wrapf(err, "failed to add node annotation to node: "+node.Name)
+	}
+
+	return nil
 }
 
 func GetLabelValue(pod *v1.Pod, labelKey string) string {
