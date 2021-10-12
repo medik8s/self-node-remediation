@@ -215,8 +215,8 @@ func initPoisonPillAgent(mgr manager.Manager) {
 		wasWatchdogInitiated = true
 	}
 
-	if err = utils.UpdatePodIsRebootCapableLabel(wasWatchdogInitiated, myNodeName, mgr); err != nil {
-		setupLog.Error(err, "failed to update pod's label", "label", isRebootCapableLabel)
+	if err = utils.UpdateNodeWithIsRebootCapableAnnotation(wasWatchdogInitiated, myNodeName, mgr); err != nil {
+		setupLog.Error(err, "failed to update pod's annotation", "annotation", isRebootCapableLabel)
 		os.Exit(1)
 	}
 
