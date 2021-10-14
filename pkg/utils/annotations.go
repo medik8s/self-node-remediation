@@ -11,19 +11,8 @@ import (
 )
 
 const (
-	isRebootCapableAnnotation = "is-reboot-capable.poison-pill.medik8s.io"
+	IsRebootCapableAnnotation = "is-reboot-capable.poison-pill.medik8s.io"
 )
-
-// updateLabel updates the pod's label (key) to the given value
-func updateLabel(labelKey string, labelValue bool, pod *v1.Pod, c client.Client) error {
-	if pod.Labels == nil {
-		pod.Labels = map[string]string{}
-	}
-	pod.Labels[labelKey] = strconv.FormatBool(labelValue)
-	//update in yaml
-	err := c.Update(context.Background(), pod)
-	return err
-}
 
 // UpdateNodeWithIsRebootCapableAnnotation updates the is-reboot-capable node annotation to be true if any kind
 // of reboot is enabled and false if there isn't watchdog and software reboot is disabled
@@ -48,9 +37,9 @@ func UpdateNodeWithIsRebootCapableAnnotation(watchdogInitiated bool, nodeName st
 	}
 
 	if watchdogInitiated || softwareRebootEnabled {
-		node.Annotations[isRebootCapableAnnotation] = "true"
+		node.Annotations[IsRebootCapableAnnotation] = "true"
 	} else {
-		node.Annotations[isRebootCapableAnnotation] = "false"
+		node.Annotations[IsRebootCapableAnnotation] = "false"
 	}
 
 	if err := mgr.GetClient().Update(context.Background(), node); err != nil {
@@ -58,14 +47,4 @@ func UpdateNodeWithIsRebootCapableAnnotation(watchdogInitiated bool, nodeName st
 	}
 
 	return nil
-}
-
-func GetLabelValue(pod *v1.Pod, labelKey string) string {
-	var labelVal string
-	if pod.Labels == nil {
-		labelVal = "pod.Labels is nil (label doesn't exist)"
-		return labelVal
-	}
-
-	return pod.Labels[labelKey]
 }

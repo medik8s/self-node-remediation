@@ -15,7 +15,6 @@ spec:
       labels:
         control-plane: controller-manager
         app: poison-pill-agent
-        is-reboot-capable: unknown
     spec:
       volumes:
         - name: devices
