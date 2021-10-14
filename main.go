@@ -57,7 +57,6 @@ import (
 const (
 	nodeNameEnvVar        = "MY_NODE_NAME"
 	peerHealthDefaultPort = 30001
-	isRebootCapableLabel  = "is-reboot-capable"
 )
 
 var (
@@ -208,7 +207,7 @@ func initPoisonPillAgent(mgr manager.Manager) {
 	}
 
 	if err = utils.UpdateNodeWithIsRebootCapableAnnotation(wasWatchdogInitiated, myNodeName, mgr); err != nil {
-		setupLog.Error(err, "failed to update pod's annotation", "annotation", isRebootCapableLabel)
+		setupLog.Error(err, "failed to update node's annotation", "annotation", utils.IsRebootCapableAnnotation)
 		os.Exit(1)
 	}
 
