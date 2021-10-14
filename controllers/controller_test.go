@@ -74,16 +74,16 @@ var _ = Describe("ppr Controller", func() {
 	})
 
 	Context("Unhealthy node with poison-pill pod but unable to reboot", func() {
-		//if the unhealthy node doesn't have watchdog and it's is-reboot-capable label is unknown or false
+		//if the unhealthy node doesn't have watchdog and it's is-reboot-capable annotation is not true
 		//we don't want to delete the node, since it will never
 		//be in a safe state (i.e. rebooted)
 
 		Context("simulate daemonset pods assigned to nodes", func() {
 			//since we don't have a scheduler in test, we need to do its work and create pp pod for that node
-			rebootCapableLabelValue := ""
+			rebootCapableAnnotationValue := ""
 
 			JustBeforeEach(func() {
-				updateIsRebootCapable(rebootCapableLabelValue)
+				updateIsRebootCapable(rebootCapableAnnotationValue)
 			})
 
 			It("create poison pill pod", func() {
@@ -117,7 +117,7 @@ var _ = Describe("ppr Controller", func() {
 				Expect(k8sClient.Delete(context.Background(), ppr)).To(Succeed(), "failed to delete ppr CR")
 			})
 
-			It("ppr should not have finalizers when is-reboot-capable label doesn't exist", func() {
+			It("ppr should not have finalizers when is-reboot-capable annotation doesn't exist", func() {
 				pprKey := client.ObjectKey{
 					Namespace: pprNamespace,
 					Name:      unhealthyNodeName,
@@ -135,10 +135,10 @@ var _ = Describe("ppr Controller", func() {
 			})
 
 			BeforeEach(func() {
-				rebootCapableLabelValue = "false"
+				rebootCapableAnnotationValue = "false"
 			})
 
-			It("ppr should not have finalizers when is-reboot-capable label is false", func() {
+			It("ppr should not have finalizers when is-reboot-capable annotation is false", func() {
 				pprKey := client.ObjectKey{
 					Namespace: pprNamespace,
 					Name:      unhealthyNodeName,
@@ -351,7 +351,7 @@ var _ = Describe("ppr Controller", func() {
 	})
 })
 
-func updateIsRebootCapable(rebootCapableLabelValue string) {
+func updateIsRebootCapable(rebootCapableAnnotationValue string) {
 	unhealthyNodeKey := types.NamespacedName{
 		Name: unhealthyNodeName,
 	}
@@ -360,8 +360,8 @@ func updateIsRebootCapable(rebootCapableLabelValue string) {
 	if unhealthyNode.Annotations == nil {
 		unhealthyNode.Annotations = map[string]string{}
 	}
-	if rebootCapableLabelValue != "" {
-		unhealthyNode.Annotations[isRebootCapableAnnotation] = rebootCapableLabelValue
+	if rebootCapableAnnotationValue != "" {
+		unhealthyNode.Annotations[isRebootCapableAnnotation] = rebootCapableAnnotationValue
 	}
 
 	Expect(k8sClient.Update(context.Background(), unhealthyNode)).To(Succeed())

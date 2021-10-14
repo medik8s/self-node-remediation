@@ -39,8 +39,7 @@ import (
 )
 
 const (
-	PPRFinalizer              = "poison-pill.medik8s.io/ppr-finalizer"
-	isRebootCapableAnnotation = "is-reboot-capable.poison-pill.medik8s.io"
+	PPRFinalizer = "poison-pill.medik8s.io/ppr-finalizer"
 	//we need to restore the node only after the cluster realized it can reschecudle the affected workloads
 	//as of writing this lines, kubernetes will check for pods with non-existent node once in 20s, and allows
 	//40s of grace period for the node to reappear before it deletes the pods.
@@ -187,10 +186,10 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 
 	//if the unhealthy node has the poison pill agent pod, but the is-reboot-capable annotation is unknown/false/doesn't exist
 	//the node might not reboot, and we might end up in deleting a running node
-	if node.Annotations == nil || node.Annotations[isRebootCapableAnnotation] != "true" {
+	if node.Annotations == nil || node.Annotations[utils.IsRebootCapableAnnotation] != "true" {
 		annVal := ""
 		if node.Annotations != nil {
-			annVal = node.Annotations[isRebootCapableAnnotation]
+			annVal = node.Annotations[utils.IsRebootCapableAnnotation]
 		}
 		r.logger.Error(errors.New("node's isRebootCapable annotation is not `true`, which means the node might not reboot when we'll delete the node. Skipping remediation"),
 			"", "annotation value", annVal)
