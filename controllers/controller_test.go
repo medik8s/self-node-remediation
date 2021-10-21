@@ -116,20 +116,7 @@ var _ = Describe("ppr Controller", func() {
 				})
 
 				It("ppr should not have finalizers when is-reboot-capable annotation doesn't exist", func() {
-					pprKey := client.ObjectKey{
-						Namespace: pprNamespace,
-						Name:      unhealthyNodeName,
-					}
-
-					Eventually(func() error {
-						return k8sClient.Get(context.Background(), pprKey, ppr)
-					}, 10*time.Second, 200*time.Millisecond).Should(Succeed())
-
-					Consistently(func() []string {
-						Expect(k8sClient.Get(context.Background(), pprKey, ppr)).To(Succeed())
-						//if no finalizer was set, it means we didn't start remediation process
-						return ppr.Finalizers
-					}, 10*time.Second, 250*time.Millisecond).Should(BeEmpty())
+					testNoFinalizer(ppr)
 				})
 			})
 
@@ -140,20 +127,7 @@ var _ = Describe("ppr Controller", func() {
 				})
 
 				It("ppr should not have finalizers when is-reboot-capable annotation is false", func() {
-					pprKey := client.ObjectKey{
-						Namespace: pprNamespace,
-						Name:      unhealthyNodeName,
-					}
-
-					Eventually(func() error {
-						return k8sClient.Get(context.Background(), pprKey, ppr)
-					}, 10*time.Second, 200*time.Millisecond).Should(Succeed())
-
-					Consistently(func() []string {
-						Expect(k8sClient.Get(context.Background(), pprKey, ppr)).To(Succeed())
-						//if no finalizer was set, it means we didn't start remediation process
-						return ppr.Finalizers
-					}, 10*time.Second, 250*time.Millisecond).Should(BeEmpty())
+					testNoFinalizer(ppr)
 				})
 			})
 		})
@@ -367,4 +341,23 @@ func updateIsRebootCapable(rebootCapableAnnotationValue string) {
 	}
 
 	Expect(k8sClient.Update(context.Background(), unhealthyNode)).To(Succeed())
+}
+
+
+//testNoFinalizer checks that ppr doesn't have finalizer
+func testNoFinalizer(ppr *poisonpillv1alpha1.PoisonPillRemediation)  {
+	pprKey := client.ObjectKey{
+		Namespace: pprNamespace,
+		Name:      unhealthyNodeName,
+	}
+
+	Eventually(func() error {
+		return k8sClient.Get(context.Background(), pprKey, ppr)
+	}, 10*time.Second, 200*time.Millisecond).Should(Succeed())
+
+	Consistently(func() []string {
+		Expect(k8sClient.Get(context.Background(), pprKey, ppr)).To(Succeed())
+		//if no finalizer was set, it means we didn't start remediation process
+		return ppr.Finalizers
+	}, 10*time.Second, 250*time.Millisecond).Should(BeEmpty())
 }
