@@ -21,9 +21,9 @@ import (
 )
 
 const (
-	unhealthyNodeName         = "node1"
-	peerNodeName              = "node2"
-	pprNamespace              = "default"
+	unhealthyNodeName = "node1"
+	peerNodeName      = "node2"
+	pprNamespace      = "default"
 )
 
 var _ = Describe("ppr Controller", func() {
@@ -358,7 +358,7 @@ func deleteIsRebootCapableAnnotation() {
 }
 
 //testNoFinalizer checks that ppr doesn't have finalizer
-func testNoFinalizer(ppr *poisonpillv1alpha1.PoisonPillRemediation)  {
+func testNoFinalizer(ppr *poisonpillv1alpha1.PoisonPillRemediation) {
 	pprKey := client.ObjectKey{
 		Namespace: pprNamespace,
 		Name:      unhealthyNodeName,
