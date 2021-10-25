@@ -2,6 +2,7 @@ package controllers_test
 
 import (
 	"context"
+	"github.com/medik8s/poison-pill/pkg/utils"
 	"k8s.io/apimachinery/pkg/types"
 	"time"
 
@@ -23,7 +24,6 @@ const (
 	unhealthyNodeName         = "node1"
 	peerNodeName              = "node2"
 	pprNamespace              = "default"
-	isRebootCapableAnnotation = "is-reboot-capable.poison-pill.medik8s.io"
 )
 
 var _ = Describe("ppr Controller", func() {
@@ -122,8 +122,8 @@ var _ = Describe("ppr Controller", func() {
 
 			Context("node's is-reboot-capable annotation is false", func() {
 				BeforeEach(func() {
-					rebootCapableAnnotationValue := "false"
-					updateIsRebootCapable(rebootCapableAnnotationValue)
+					//remove the annotation, if exists
+					deleteIsRebootCapableAnnotation()
 				})
 
 				It("ppr should not have finalizers when is-reboot-capable annotation is false", func() {
@@ -337,12 +337,25 @@ func updateIsRebootCapable(rebootCapableAnnotationValue string) {
 		unhealthyNode.Annotations = map[string]string{}
 	}
 	if rebootCapableAnnotationValue != "" {
-		unhealthyNode.Annotations[isRebootCapableAnnotation] = rebootCapableAnnotationValue
+		unhealthyNode.Annotations[utils.IsRebootCapableAnnotation] = rebootCapableAnnotationValue
 	}
 
-	Expect(k8sClient.Update(context.Background(), unhealthyNode)).To(Succeed())
+	ExpectWithOffset(1, k8sClient.Update(context.Background(), unhealthyNode)).To(Succeed())
 }
 
+func deleteIsRebootCapableAnnotation() {
+	unhealthyNodeKey := types.NamespacedName{
+		Name: unhealthyNodeName,
+	}
+	unhealthyNode := &v1.Node{}
+	Expect(k8sClient.Client.Get(context.Background(), unhealthyNodeKey, unhealthyNode)).To(Succeed())
+
+	if unhealthyNode.Annotations != nil {
+		delete(unhealthyNode.Annotations, utils.IsRebootCapableAnnotation)
+	}
+
+	ExpectWithOffset(1, k8sClient.Update(context.Background(), unhealthyNode)).To(Succeed())
+}
 
 //testNoFinalizer checks that ppr doesn't have finalizer
 func testNoFinalizer(ppr *poisonpillv1alpha1.PoisonPillRemediation)  {
@@ -351,11 +364,11 @@ func testNoFinalizer(ppr *poisonpillv1alpha1.PoisonPillRemediation)  {
 		Name:      unhealthyNodeName,
 	}
 
-	Eventually(func() error {
+	EventuallyWithOffset(1, func() error {
 		return k8sClient.Get(context.Background(), pprKey, ppr)
 	}, 10*time.Second, 200*time.Millisecond).Should(Succeed())
 
-	Consistently(func() []string {
+	ConsistentlyWithOffset(1, func() []string {
 		Expect(k8sClient.Get(context.Background(), pprKey, ppr)).To(Succeed())
 		//if no finalizer was set, it means we didn't start remediation process
 		return ppr.Finalizers
