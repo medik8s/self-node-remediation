@@ -120,6 +120,8 @@ spec:
           resources:
           - pods
           verbs:
+          - delete
+          - deletecollection
           - get
           - list
           - update
@@ -242,6 +244,17 @@ spec:
           - securitycontextconstraints
           verbs:
           - use
+        - apiGroups:
+          - storage.k8s.io
+          resources:
+          - volumeattachments
+          verbs:
+          - delete
+          - deletecollection
+          - get
+          - list
+          - update
+          - watch
         - apiGroups:
           - authentication.k8s.io
           resources:
