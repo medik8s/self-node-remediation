@@ -50,13 +50,15 @@ spec:
                     properties:
                       remediationStrategy:
                         default: NodeDeletion
-                        description: 'Important: Run "make" to regenerate code after
-                          modifying this file RemediationStrategy is the remediation
-                          method for unhealthy nodes could be either "NodeDeletion"
-                          or "ResourcesDeletion" the first will delete the node to
-                          signal to the cluster that the node was fenced the latter
-                          will iterate over all pos and volumeattachments related
-                          to the unhealthy node and delete them'
+                        description: RemediationStrategy is the remediation method
+                          for unhealthy nodes could be either "NodeDeletion" or "ResourcesDeletion"
+                          the first will delete the node to signal to the cluster
+                          that the node was fenced the latter will iterate over all
+                          pos and volumeattachments related to the unhealthy node
+                          and delete them
+                        enum:
+                        - NodeDeletion
+                        - ResourcesDeletion
                         type: string
                     type: object
                 required:
