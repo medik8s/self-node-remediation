@@ -41,6 +41,8 @@ rules:
   resources:
   - pods
   verbs:
+  - delete
+  - deletecollection
   - get
   - list
   - update
@@ -55,6 +57,16 @@ rules:
   - get
   - list
   - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - volumeattachments
+  verbs:
+  - delete
+  - get
+  - list
   - update
   - watch
 - apiGroups:
@@ -163,3 +175,14 @@ rules:
   - securitycontextconstraints
   verbs:
   - use
+- apiGroups:
+  - storage.k8s.io
+  resources:
+  - volumeattachments
+  verbs:
+  - delete
+  - deletecollection
+  - get
+  - list
+  - update
+  - watch

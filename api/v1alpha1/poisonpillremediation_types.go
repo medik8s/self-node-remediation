@@ -28,12 +28,12 @@ type RemediationStrategyType string
 
 // PoisonPillRemediationSpec defines the desired state of PoisonPillRemediation
 type PoisonPillRemediationSpec struct {
-	// Important: Run "make" to regenerate code after modifying this file
 	//RemediationStrategy is the remediation method for unhealthy nodes
 	//could be either "NodeDeletion" or "ResourcesDeletion"
 	//the first will delete the node to signal to the cluster that the node was fenced
 	//the latter will iterate over all pos and volumeattachments related to the unhealthy node and delete them
 	// +kubebuilder:default:="NodeDeletion"
+	// +kubebuilder:validation:Enum=NodeDeletion;ResourcesDeletion
 	RemediationStrategy RemediationStrategyType `json:"remediationStrategy,omitempty"`
 }
 
