@@ -2,6 +2,7 @@ package controllers_test
 
 import (
 	"context"
+	"github.com/medik8s/poison-pill/pkg/utils"
 	"k8s.io/apimachinery/pkg/types"
 	"time"
 
@@ -20,10 +21,9 @@ import (
 )
 
 const (
-	unhealthyNodeName         = "node1"
-	peerNodeName              = "node2"
-	pprNamespace              = "default"
-	isRebootCapableAnnotation = "is-reboot-capable.poison-pill.medik8s.io"
+	unhealthyNodeName = "node1"
+	peerNodeName      = "node2"
+	pprNamespace      = "default"
 )
 
 var _ = Describe("ppr Controller", func() {
@@ -74,16 +74,23 @@ var _ = Describe("ppr Controller", func() {
 	})
 
 	Context("Unhealthy node with poison-pill pod but unable to reboot", func() {
-		//if the unhealthy node doesn't have watchdog and it's is-reboot-capable label is unknown or false
+		//if the unhealthy node doesn't have watchdog and it's is-reboot-capable annotation is not true
 		//we don't want to delete the node, since it will never
 		//be in a safe state (i.e. rebooted)
 
 		Context("simulate daemonset pods assigned to nodes", func() {
 			//since we don't have a scheduler in test, we need to do its work and create pp pod for that node
-			rebootCapableLabelValue := ""
 
-			JustBeforeEach(func() {
-				updateIsRebootCapable(rebootCapableLabelValue)
+			BeforeEach(func() {
+				ppr := &poisonpillv1alpha1.PoisonPillRemediation{}
+				ppr.Name = unhealthyNodeName
+				ppr.Namespace = pprNamespace
+
+				Expect(k8sClient.Create(context.TODO(), ppr)).To(Succeed(), "failed to create ppr CR")
+			})
+
+			AfterEach(func() {
+				Expect(k8sClient.Delete(context.Background(), ppr)).To(Succeed(), "failed to delete ppr CR")
 			})
 
 			It("create poison pill pod", func() {
@@ -100,59 +107,28 @@ var _ = Describe("ppr Controller", func() {
 				pod.Spec.Containers = []v1.Container{container}
 				Expect(k8sClient.Create(context.Background(), pod)).To(Succeed())
 
-				ppr := &poisonpillv1alpha1.PoisonPillRemediation{}
-				ppr.Name = unhealthyNodeName
-				ppr.Namespace = pprNamespace
 			})
 
-			BeforeEach(func() {
-				ppr := &poisonpillv1alpha1.PoisonPillRemediation{}
-				ppr.Name = unhealthyNodeName
-				ppr.Namespace = pprNamespace
+			Context("node doesn't have is-reboot-capable annotation", func() {
+				BeforeEach(func() {
+					//remove the annotation, if exists
+					deleteIsRebootCapableAnnotation()
+				})
 
-				Expect(k8sClient.Create(context.TODO(), ppr)).To(Succeed(), "failed to create ppr CR")
+				It("ppr should not have finalizers when is-reboot-capable annotation doesn't exist", func() {
+					testNoFinalizer(ppr)
+				})
 			})
 
-			AfterEach(func() {
-				Expect(k8sClient.Delete(context.Background(), ppr)).To(Succeed(), "failed to delete ppr CR")
-			})
+			Context("node's is-reboot-capable annotation is false", func() {
+				BeforeEach(func() {
+					rebootCapableAnnotationValue := "false"
+					updateIsRebootCapable(rebootCapableAnnotationValue)
+				})
 
-			It("ppr should not have finalizers when is-reboot-capable label doesn't exist", func() {
-				pprKey := client.ObjectKey{
-					Namespace: pprNamespace,
-					Name:      unhealthyNodeName,
-				}
-
-				Eventually(func() error {
-					return k8sClient.Get(context.Background(), pprKey, ppr)
-				}, 10*time.Second, 200*time.Millisecond).Should(Succeed())
-
-				Consistently(func() []string {
-					Expect(k8sClient.Get(context.Background(), pprKey, ppr)).To(Succeed())
-					//if no finalizer was set, it means we didn't start remediation process
-					return ppr.Finalizers
-				}, 10*time.Second, 250*time.Millisecond).Should(BeEmpty())
-			})
-
-			BeforeEach(func() {
-				rebootCapableLabelValue = "false"
-			})
-
-			It("ppr should not have finalizers when is-reboot-capable label is false", func() {
-				pprKey := client.ObjectKey{
-					Namespace: pprNamespace,
-					Name:      unhealthyNodeName,
-				}
-
-				Eventually(func() error {
-					return k8sClient.Get(context.Background(), pprKey, ppr)
-				}, 10*time.Second, 200*time.Millisecond).Should(Succeed())
-
-				Consistently(func() []string {
-					Expect(k8sClient.Get(context.Background(), pprKey, ppr)).To(Succeed())
-					//if no finalizer was set, it means we didn't start remediation process
-					return ppr.Finalizers
-				}, 10*time.Second, 250*time.Millisecond).Should(BeEmpty())
+				It("ppr should not have finalizers when is-reboot-capable annotation is false", func() {
+					testNoFinalizer(ppr)
+				})
 			})
 		})
 	})
@@ -187,9 +163,6 @@ var _ = Describe("ppr Controller", func() {
 
 		Context("simulate daemonset pods assigned to nodes", func() {
 			//since we don't have a scheduler in test, we need to do its work and create pp pod for that node
-			BeforeEach(func() {
-
-			})
 
 			It("poison pill agent pod should exist", func() {
 				podList := &v1.PodList{}
@@ -269,11 +242,11 @@ var _ = Describe("ppr Controller", func() {
 		// this triggers a reconcile! It might cause invalid test results...
 		//now := time.Now()
 		//It("Update ppr time to accelerate the progress", func() {
-		//	safeTimeToAssumeNodeRebooted := 90 * time.Second
-		//	oldTime := now.Add(-safeTimeToAssumeNodeRebooted).Add(-time.Minute)
-		//	oldTimeConverted := metav1.NewTime(oldTime)
-		//	ppr.Status.TimeAssumedRebooted = &oldTimeConverted
-		//	Expect(k8sClient.Status().Update(context.TODO(), ppr)).To(Succeed())
+		// safeTimeToAssumeNodeRebooted := 90 * time.Second
+		// oldTime := now.Add(-safeTimeToAssumeNodeRebooted).Add(-time.Minute)
+		// oldTimeConverted := metav1.NewTime(oldTime)
+		// ppr.Status.TimeAssumedRebooted = &oldTimeConverted
+		// Expect(k8sClient.Status().Update(context.TODO(), ppr)).To(Succeed())
 		//})
 
 		It("Verify that node has been deleted and restored", func() {
@@ -351,18 +324,50 @@ var _ = Describe("ppr Controller", func() {
 	})
 })
 
-func updateIsRebootCapable(rebootCapableLabelValue string) {
+func updateIsRebootCapable(rebootCapableAnnotationValue string) {
 	unhealthyNodeKey := types.NamespacedName{
 		Name: unhealthyNodeName,
 	}
 	unhealthyNode := &v1.Node{}
-	Expect(k8sClient.Client.Get(context.Background(), unhealthyNodeKey, unhealthyNode)).To(Succeed())
+	ExpectWithOffset(1, k8sClient.Client.Get(context.Background(), unhealthyNodeKey, unhealthyNode)).To(Succeed())
 	if unhealthyNode.Annotations == nil {
 		unhealthyNode.Annotations = map[string]string{}
 	}
-	if rebootCapableLabelValue != "" {
-		unhealthyNode.Annotations[isRebootCapableAnnotation] = rebootCapableLabelValue
+	if rebootCapableAnnotationValue != "" {
+		unhealthyNode.Annotations[utils.IsRebootCapableAnnotation] = rebootCapableAnnotationValue
 	}
 
-	Expect(k8sClient.Update(context.Background(), unhealthyNode)).To(Succeed())
+	ExpectWithOffset(1, k8sClient.Update(context.Background(), unhealthyNode)).To(Succeed())
+}
+
+func deleteIsRebootCapableAnnotation() {
+	unhealthyNodeKey := types.NamespacedName{
+		Name: unhealthyNodeName,
+	}
+	unhealthyNode := &v1.Node{}
+	ExpectWithOffset(1, k8sClient.Client.Get(context.Background(), unhealthyNodeKey, unhealthyNode)).To(Succeed())
+
+	if unhealthyNode.Annotations != nil {
+		delete(unhealthyNode.Annotations, utils.IsRebootCapableAnnotation)
+	}
+
+	ExpectWithOffset(1, k8sClient.Update(context.Background(), unhealthyNode)).To(Succeed())
+}
+
+//testNoFinalizer checks that ppr doesn't have finalizer
+func testNoFinalizer(ppr *poisonpillv1alpha1.PoisonPillRemediation) {
+	pprKey := client.ObjectKey{
+		Namespace: pprNamespace,
+		Name:      unhealthyNodeName,
+	}
+
+	EventuallyWithOffset(1, func() error {
+		return k8sClient.Get(context.Background(), pprKey, ppr)
+	}, 10*time.Second, 200*time.Millisecond).Should(Succeed())
+
+	ConsistentlyWithOffset(1, func() []string {
+		Expect(k8sClient.Get(context.Background(), pprKey, ppr)).To(Succeed())
+		//if no finalizer was set, it means we didn't start remediation process
+		return ppr.Finalizers
+	}, 10*time.Second, 250*time.Millisecond).Should(BeEmpty())
 }
