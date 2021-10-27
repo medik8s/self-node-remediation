@@ -111,8 +111,8 @@ var _ = Describe("ppr Controller", func() {
 
 			Context("node doesn't have is-reboot-capable annotation", func() {
 				BeforeEach(func() {
-					rebootCapableAnnotationValue := ""
-					updateIsRebootCapable(rebootCapableAnnotationValue)
+					//remove the annotation, if exists
+					deleteIsRebootCapableAnnotation()
 				})
 
 				It("ppr should not have finalizers when is-reboot-capable annotation doesn't exist", func() {
@@ -122,8 +122,8 @@ var _ = Describe("ppr Controller", func() {
 
 			Context("node's is-reboot-capable annotation is false", func() {
 				BeforeEach(func() {
-					//remove the annotation, if exists
-					deleteIsRebootCapableAnnotation()
+					rebootCapableAnnotationValue := "false"
+					updateIsRebootCapable(rebootCapableAnnotationValue)
 				})
 
 				It("ppr should not have finalizers when is-reboot-capable annotation is false", func() {
@@ -163,9 +163,6 @@ var _ = Describe("ppr Controller", func() {
 
 		Context("simulate daemonset pods assigned to nodes", func() {
 			//since we don't have a scheduler in test, we need to do its work and create pp pod for that node
-			BeforeEach(func() {
-
-			})
 
 			It("poison pill agent pod should exist", func() {
 				podList := &v1.PodList{}
@@ -332,7 +329,7 @@ func updateIsRebootCapable(rebootCapableAnnotationValue string) {
 		Name: unhealthyNodeName,
 	}
 	unhealthyNode := &v1.Node{}
-	Expect(k8sClient.Client.Get(context.Background(), unhealthyNodeKey, unhealthyNode)).To(Succeed())
+	ExpectWithOffset(1, k8sClient.Client.Get(context.Background(), unhealthyNodeKey, unhealthyNode)).To(Succeed())
 	if unhealthyNode.Annotations == nil {
 		unhealthyNode.Annotations = map[string]string{}
 	}
@@ -348,7 +345,7 @@ func deleteIsRebootCapableAnnotation() {
 		Name: unhealthyNodeName,
 	}
 	unhealthyNode := &v1.Node{}
-	Expect(k8sClient.Client.Get(context.Background(), unhealthyNodeKey, unhealthyNode)).To(Succeed())
+	ExpectWithOffset(1,k8sClient.Client.Get(context.Background(), unhealthyNodeKey, unhealthyNode)).To(Succeed())
 
 	if unhealthyNode.Annotations != nil {
 		delete(unhealthyNode.Annotations, utils.IsRebootCapableAnnotation)
