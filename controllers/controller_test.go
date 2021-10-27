@@ -345,7 +345,7 @@ func deleteIsRebootCapableAnnotation() {
 		Name: unhealthyNodeName,
 	}
 	unhealthyNode := &v1.Node{}
-	ExpectWithOffset(1,k8sClient.Client.Get(context.Background(), unhealthyNodeKey, unhealthyNode)).To(Succeed())
+	ExpectWithOffset(1, k8sClient.Client.Get(context.Background(), unhealthyNodeKey, unhealthyNode)).To(Succeed())
 
 	if unhealthyNode.Annotations != nil {
 		delete(unhealthyNode.Annotations, utils.IsRebootCapableAnnotation)
