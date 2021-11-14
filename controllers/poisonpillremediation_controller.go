@@ -18,7 +18,6 @@ package controllers
 
 import (
 	"context"
-	"k8s.io/apimachinery/pkg/fields"
 	"sync"
 	"time"
 
@@ -30,6 +29,7 @@ import (
 	storagev1 "k8s.io/api/storage/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -314,7 +314,6 @@ func (r *PoisonPillRemediationReconciler) remediateWithNodeDeletion(ppr *v1alpha
 		//ppr which states max remediation attempts, and the timeout to consider a remediation failed.
 		return ctrl.Result{}, nil
 	}
-
 
 	if !r.isNodeRebootCapable(node) {
 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
