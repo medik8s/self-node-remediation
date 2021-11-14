@@ -219,17 +219,17 @@ func (r *PoisonPillRemediationReconciler) remediateWithResourcesDeletion(ppr *v1
 		}
 	}
 
-	volumeattachments := storagev1.VolumeAttachmentList{}
-	if err := r.Client.List(context.Background(), &volumeattachments); err != nil {
-		r.logger.Error(err, "failed to get volumeattachments list")
+	volumeAttachments := &storagev1.VolumeAttachmentList{}
+	if err := r.Client.List(context.Background(), volumeAttachments); err != nil {
+		r.logger.Error(err, "failed to get volumeAttachments list")
 		return ctrl.Result{}, err
 	}
 
-	for _, va := range volumeattachments.Items {
+	for _, va := range volumeAttachments.Items {
 		if va.Spec.NodeName == node.Name {
 			err = r.Client.Delete(context.Background(), &va)
 			if err != nil {
-				r.logger.Error(err, "failed to delete volumeattachment", "name", va.Name)
+				r.logger.Error(err, "failed to delete volumeAttachment", "name", va.Name)
 				return ctrl.Result{}, err
 			}
 		}
@@ -356,7 +356,7 @@ func (r *PoisonPillRemediationReconciler) remediateWithNodeDeletion(ppr *v1alpha
 	return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 }
 
-//wasNodeRebooted returns true if the node assumed to been rebooted.
+// wasNodeRebooted returns true if the node assumed to been rebooted.
 // if not, it will also return the remaining time for that to happen
 func (r *PoisonPillRemediationReconciler) wasNodeRebooted(ppr *v1alpha1.PoisonPillRemediation) (bool, time.Duration) {
 	maxNodeRebootTime := ppr.Status.TimeAssumedRebooted
