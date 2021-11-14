@@ -143,15 +143,12 @@ func (r *PoisonPillRemediationReconciler) isPprCompleted(ppr *v1alpha1.PoisonPil
 }
 
 func (r *PoisonPillRemediationReconciler) remediateWithResourcesDeletion(ppr *v1alpha1.PoisonPillRemediation) (ctrl.Result, error) {
-	if controllerutil.ContainsFinalizer(ppr, PPRFinalizer) {
-		if r.isPprCompleted(ppr) { //remediation done
+	if r.isPprCompleted(ppr) {
+		if controllerutil.ContainsFinalizer(ppr, PPRFinalizer) {
 			if err := r.removeFinalizer(ppr); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
-	}
-
-	if r.isPprCompleted(ppr) {
 		return ctrl.Result{}, nil
 	}
 
