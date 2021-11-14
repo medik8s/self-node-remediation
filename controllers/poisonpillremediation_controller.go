@@ -159,7 +159,8 @@ func (r *PoisonPillRemediationReconciler) remediateWithResourcesDeletion(ppr *v1
 	}
 
 	if !r.isNodeRebootCapable(node) {
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		//use err to trigger exponential backoff
+		return ctrl.Result{}, errors.New("Node is not capable to reboot itself")
 	}
 
 	if !controllerutil.ContainsFinalizer(ppr, PPRFinalizer) {
@@ -313,7 +314,7 @@ func (r *PoisonPillRemediationReconciler) remediateWithNodeDeletion(ppr *v1alpha
 	}
 
 	if !r.isNodeRebootCapable(node) {
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+		return ctrl.Result{}, errors.New("Node is not capable to reboot itself")
 	}
 
 	if !controllerutil.ContainsFinalizer(ppr, PPRFinalizer) {
