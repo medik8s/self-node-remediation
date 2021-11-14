@@ -127,9 +127,9 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 	r.mutex.Unlock()
 
 	switch ppr.Spec.RemediationStrategy {
-	case "NodeDeletion":
+	case v1alpha1.NodeDeletionRemdiationStrategy:
 		return r.remediateWithNodeDeletion(ppr)
-	case "ResourcesDeletion":
+	case v1alpha1.ResourcesDeletionRemediationStrategy:
 		return r.remediateWithResourcesDeletion(ppr)
 	default:
 		r.logger.Info("Encountered unsupported remediation strategy. Please check template spec", "strategy", ppr.Spec.RemediationStrategy)
