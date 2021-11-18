@@ -8,6 +8,7 @@ metadata:
     containerImage: quay.io/medik8s/poison-pill-operator:0.0.0
     operatorframework.io/suggested-namespace: poison-pill
     repository: https://github.com/medik8s/poison-pill
+    operators.openshift.io/infrastructure-features: '["disconnected"]'
   name: poison-pill.v0.0.0
   namespace: placeholder
 spec:
