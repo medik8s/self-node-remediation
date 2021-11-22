@@ -41,13 +41,13 @@ spec:
               remediationStrategy:
                 default: NodeDeletion
                 description: RemediationStrategy is the remediation method for unhealthy
-                  nodes could be either "NodeDeletion" or "ResourcesDeletion" the
-                  first will delete the node to signal to the cluster that the node
-                  was fenced the latter will iterate over all pos and volumeattachments
+                  nodes could be either "NodeDeletion" or "ResourceDeletion" the first
+                  will delete the node to signal to the cluster that the node was
+                  fenced the latter will iterate over all pos and volumeattachments
                   related to the unhealthy node and delete them
                 enum:
                 - NodeDeletion
-                - ResourcesDeletion
+                - ResourceDeletion
                 type: string
             type: object
           status:

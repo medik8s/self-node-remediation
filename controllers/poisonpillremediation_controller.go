@@ -127,10 +127,10 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 	r.mutex.Unlock()
 
 	switch ppr.Spec.RemediationStrategy {
-	case v1alpha1.NodeDeletionRemdiationStrategy:
+	case v1alpha1.NodeDeletionRemediationStrategy:
 		return r.remediateWithNodeDeletion(ppr)
-	case v1alpha1.ResourcesDeletionRemediationStrategy:
-		return r.remediateWithResourcesDeletion(ppr)
+	case v1alpha1.ResourceDeletionRemediationStrategy:
+		return r.remediateWithResourceDeletion(ppr)
 	default:
 		r.logger.Info("Encountered unsupported remediation strategy. Please check template spec", "strategy", ppr.Spec.RemediationStrategy)
 	}
@@ -142,7 +142,7 @@ func (r *PoisonPillRemediationReconciler) isPprCompleted(ppr *v1alpha1.PoisonPil
 	return ppr.Status.Phase != nil && *ppr.Status.Phase == completedPhase
 }
 
-func (r *PoisonPillRemediationReconciler) remediateWithResourcesDeletion(ppr *v1alpha1.PoisonPillRemediation) (ctrl.Result, error) {
+func (r *PoisonPillRemediationReconciler) remediateWithResourceDeletion(ppr *v1alpha1.PoisonPillRemediation) (ctrl.Result, error) {
 	if r.isPprCompleted(ppr) {
 		if controllerutil.ContainsFinalizer(ppr, PPRFinalizer) {
 			if err := r.removeFinalizer(ppr); err != nil {
