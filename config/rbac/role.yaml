@@ -60,16 +60,6 @@ rules:
   - update
   - watch
 - apiGroups:
-  - ""
-  resources:
-  - volumeattachments
-  verbs:
-  - delete
-  - get
-  - list
-  - update
-  - watch
-- apiGroups:
   - machine.openshift.io
   resources:
   - machines
