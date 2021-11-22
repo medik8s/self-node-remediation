@@ -6,9 +6,10 @@ metadata:
     capabilities: Basic Install
     categories: OpenShift Optional
     containerImage: quay.io/medik8s/poison-pill-operator:0.0.0
+    createdAt: "2021-11-22 14:21:44"
     operatorframework.io/suggested-namespace: poison-pill
-    repository: https://github.com/medik8s/poison-pill
     operators.openshift.io/infrastructure-features: '["disconnected"]'
+    repository: https://github.com/medik8s/poison-pill
   name: poison-pill.v0.0.0
   namespace: placeholder
 spec:
@@ -69,6 +70,7 @@ spec:
   - recovery
   - high-availability
   - baremetal
+  - PP
   links:
   - name: Poison Pill
     url: https://www.medik8s.io/
