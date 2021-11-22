@@ -22,8 +22,8 @@ import (
 )
 
 const (
-	NodeDeletionRemdiationStrategy       = RemediationStrategyType("NodeDeletion")
-	ResourcesDeletionRemediationStrategy = RemediationStrategyType("ResourcesDeletion")
+	NodeDeletionRemediationStrategy     = RemediationStrategyType("NodeDeletion")
+	ResourceDeletionRemediationStrategy = RemediationStrategyType("ResourceDeletion")
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -34,11 +34,11 @@ type RemediationStrategyType string
 // PoisonPillRemediationSpec defines the desired state of PoisonPillRemediation
 type PoisonPillRemediationSpec struct {
 	//RemediationStrategy is the remediation method for unhealthy nodes
-	//could be either "NodeDeletion" or "ResourcesDeletion"
+	//could be either "NodeDeletion" or "ResourceDeletion"
 	//the first will delete the node to signal to the cluster that the node was fenced
 	//the latter will iterate over all pos and volumeattachments related to the unhealthy node and delete them
 	// +kubebuilder:default:="NodeDeletion"
-	// +kubebuilder:validation:Enum=NodeDeletion;ResourcesDeletion
+	// +kubebuilder:validation:Enum=NodeDeletion;ResourceDeletion
 	RemediationStrategy RemediationStrategyType `json:"remediationStrategy,omitempty"`
 }
 
