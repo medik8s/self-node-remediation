@@ -46,8 +46,8 @@ const (
 	//as of writing this lines, kubernetes will check for pods with non-existent node once in 20s, and allows
 	//40s of grace period for the node to reappear before it deletes the pods.
 	//see here: https://github.com/kubernetes/kubernetes/blob/7a0638da76cb9843def65708b661d2c6aa58ed5a/pkg/controller/podgc/gc_controller.go#L43-L47
-	restoreNodeAfter = 90 * time.Second
-	completedPhase   = "Completed"
+	restoreNodeAfter      = 90 * time.Second
+	fencingCompletedPhase = "Fencing-Completed"
 )
 
 var (
@@ -138,24 +138,35 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 	return ctrl.Result{}, nil
 }
 
-func (r *PoisonPillRemediationReconciler) isPprCompleted(ppr *v1alpha1.PoisonPillRemediation) bool {
-	return ppr.Status.Phase != nil && *ppr.Status.Phase == completedPhase
+func (r *PoisonPillRemediationReconciler) isFencingCompleted(ppr *v1alpha1.PoisonPillRemediation) bool {
+	return ppr.Status.Phase != nil && *ppr.Status.Phase == fencingCompletedPhase
 }
 
 func (r *PoisonPillRemediationReconciler) remediateWithResourceDeletion(ppr *v1alpha1.PoisonPillRemediation) (ctrl.Result, error) {
-	if r.isPprCompleted(ppr) {
+	node, err := r.getNodeFromPpr(ppr)
+	if err != nil {
+		r.logger.Error(err, "failed to get node", "node name", ppr.Name)
+		return ctrl.Result{}, err
+	}
+
+	if r.isFencingCompleted(ppr) {
+		if node.Spec.Unschedulable {
+			node.Spec.Unschedulable = false
+			if err := r.Client.Update(context.Background(), node); err != nil {
+				if apiErrors.IsConflict(err) {
+					return ctrl.Result{RequeueAfter: time.Second}, nil
+				}
+				r.logger.Error(err, "failed to mark node as schedulable")
+				return ctrl.Result{}, err
+			}
+		}
+
 		if controllerutil.ContainsFinalizer(ppr, PPRFinalizer) {
 			if err := r.removeFinalizer(ppr); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
 		return ctrl.Result{}, nil
-	}
-
-	node, err := r.getNodeFromPpr(ppr)
-	if err != nil {
-		r.logger.Error(err, "failed to get node", "node name", ppr.Name)
-		return ctrl.Result{}, err
 	}
 
 	if !r.isNodeRebootCapable(node) {
@@ -236,25 +247,14 @@ func (r *PoisonPillRemediationReconciler) remediateWithResourceDeletion(ppr *v1a
 		}
 	}
 
-	if node.Spec.Unschedulable {
-		node.Spec.Unschedulable = false
-		if err := r.Client.Update(context.Background(), node); err != nil {
-			if apiErrors.IsConflict(err) {
-				return ctrl.Result{RequeueAfter: time.Second}, nil
-			}
-			r.logger.Error(err, "failed to mark node as schedulable")
-			return ctrl.Result{}, err
-		}
-	}
-
-	completed := completedPhase
-	ppr.Status.Phase = &completed
+	fencingCompleted := fencingCompletedPhase
+	ppr.Status.Phase = &fencingCompleted
 	if err := r.Client.Status().Update(context.Background(), ppr); err != nil {
 		if apiErrors.IsConflict(err) {
 			// conflicts are expected since all poison pill deamonset pods are competing on the same requests
 			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 		}
-		r.logger.Error(err, "failed to mark PPR as completed")
+		r.logger.Error(err, "failed to mark PPR as fencing completed")
 		return ctrl.Result{}, err
 	}
 
