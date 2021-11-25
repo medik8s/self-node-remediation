@@ -189,7 +189,7 @@ func (r *PoisonPillRemediationReconciler) remediateWithResourceDeletion(ppr *v1a
 
 	if r.MyNodeName == node.Name {
 		// we have a problem on this node, reboot!
-		return ctrl.Result{}, r.Rebooter.Reboot()
+		return r.rebootIfNeeded(ppr)
 	}
 
 	wasRebooted, timeLeft := r.wasNodeRebooted(ppr)
@@ -331,7 +331,7 @@ func (r *PoisonPillRemediationReconciler) remediateWithNodeDeletion(ppr *v1alpha
 
 	if r.MyNodeName == node.Name {
 		// we have a problem on this node, reboot!
-		return ctrl.Result{}, r.Rebooter.Reboot()
+		return r.rebootIfNeeded(ppr)
 	}
 
 	wasRebooted, timeLeft := r.wasNodeRebooted(ppr)
@@ -357,6 +357,21 @@ func (r *PoisonPillRemediationReconciler) remediateWithNodeDeletion(ppr *v1alpha
 	return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 }
 
+// rebootIfNeeded reboots the node if no reboot was performed so far
+func (r *PoisonPillRemediationReconciler) rebootIfNeeded(ppr *v1alpha1.PoisonPillRemediation) (ctrl.Result, error) {
+	shouldAvoidReboot, err := r.didIRebootMyself(ppr)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if shouldAvoidReboot {
+		//node already rebooted once during this PPR lifecycle, no need for additional reboot
+		return ctrl.Result{}, nil
+	}
+
+	return ctrl.Result{}, r.Rebooter.Reboot()
+}
+
 // wasNodeRebooted returns true if the node assumed to been rebooted.
 // if not, it will also return the remaining time for that to happen
 func (r *PoisonPillRemediationReconciler) wasNodeRebooted(ppr *v1alpha1.PoisonPillRemediation) (bool, time.Duration) {
@@ -367,6 +382,18 @@ func (r *PoisonPillRemediationReconciler) wasNodeRebooted(ppr *v1alpha1.PoisonPi
 	}
 
 	return true, 0
+}
+
+// didIRebootMyself returns true if system uptime is less than the time from PPR creation timestamp
+// which means that the host was already rebooted (at least) once during this PPR lifecycle
+func (r *PoisonPillRemediationReconciler) didIRebootMyself(ppr *v1alpha1.PoisonPillRemediation) (bool, error) {
+	uptime, err := utils.GetLinuxUptime()
+	if err != nil {
+		r.logger.Error(err, "failed to get node's uptime")
+		return false, err
+	}
+
+	return uptime < time.Since(ppr.CreationTimestamp.Time), nil
 }
 
 //isNodeRebootCapable checks if the node is capable to reboot itself when it becomes unhealthy
