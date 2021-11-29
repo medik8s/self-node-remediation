@@ -41,12 +41,7 @@ import (
 )
 
 const (
-	PPRFinalizer = "poison-pill.medik8s.io/ppr-finalizer"
-	//we need to restore the node only after the cluster realized it can reschecudle the affected workloads
-	//as of writing this lines, kubernetes will check for pods with non-existent node once in 20s, and allows
-	//40s of grace period for the node to reappear before it deletes the pods.
-	//see here: https://github.com/kubernetes/kubernetes/blob/7a0638da76cb9843def65708b661d2c6aa58ed5a/pkg/controller/podgc/gc_controller.go#L43-L47
-	restoreNodeAfter      = 90 * time.Second
+	PPRFinalizer          = "poison-pill.medik8s.io/ppr-finalizer"
 	fencingCompletedPhase = "Fencing-Completed"
 )
 
@@ -88,6 +83,11 @@ type PoisonPillRemediationReconciler struct {
 	SafeTimeToAssumeNodeRebooted time.Duration
 	MyNodeName                   string
 	mutex                        sync.Mutex
+	//we need to restore the node only after the cluster realized it can reschecudle the affected workloads
+	//as of writing this lines, kubernetes will check for pods with non-existent node once in 20s, and allows
+	//40s of grace period for the node to reappear before it deletes the pods.
+	//see here: https://github.com/kubernetes/kubernetes/blob/7a0638da76cb9843def65708b661d2c6aa58ed5a/pkg/controller/podgc/gc_controller.go#L43-L47
+	RestoreNodeAfter time.Duration
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -587,7 +587,7 @@ func (r *PoisonPillRemediationReconciler) handleDeletedNode(ppr *v1alpha1.Poison
 	}
 
 	//todo this assumes the node has been deleted on time, but this is not necessarily the case
-	minRestoreNodeTime := ppr.Status.TimeAssumedRebooted.Add(restoreNodeAfter)
+	minRestoreNodeTime := ppr.Status.TimeAssumedRebooted.Add(r.RestoreNodeAfter)
 	if time.Now().Before(minRestoreNodeTime) {
 		//we wait some time before we restore the node to let the cluster realize that the node has been deleted
 		//so workloads can be rescheduled elsewhere
