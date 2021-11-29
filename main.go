@@ -283,6 +283,7 @@ func initPoisonPillAgent(mgr manager.Manager) {
 	}
 	setupLog.Info("Time to assume that unhealthy node has been rebooted", "time", timeToAssumeNodeRebooted)
 
+	restoreNodeAfter := 90 * time.Second
 	pprReconciler := &controllers.PoisonPillRemediationReconciler{
 		Client:                       mgr.GetClient(),
 		Log:                          ctrl.Log.WithName("controllers").WithName("PoisonPillRemediation"),
@@ -290,6 +291,7 @@ func initPoisonPillAgent(mgr manager.Manager) {
 		Rebooter:                     rebooter,
 		SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
 		MyNodeName:                   myNodeName,
+		RestoreNodeAfter:             restoreNodeAfter,
 	}
 
 	if err = pprReconciler.SetupWithManager(mgr); err != nil {

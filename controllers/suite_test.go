@@ -54,6 +54,18 @@ var k8sClient *K8sClientWrapper
 var testEnv *envtest.Environment
 var dummyDog watchdog.Watchdog
 var certReader certificates.CertStorageReader
+var unhealthyNode = &v1.Node{}
+var peerNode = &v1.Node{}
+var cancelFunc context.CancelFunc
+
+var unhealthyNodeNamespacedName = client.ObjectKey{
+	Name:      unhealthyNodeName,
+	Namespace: "",
+}
+var peerNodeNamespacedName = client.ObjectKey{
+	Name:      peerNodeName,
+	Namespace: "",
+}
 
 const (
 	envVarApiServer = "TEST_ASSET_KUBE_APISERVER"
@@ -64,11 +76,14 @@ const (
 	apiCheckInterval   = 1 * time.Second
 	maxErrorThreshold  = 1
 
-	namespace = "poison-pill"
+	namespace         = "poison-pill"
+	unhealthyNodeName = "node1"
+	peerNodeName      = "node2"
 )
 
 type K8sClientWrapper struct {
 	client.Client
+	Reader                client.Reader
 	ShouldSimulateFailure bool
 }
 
@@ -123,6 +138,7 @@ var _ = BeforeSuite(func() {
 
 	k8sClient = &K8sClientWrapper{
 		k8sManager.GetClient(),
+		k8sManager.GetAPIReader(),
 		false,
 	}
 	Expect(k8sClient).ToNot(BeNil())
@@ -144,17 +160,11 @@ var _ = BeforeSuite(func() {
 	}).SetupWithManager(k8sManager)
 
 	// peers need their own node on start
-	node1 := &v1.Node{}
-	node1.Name = unhealthyNodeName
-	node1.Labels = make(map[string]string)
-	node1.Labels["kubernetes.io/hostname"] = unhealthyNodeName
-	Expect(k8sClient.Create(context.Background(), node1)).To(Succeed(), "failed to create unhealthy node")
+	unhealthyNode = getNode(unhealthyNodeName)
+	Expect(k8sClient.Create(context.Background(), unhealthyNode)).To(Succeed(), "failed to create unhealthy node")
 
-	node2 := &v1.Node{}
-	node2.Name = peerNodeName
-	node2.Labels = make(map[string]string)
-	node2.Labels["kubernetes.io/hostname"] = peerNodeName
-	Expect(k8sClient.Create(context.Background(), node2)).To(Succeed(), "failed to create peer node")
+	peerNode = getNode(peerNodeName)
+	Expect(k8sClient.Create(context.Background(), peerNode)).To(Succeed(), "failed to create peer node")
 
 	dummyDog, err = watchdog.NewFake(ctrl.Log.WithName("fake watchdog"))
 	Expect(err).ToNot(HaveOccurred())
@@ -186,6 +196,8 @@ var _ = BeforeSuite(func() {
 	timeToAssumeNodeRebooted += dummyDog.GetTimeout()
 	timeToAssumeNodeRebooted += 5 * time.Second
 
+	restoreNodeAfter := 5 * time.Second
+
 	// reconciler for unhealthy node
 	err = (&controllers.PoisonPillRemediationReconciler{
 		Client:                       k8sClient,
@@ -193,6 +205,7 @@ var _ = BeforeSuite(func() {
 		Rebooter:                     rebooter,
 		SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
 		MyNodeName:                   unhealthyNodeName,
+		RestoreNodeAfter:             restoreNodeAfter,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
@@ -202,18 +215,32 @@ var _ = BeforeSuite(func() {
 		Log:                          ctrl.Log.WithName("controllers").WithName("poison-pill-controller").WithName("peer node"),
 		SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
 		MyNodeName:                   peerNodeName,
+		RestoreNodeAfter:             restoreNodeAfter,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
+	var ctx context.Context
+	ctx, cancelFunc = context.WithCancel(ctrl.SetupSignalHandler())
+
 	go func() {
 		defer GinkgoRecover()
-		err = k8sManager.Start(ctrl.SetupSignalHandler())
+		err = k8sManager.Start(ctx)
 		Expect(err).ToNot(HaveOccurred())
 	}()
 
 }, 60)
 
+func getNode(name string) *v1.Node {
+	node := &v1.Node{}
+	node.Name = name
+	node.Labels = make(map[string]string)
+	node.Labels["kubernetes.io/hostname"] = unhealthyNodeName
+
+	return node
+}
+
 var _ = AfterSuite(func() {
+	cancelFunc()
 	By("tearing down the test environment")
 	err := testEnv.Stop()
 	Expect(err).NotTo(HaveOccurred())
