@@ -89,8 +89,9 @@ var _ = Describe("Poison Pill E2E", func() {
 			// - node should be deleted and re-created
 
 			var ppr *v1alpha1.PoisonPillRemediation
-			BeforeEach(func() {
-				ppr = createPPR(node)
+			var remediationStrategy v1alpha1.RemediationStrategyType
+			JustBeforeEach(func() {
+				ppr = createPPR(node, remediationStrategy)
 			})
 
 			AfterEach(func() {
@@ -99,11 +100,29 @@ var _ = Describe("Poison Pill E2E", func() {
 				}
 			})
 
-			It("should reboot and re-create node", func() {
-				// order matters
-				// - because the 2nd check has a small timeout only
-				checkNodeRecreate(node, oldUID)
-				checkReboot(node, oldBootTime)
+			Context("Resource Deletion Strategy", func() {
+				var oldPodCreationTime time.Time
+				BeforeEach(func() {
+					remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
+					oldPodCreationTime = findPPPod(node).CreationTimestamp.Time
+				})
+
+				It("should delete pods", func() {
+					checkPodRecreated(node, oldPodCreationTime)
+				})
+			})
+
+			Context("Node Deletion Strategy", func() {
+				BeforeEach(func() {
+					remediationStrategy = v1alpha1.NodeDeletionRemediationStrategy
+				})
+
+				It("should reboot and re-create node", func() {
+					// order matters
+					// - because the 2nd check has a small timeout only
+					checkNodeRecreate(node, oldUID)
+					checkReboot(node, oldBootTime)
+				})
 			})
 		})
 	})
@@ -149,7 +168,7 @@ var _ = Describe("Poison Pill E2E", func() {
 
 			BeforeEach(func() {
 				killApiConnection(node, apiIPs, false)
-				ppr = createPPR(node)
+				ppr = createPPR(node, v1alpha1.NodeDeletionRemediationStrategy)
 			})
 
 			AfterEach(func() {
@@ -239,12 +258,23 @@ var _ = Describe("Poison Pill E2E", func() {
 	})
 })
 
-func createPPR(node *v1.Node) *v1alpha1.PoisonPillRemediation {
+func checkPodRecreated(node *v1.Node, oldPodCreationTime time.Time) bool {
+	return EventuallyWithOffset(1, func() time.Time {
+		pod := findPPPod(node)
+		return pod.CreationTimestamp.Time
+
+	}, 7*time.Minute, 10*time.Second).Should(BeTemporally(">", oldPodCreationTime))
+}
+
+func createPPR(node *v1.Node, remediationStrategy v1alpha1.RemediationStrategyType) *v1alpha1.PoisonPillRemediation {
 	By("creating a PPR")
 	ppr := &v1alpha1.PoisonPillRemediation{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      node.GetName(),
 			Namespace: testNamespace,
+		},
+		Spec: v1alpha1.PoisonPillRemediationSpec{
+			RemediationStrategy: remediationStrategy,
 		},
 	}
 	ExpectWithOffset(1, k8sClient.Create(context.Background(), ppr)).ToNot(HaveOccurred())
