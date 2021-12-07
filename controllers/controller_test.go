@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/medik8s/poison-pill/controllers"
 	"github.com/medik8s/poison-pill/pkg/utils"
+	"k8s.io/api/storage/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -61,18 +62,35 @@ var _ = Describe("ppr Controller", func() {
 		//if the unhealthy node doesn't have the poison-pill pod
 		//we don't want to delete the node, since it might never
 		//be in a safe state (i.e. rebooted)
-
-		BeforeEach(func() {
-			createPPR(ppr)
+		var remediationStrategy poisonpillv1alpha1.RemediationStrategyType
+		JustBeforeEach(func() {
+			createPPR(ppr, remediationStrategy)
 		})
 
 		AfterEach(func() {
 			deletePPR(ppr)
 		})
 
-		It("ppr should not have finalizers", func() {
-			testNoFinalizer(ppr)
+		Context("NodeDeletion strategy", func() {
+			BeforeEach(func() {
+				remediationStrategy = poisonpillv1alpha1.NodeDeletionRemediationStrategy
+			})
+
+			It("ppr should not have finalizers", func() {
+				testNoFinalizer()
+			})
 		})
+
+		Context("ResourceDeletion strategy", func() {
+			BeforeEach(func() {
+				remediationStrategy = poisonpillv1alpha1.ResourceDeletionRemediationStrategy
+			})
+
+			It("ppr should not have finalizers", func() {
+				testNoFinalizer()
+			})
+		})
+
 	})
 
 	Context("Unhealthy node with poison-pill pod but unable to reboot", func() {
@@ -85,7 +103,7 @@ var _ = Describe("ppr Controller", func() {
 
 			BeforeEach(func() {
 				createPoisonPillPod()
-				createPPR(ppr)
+				createPPR(ppr, poisonpillv1alpha1.NodeDeletionRemediationStrategy)
 			})
 
 			AfterEach(func() {
@@ -100,7 +118,7 @@ var _ = Describe("ppr Controller", func() {
 				})
 
 				It("ppr should not have finalizers when is-reboot-capable annotation doesn't exist", func() {
-					testNoFinalizer(ppr)
+					testNoFinalizer()
 				})
 			})
 
@@ -111,7 +129,7 @@ var _ = Describe("ppr Controller", func() {
 				})
 
 				It("ppr should not have finalizers when is-reboot-capable annotation is false", func() {
-					testNoFinalizer(ppr)
+					testNoFinalizer()
 				})
 			})
 		})
@@ -119,116 +137,106 @@ var _ = Describe("ppr Controller", func() {
 
 	Context("Unhealthy node with api-server access", func() {
 		var beforePPR time.Time
-		BeforeEach(func() {
+		var remediationStrategy poisonpillv1alpha1.RemediationStrategyType
+
+		JustBeforeEach(func() {
 			createPoisonPillPod()
 			updateIsRebootCapable("true")
 			beforePPR = time.Now().Add(-time.Second)
-			createPPR(ppr)
+			createPPR(ppr, remediationStrategy)
+
+			By("make sure poison pill exists with correct label")
+			verifyPoisonPillPodExist()
 		})
 
 		AfterEach(func() {
-			deletePoisonPillPod()
 			deletePPR(ppr)
 		})
 
-		It("Remediation flow", func() {
-			By("make sure poison pill exists with correct label")
-			podList := &v1.PodList{}
+		Context("NodeDeletion strategy", func() {
+			BeforeEach(func() {
+				remediationStrategy = poisonpillv1alpha1.NodeDeletionRemediationStrategy
+			})
 
-			selector := labels.NewSelector()
-			requirement, _ := labels.NewRequirement("app", selection.Equals, []string{"poison-pill-agent"})
-			selector = selector.Add(*requirement)
+			AfterEach(func() {
+				deletePoisonPillPod()
+			})
 
-			Eventually(func() int {
-				Expect(k8sClient.Client.List(context.Background(), podList, &client.ListOptions{LabelSelector: selector})).To(Succeed())
-				return len(podList.Items)
-			}, 5*time.Second, 250*time.Millisecond).Should(Equal(1))
+			It("Remediation flow", func() {
+				node := verifyNodeIsUnschedulable()
 
-			By("Verify that node was marked as unschedulable")
-			node := &v1.Node{}
-			Eventually(func() bool {
-				Expect(k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)).To(Succeed())
-				return node.Spec.Unschedulable
-			}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
+				addUnschedulableTaint(node)
 
-			By("Add unschedulable taint to node to simulate node controller")
-			node.Spec.Taints = append(node.Spec.Taints, *controllers.NodeUnschedulableTaint)
-			Expect(k8sClient.Client.Update(context.TODO(), node)).To(Succeed())
+				verifyTimeHasBeenRebootedExists()
 
-			By("Verify that time has been added to PPR status")
-			Eventually(func() *metav1.Time {
-				pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
+				verifyNodeBackup()
 
-				Expect(k8sClient.Client.Get(context.TODO(), pprNamespacedName, ppr)).To(Succeed())
-				return ppr.Status.TimeAssumedRebooted
+				verifyFinalizerExists()
 
-			}, 5*time.Second, 250*time.Millisecond).ShouldNot(BeZero())
+				verifyNoWatchdogFood()
 
-			newPpr := &poisonpillv1alpha1.PoisonPillRemediation{}
-			By("Verify that node backup annotation matches the node")
-			pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
+				verifyNodeDeletedAndRestored(beforePPR)
 
-			Expect(k8sClient.Client.Get(context.TODO(), pprNamespacedName, newPpr)).To(Succeed())
-			Expect(newPpr.Status.NodeBackup).ToNot(BeNil(), "node backup should exist")
-			nodeToRestore := newPpr.Status.NodeBackup
+				verifyNodeIsSchedulable()
 
-			node = &v1.Node{}
-			Expect(k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)).To(Succeed())
-
-			//todo why do we need the following 2 lines? this might be a bug
-			nodeToRestore.TypeMeta.Kind = "Node"
-			nodeToRestore.TypeMeta.APIVersion = "v1"
-			Expect(nodeToRestore).To(Equal(node))
-
-			By("Verify that finalizer was added")
-			Expect(controllerutil.ContainsFinalizer(newPpr, controllers.PPRFinalizer)).Should(BeTrue(), "finalizer should be added")
-
-			By("Verify that watchdog is not receiving food")
-			currentLastFoodTime := dummyDog.LastFoodTime()
-			Consistently(func() time.Time {
-				return dummyDog.LastFoodTime()
-			}, 5*dummyDog.GetTimeout(), 1*time.Second).Should(Equal(currentLastFoodTime))
-
-			By("Verify that node has been deleted and restored")
-			Eventually(func() time.Time {
-				err := k8sClient.Reader.Get(context.TODO(), unhealthyNodeNamespacedName, node)
-				if err != nil {
-					return beforePPR
-				}
-				return node.CreationTimestamp.Time
-			}, 10*time.Second, 200*time.Millisecond).Should(BeTemporally(">", beforePPR))
-
-			By("Verify that node is not marked as unschedulable")
-			Eventually(func() bool {
-				err := k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)
-				if err != nil {
-					return true
-				}
-				return node.Spec.Unschedulable
-			}, 95*time.Second, 250*time.Millisecond).Should(BeFalse())
-
-			By("Verify that finalizer exists until node updates status", func() {
-				Consistently(func() bool {
-					pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
-					newPpr := &poisonpillv1alpha1.PoisonPillRemediation{}
-					Expect(k8sClient.Client.Get(context.TODO(), pprNamespacedName, newPpr)).To(Succeed())
-					return controllerutil.ContainsFinalizer(newPpr, controllers.PPRFinalizer)
-				}, 10*time.Second, 250*time.Millisecond).Should(BeTrue())
+				By("Verify that finalizer exists until node updates status")
+				Consistently(func() error {
+					verifyFinalizerExists()
+					return nil
+				}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
 
 				By("Update node's last hearbeat time")
 				//we simulate kubelet coming up, this is required to remove the finalizer
+				node = &v1.Node{}
+				Expect(k8sClient.Get(context.Background(), unhealthyNodeNamespacedName, node)).To(Succeed())
 				node.Status.Conditions = make([]v1.NodeCondition, 1)
 				node.Status.Conditions[0].Status = v1.ConditionTrue
 				node.Status.Conditions[0].Type = v1.NodeReady
+				node.Status.Conditions[0].LastTransitionTime = metav1.Now()
+				node.Status.Conditions[0].LastHeartbeatTime = metav1.Now()
+				node.Status.Conditions[0].Reason = "foo"
 				Expect(k8sClient.Client.Status().Update(context.Background(), node)).To(Succeed())
 
 				By("Verify that finalizer was removed and PPR can be deleted")
-				Eventually(func() bool {
-					pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
-					newPpr := &poisonpillv1alpha1.PoisonPillRemediation{}
-					Expect(k8sClient.Client.Get(context.TODO(), pprNamespacedName, newPpr)).To(Succeed())
-					return controllerutil.ContainsFinalizer(newPpr, controllers.PPRFinalizer)
-				}, 10*time.Second, 250*time.Millisecond).Should(BeFalse())
+				testNoFinalizer()
+
+			})
+		})
+
+		Context("ResourceDeletion strategy", func() {
+			var vaName = "some-va"
+
+			BeforeEach(func() {
+				remediationStrategy = poisonpillv1alpha1.ResourceDeletionRemediationStrategy
+				createVolumeAttachment(vaName)
+			})
+
+			AfterEach(func() {
+				//no need to delete pp pod or va as it was already deleted by the controller
+			})
+
+			It("Remediation flow", func() {
+				node := verifyNodeIsUnschedulable()
+
+				addUnschedulableTaint(node)
+
+				verifyTimeHasBeenRebootedExists()
+
+				verifyNodeBackup()
+
+				verifyFinalizerExists()
+
+				verifyNoWatchdogFood()
+
+				verifyPoisonPillPodDoesntExist()
+
+				verifyVaDeleted(vaName)
+
+				verifyNodeIsSchedulable()
+
+				By("Verify that finalizer was removed and PPR can be deleted")
+				testNoFinalizer()
+
 			})
 		})
 	})
@@ -240,7 +248,7 @@ var _ = Describe("ppr Controller", func() {
 		BeforeEach(func() {
 			By("Simulate api-server failure")
 			k8sClient.ShouldSimulateFailure = true
-			createPPR(ppr)
+			createPPR(ppr, poisonpillv1alpha1.NodeDeletionRemediationStrategy)
 		})
 
 		AfterEach(func() {
@@ -266,14 +274,153 @@ var _ = Describe("ppr Controller", func() {
 	})
 })
 
+func createVolumeAttachment(vaName string) {
+	va := &v1beta1.VolumeAttachment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      vaName,
+			Namespace: namespace,
+		},
+		Spec: v1beta1.VolumeAttachmentSpec{
+			Attacher: "foo",
+			Source:   v1beta1.VolumeAttachmentSource{},
+			NodeName: unhealthyNodeName,
+		},
+	}
+	foo := "foo"
+	va.Spec.Source.PersistentVolumeName = &foo
+	ExpectWithOffset(1, k8sClient.Create(context.Background(), va)).To(Succeed())
+}
+
+func verifyVaDeleted(vaName string) {
+	vaKey := client.ObjectKey{
+		Namespace: namespace,
+		Name:      vaName,
+	}
+
+	EventuallyWithOffset(1, func() bool {
+		va := &v1beta1.VolumeAttachment{}
+		err := k8sClient.Get(context.Background(), vaKey, va)
+		return apierrors.IsNotFound(err)
+
+	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
+}
+
+func verifyPoisonPillPodDoesntExist() {
+	By("Verify that poison pill pod has been deleted as part of the remediation")
+	podKey := client.ObjectKey{
+		Namespace: namespace,
+		Name:      "poison-pill",
+	}
+
+	EventuallyWithOffset(1, func() bool {
+		pod := &v1.Pod{}
+		err := k8sClient.Get(context.Background(), podKey, pod)
+		return apierrors.IsNotFound(err)
+
+	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
+}
+
+func verifyNodeIsSchedulable() {
+	By("Verify that node is not marked as unschedulable")
+	node := &v1.Node{}
+	Eventually(func() (bool, error) {
+		err := k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)
+		return node.Spec.Unschedulable, err
+	}, 95*time.Second, 250*time.Millisecond).Should(BeFalse())
+}
+
+func verifyNodeDeletedAndRestored(beforePPR time.Time) {
+	By("Verify that node has been deleted and restored")
+	node := &v1.Node{}
+	Eventually(func() (time.Time, error) {
+		err := k8sClient.Reader.Get(context.TODO(), unhealthyNodeNamespacedName, node)
+		return node.CreationTimestamp.Time, err
+	}, 10*time.Second, 200*time.Millisecond).Should(BeTemporally(">", beforePPR))
+}
+
+func verifyNoWatchdogFood() {
+	By("Verify that watchdog is not receiving food")
+	currentLastFoodTime := dummyDog.LastFoodTime()
+	ConsistentlyWithOffset(1, func() time.Time {
+		return dummyDog.LastFoodTime()
+	}, 5*dummyDog.GetTimeout(), 1*time.Second).Should(Equal(currentLastFoodTime))
+}
+
+func verifyFinalizerExists() {
+	By("Verify that finalizer was added")
+	ppr := &poisonpillv1alpha1.PoisonPillRemediation{}
+	pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
+	ExpectWithOffset(1, k8sClient.Get(context.Background(), pprNamespacedName, ppr)).To(Succeed())
+	ExpectWithOffset(1, controllerutil.ContainsFinalizer(ppr, controllers.PPRFinalizer)).Should(BeTrue(), "finalizer should be added")
+}
+
+// verifies that ppr node backup equals to the actual node
+func verifyNodeBackup() {
+	By("Verify that node backup annotation matches the node")
+	newPpr := &poisonpillv1alpha1.PoisonPillRemediation{}
+	pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
+
+	ExpectWithOffset(1, k8sClient.Client.Get(context.TODO(), pprNamespacedName, newPpr)).To(Succeed())
+	ExpectWithOffset(1, newPpr.Status.NodeBackup).ToNot(BeNil(), "node backup should exist")
+	nodeToRestore := newPpr.Status.NodeBackup
+
+	node := &v1.Node{}
+	ExpectWithOffset(1, k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)).To(Succeed())
+
+	//todo why do we need the following 2 lines? this might be a bug
+	nodeToRestore.TypeMeta.Kind = "Node"
+	nodeToRestore.TypeMeta.APIVersion = "v1"
+	ExpectWithOffset(1, nodeToRestore).To(Equal(node))
+}
+
+func verifyTimeHasBeenRebootedExists() {
+	By("Verify that time has been added to PPR status")
+	ppr := &poisonpillv1alpha1.PoisonPillRemediation{}
+	EventuallyWithOffset(1, func() (*metav1.Time, error) {
+		pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
+		err := k8sClient.Client.Get(context.Background(), pprNamespacedName, ppr)
+		return ppr.Status.TimeAssumedRebooted, err
+
+	}, 5*time.Second, 250*time.Millisecond).ShouldNot(BeZero())
+}
+
+func addUnschedulableTaint(node *v1.Node) {
+	By("Add unschedulable taint to node to simulate node controller")
+	node.Spec.Taints = append(node.Spec.Taints, *controllers.NodeUnschedulableTaint)
+	ExpectWithOffset(1, k8sClient.Client.Update(context.TODO(), node)).To(Succeed())
+}
+
+func verifyNodeIsUnschedulable() *v1.Node {
+	By("Verify that node was marked as unschedulable")
+	node := &v1.Node{}
+	Eventually(func() (bool, error) {
+		err := k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)
+		return node.Spec.Unschedulable, err
+	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
+	return node
+}
+
+func verifyPoisonPillPodExist() {
+	podList := &v1.PodList{}
+	selector := labels.NewSelector()
+	requirement, _ := labels.NewRequirement("app", selection.Equals, []string{"poison-pill-agent"})
+	selector = selector.Add(*requirement)
+
+	EventuallyWithOffset(1, func() (int, error) {
+		err := k8sClient.Client.List(context.Background(), podList, &client.ListOptions{LabelSelector: selector})
+		return len(podList.Items), err
+	}, 5*time.Second, 250*time.Millisecond).Should(Equal(1))
+}
+
 func deletePPR(ppr *poisonpillv1alpha1.PoisonPillRemediation) {
 	ExpectWithOffset(1, k8sClient.Client.Delete(context.Background(), ppr)).To(Succeed(), "failed to delete ppr CR")
 }
 
-func createPPR(ppr *poisonpillv1alpha1.PoisonPillRemediation) {
+func createPPR(ppr *poisonpillv1alpha1.PoisonPillRemediation, strategy poisonpillv1alpha1.RemediationStrategyType) {
 	ppr = &poisonpillv1alpha1.PoisonPillRemediation{}
 	ppr.Name = unhealthyNodeName
 	ppr.Namespace = pprNamespace
+	ppr.Spec.RemediationStrategy = strategy
 	ExpectWithOffset(1, k8sClient.Client.Create(context.TODO(), ppr)).To(Succeed(), "failed to create ppr CR")
 }
 
@@ -340,19 +487,21 @@ func deleteIsRebootCapableAnnotation() {
 }
 
 //testNoFinalizer checks that ppr doesn't have finalizer
-func testNoFinalizer(ppr *poisonpillv1alpha1.PoisonPillRemediation) {
+func testNoFinalizer() {
+	ppr := &poisonpillv1alpha1.PoisonPillRemediation{}
 	pprKey := client.ObjectKey{
 		Namespace: pprNamespace,
 		Name:      unhealthyNodeName,
 	}
 
-	EventuallyWithOffset(1, func() error {
-		return k8sClient.Client.Get(context.Background(), pprKey, ppr)
-	}, 10*time.Second, 200*time.Millisecond).Should(Succeed())
+	EventuallyWithOffset(1, func() ([]string, error) {
+		err := k8sClient.Client.Get(context.Background(), pprKey, ppr)
+		return ppr.Finalizers, err
+	}, 10*time.Second, 200*time.Millisecond).Should(BeEmpty())
 
-	ConsistentlyWithOffset(1, func() []string {
-		Expect(k8sClient.Client.Get(context.Background(), pprKey, ppr)).To(Succeed())
+	ConsistentlyWithOffset(1, func() ([]string, error) {
+		err := k8sClient.Client.Get(context.Background(), pprKey, ppr)
 		//if no finalizer was set, it means we didn't start remediation process
-		return ppr.Finalizers
+		return ppr.Finalizers, err
 	}, 10*time.Second, 250*time.Millisecond).Should(BeEmpty())
 }
