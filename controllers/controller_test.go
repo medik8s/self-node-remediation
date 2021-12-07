@@ -323,24 +323,18 @@ func verifyPoisonPillPodDoesntExist() {
 func verifyNodeIsSchedulable() {
 	By("Verify that node is not marked as unschedulable")
 	node := &v1.Node{}
-	Eventually(func() bool {
+	Eventually(func() (bool, error) {
 		err := k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)
-		if err != nil {
-			return true
-		}
-		return node.Spec.Unschedulable
+		return node.Spec.Unschedulable, err
 	}, 95*time.Second, 250*time.Millisecond).Should(BeFalse())
 }
 
 func verifyNodeDeletedAndRestored(beforePPR time.Time) {
 	By("Verify that node has been deleted and restored")
 	node := &v1.Node{}
-	Eventually(func() time.Time {
+	Eventually(func() (time.Time, error) {
 		err := k8sClient.Reader.Get(context.TODO(), unhealthyNodeNamespacedName, node)
-		if err != nil {
-			return beforePPR
-		}
-		return node.CreationTimestamp.Time
+		return node.CreationTimestamp.Time, err
 	}, 10*time.Second, 200*time.Millisecond).Should(BeTemporally(">", beforePPR))
 }
 
@@ -382,11 +376,10 @@ func verifyNodeBackup() {
 func verifyTimeHasBeenRebootedExists() {
 	By("Verify that time has been added to PPR status")
 	ppr := &poisonpillv1alpha1.PoisonPillRemediation{}
-	EventuallyWithOffset(1, func() *metav1.Time {
+	EventuallyWithOffset(1, func() (*metav1.Time, error) {
 		pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
-
-		ExpectWithOffset(1, k8sClient.Client.Get(context.Background(), pprNamespacedName, ppr)).To(Succeed())
-		return ppr.Status.TimeAssumedRebooted
+		err := k8sClient.Client.Get(context.Background(), pprNamespacedName, ppr)
+		return ppr.Status.TimeAssumedRebooted, err
 
 	}, 5*time.Second, 250*time.Millisecond).ShouldNot(BeZero())
 }
@@ -400,9 +393,9 @@ func addUnschedulableTaint(node *v1.Node) {
 func verifyNodeIsUnschedulable() *v1.Node {
 	By("Verify that node was marked as unschedulable")
 	node := &v1.Node{}
-	Eventually(func() bool {
-		Expect(k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)).To(Succeed())
-		return node.Spec.Unschedulable
+	Eventually(func() (bool, error) {
+		err := k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)
+		return node.Spec.Unschedulable, err
 	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
 	return node
 }
@@ -413,9 +406,9 @@ func verifyPoisonPillPodExist() {
 	requirement, _ := labels.NewRequirement("app", selection.Equals, []string{"poison-pill-agent"})
 	selector = selector.Add(*requirement)
 
-	EventuallyWithOffset(1, func() int {
-		ExpectWithOffset(1, k8sClient.Client.List(context.Background(), podList, &client.ListOptions{LabelSelector: selector})).To(Succeed())
-		return len(podList.Items)
+	EventuallyWithOffset(1, func() (int, error) {
+		err := k8sClient.Client.List(context.Background(), podList, &client.ListOptions{LabelSelector: selector})
+		return len(podList.Items), err
 	}, 5*time.Second, 250*time.Millisecond).Should(Equal(1))
 }
 
@@ -501,17 +494,14 @@ func testNoFinalizer() {
 		Name:      unhealthyNodeName,
 	}
 
-	EventuallyWithOffset(1, func() []string {
+	EventuallyWithOffset(1, func() ([]string, error) {
 		err := k8sClient.Client.Get(context.Background(), pprKey, ppr)
-		if err != nil {
-			return []string{"foo"}
-		}
-		return ppr.Finalizers
+		return ppr.Finalizers, err
 	}, 10*time.Second, 200*time.Millisecond).Should(BeEmpty())
 
-	ConsistentlyWithOffset(1, func() []string {
-		Expect(k8sClient.Client.Get(context.Background(), pprKey, ppr)).To(Succeed())
+	ConsistentlyWithOffset(1, func() ([]string, error) {
+		err := k8sClient.Client.Get(context.Background(), pprKey, ppr)
 		//if no finalizer was set, it means we didn't start remediation process
-		return ppr.Finalizers
+		return ppr.Finalizers, err
 	}, 10*time.Second, 250*time.Millisecond).Should(BeEmpty())
 }
