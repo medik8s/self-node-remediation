@@ -13,6 +13,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/storage/v1beta1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -102,13 +103,17 @@ var _ = Describe("Poison Pill E2E", func() {
 
 			Context("Resource Deletion Strategy", func() {
 				var oldPodCreationTime time.Time
+				var va *v1beta1.VolumeAttachment
+
 				BeforeEach(func() {
 					remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
 					oldPodCreationTime = findPPPod(node).CreationTimestamp.Time
+					va = createVolumeAttachment(node)
 				})
 
-				It("should delete pods", func() {
+				It("should delete pods and volume attachments", func() {
 					checkPodRecreated(node, oldPodCreationTime)
+					checkVaDeleted(va)
 				})
 			})
 
@@ -257,6 +262,34 @@ var _ = Describe("Poison Pill E2E", func() {
 		})
 	})
 })
+
+func checkVaDeleted(va *v1beta1.VolumeAttachment) {
+	EventuallyWithOffset(1, func() bool {
+		newVa := &v1beta1.VolumeAttachment{}
+		err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(va), newVa)
+		return errors.IsNotFound(err)
+
+	}, 10*time.Second, 250*time.Millisecond).Should(BeTrue())
+}
+
+func createVolumeAttachment(node *v1.Node) *v1beta1.VolumeAttachment {
+	foo := "foo"
+	va := &v1beta1.VolumeAttachment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "some-va",
+			Namespace: testNamespace,
+		},
+		Spec: v1beta1.VolumeAttachmentSpec{
+			Attacher: foo,
+			Source:   v1beta1.VolumeAttachmentSource{},
+			NodeName: node.Name,
+		},
+	}
+
+	va.Spec.Source.PersistentVolumeName = &foo
+	ExpectWithOffset(1, k8sClient.Create(context.Background(), va)).To(Succeed())
+	return va
+}
 
 func checkPodRecreated(node *v1.Node, oldPodCreationTime time.Time) bool {
 	return EventuallyWithOffset(1, func() time.Time {
