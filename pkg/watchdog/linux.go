@@ -2,8 +2,11 @@ package watchdog
 
 import (
 	"fmt"
+	"github.com/pkg/errors"
+	"io/ioutil"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -12,6 +15,11 @@ import (
 	. "golang.org/x/sys/unix"
 
 	"github.com/go-logr/logr"
+)
+
+const (
+	watchdogsFolder = "/dev"
+	watchdogPrefix  = "watchdog"
 )
 
 var (
@@ -52,6 +60,40 @@ func checkWatchdogExists(watchdogFilePath string) error {
 	return nil
 }
 
+// getWatchdogsList returns the filenames of watchdog devices in watchdogsFolder
+func getWatchdogsList() (map[string]bool, error) {
+	files, err := ioutil.ReadDir(watchdogsFolder)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to list watchdogs folder: "+watchdogsFolder)
+	}
+
+	watchdogs := make(map[string]bool) //why golang has no Set?! we use a map instead
+
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+
+		if strings.HasPrefix(file.Name(), watchdogPrefix) {
+			watchdogs[file.Name()] = true
+		}
+	}
+	return watchdogs, nil
+}
+
+// getNewWatchdog gets list of two maps and return the first occurrence of entity in the new map that doesn't exist
+// in the old map. if none found, fallback will be returned
+func getNewWatchdog(oldWatchdogs, newWatchdogs map[string]bool, fallback string) string {
+	for watchdog := range newWatchdogs {
+		if oldWatchdogs[watchdog] { //this wd exists in the old list
+			continue
+		}
+		return watchdog
+	}
+
+	return fallback
+}
+
 func NewLinux(log logr.Logger) (Watchdog, error) {
 	mutex.Lock()
 	if linuxWatchDogInstantiated {
@@ -65,12 +107,24 @@ func NewLinux(log logr.Logger) (Watchdog, error) {
 		log.Error(err, "watchdog file path couldn't be accessed")
 		log.Info("trying to enable softdog")
 
+		wdBefore, err := getWatchdogsList()
+		if err != nil {
+			return nil, err
+		}
+
 		if err := enableSoftdog(); err != nil {
 			log.Error(err, "failed to enable softdog")
 			return nil, err
 		}
 
-		if err := checkWatchdogExists(watchdogDevice); err != nil {
+		wdAfter, err := getWatchdogsList()
+		if err != nil {
+			return nil, err
+		}
+
+		newWatchdogDevice := getNewWatchdog(wdBefore, wdAfter, watchdogDevice)
+
+		if err := checkWatchdogExists(newWatchdogDevice); err != nil {
 			log.Error(err, "softdog file path couldn't be accessed")
 			return nil, err
 		}
