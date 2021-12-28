@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -75,7 +76,8 @@ func getWatchdogsList() (map[string]bool, error) {
 		}
 
 		if strings.HasPrefix(file.Name(), watchdogPrefix) {
-			watchdogs[file.Name()] = true
+			fullFileName := filepath.Join(watchdogsFolder, file.Name())
+			watchdogs[fullFileName] = true
 		}
 	}
 	return watchdogs, nil
