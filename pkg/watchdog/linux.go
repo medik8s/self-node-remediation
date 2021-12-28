@@ -97,6 +97,7 @@ func getNewWatchdog(oldWatchdogs, newWatchdogs map[string]bool, fallback string)
 func NewLinux(log logr.Logger) (Watchdog, error) {
 	mutex.Lock()
 	if linuxWatchDogInstantiated {
+		mutex.Unlock()
 		return nil, fmt.Errorf("linux watchdog already instantiated")
 	}
 
