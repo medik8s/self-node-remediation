@@ -61,41 +61,6 @@ func checkWatchdogExists(watchdogFilePath string) error {
 	return nil
 }
 
-// getWatchdogsList returns the filenames of watchdog devices in watchdogsFolder
-func getWatchdogsList() (map[string]bool, error) {
-	files, err := ioutil.ReadDir(watchdogsFolder)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to list watchdogs folder: "+watchdogsFolder)
-	}
-
-	watchdogs := make(map[string]bool) //why golang has no Set?! we use a map instead
-
-	for _, file := range files {
-		if file.IsDir() {
-			continue
-		}
-
-		if strings.HasPrefix(file.Name(), watchdogPrefix) {
-			fullFileName := filepath.Join(watchdogsFolder, file.Name())
-			watchdogs[fullFileName] = true
-		}
-	}
-	return watchdogs, nil
-}
-
-// getNewWatchdog gets list of two maps and return the first occurrence of entity in the new map that doesn't exist
-// in the old map. if none found, fallback will be returned
-func getNewWatchdog(oldWatchdogs, newWatchdogs map[string]bool, fallback string) string {
-	for watchdog := range newWatchdogs {
-		if oldWatchdogs[watchdog] { //this wd exists in the old list
-			continue
-		}
-		return watchdog
-	}
-
-	return fallback
-}
-
 func NewLinux(log logr.Logger) (Watchdog, error) {
 	mutex.Lock()
 	if linuxWatchDogInstantiated {
@@ -110,27 +75,26 @@ func NewLinux(log logr.Logger) (Watchdog, error) {
 		log.Error(err, "watchdog file path couldn't be accessed")
 		log.Info("trying to enable softdog")
 
-		wdBefore, err := getWatchdogsList()
-		if err != nil {
-			return nil, err
-		}
-
 		if err := enableSoftdog(); err != nil {
 			log.Error(err, "failed to enable softdog")
 			return nil, err
 		}
 
-		wdAfter, err := getWatchdogsList()
+		newWatchdogDevice, err := getLastModifiedWatchdog()
+
 		if err != nil {
+			log.Error(err, "failed to find softdog path")
 			return nil, err
 		}
 
-		newWatchdogDevice := getNewWatchdog(wdBefore, wdAfter, watchdogDevice)
+		log.Info("auto detected softog path", "path", newWatchdogDevice)
 
 		if err := checkWatchdogExists(newWatchdogDevice); err != nil {
 			log.Error(err, "softdog file path couldn't be accessed")
 			return nil, err
 		}
+
+		watchdogDevice = newWatchdogDevice
 	}
 
 	wd := &linuxWatchdog{
@@ -138,6 +102,38 @@ func NewLinux(log logr.Logger) (Watchdog, error) {
 	}
 
 	return newSynced(log, wd), nil
+}
+
+// this func returns watchdog path with the latest modification time assuming that
+// after softdog enablement
+func getLastModifiedWatchdog() (string, error) {
+	files, err := ioutil.ReadDir(watchdogsFolder)
+	if err != nil {
+		return "", errors.Wrap(err, "failed to list watchdogs folder: "+watchdogsFolder)
+	}
+
+	maxModTime := time.Time{}
+	latestWatchdog := ""
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+
+		if !strings.HasPrefix(file.Name(), watchdogPrefix) {
+			continue
+		}
+
+		if file.ModTime().After(maxModTime) || file.ModTime().Equal(maxModTime) {
+			maxModTime = file.ModTime()
+			latestWatchdog = filepath.Join(watchdogsFolder, file.Name())
+		}
+	}
+
+	if latestWatchdog == "" { //didn't find any watchdog
+		return "", errors.New("failed to find softdog path")
+	}
+
+	return latestWatchdog, nil
 }
 
 func (wd *linuxWatchdog) start() (*time.Duration, error) {
