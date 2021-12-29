@@ -19,7 +19,6 @@ type synchronizedWatchdog struct {
 	timeout      time.Duration
 	isStarted    bool
 	stop         context.CancelFunc
-	isStopped    bool
 	mutex        sync.Mutex
 	lastFoodTime time.Time
 	log          logr.Logger
@@ -55,7 +54,7 @@ func (swd *synchronizedWatchdog) Start(ctx context.Context) error {
 		swd.mutex.Lock()
 		defer swd.mutex.Unlock()
 		// prevent feeding of a disarmed watchdog in case the context isn't cancelled yet
-		if swd.isStopped {
+		if !swd.isStarted {
 			return
 		}
 		if err := swd.impl.feed(); err != nil {
@@ -69,14 +68,14 @@ func (swd *synchronizedWatchdog) Start(ctx context.Context) error {
 
 	// pod is being stopped, disarm!
 	swd.mutex.Lock()
-	if swd.isStarted && !swd.isStopped {
+	if swd.isStarted {
 		if err := swd.impl.disarm(); err != nil {
 			swd.log.Error(err, "failed to disarm watchdog!")
 		} else {
 			swd.log.Info("disarmed watchdog")
 			// we can stop feeding after disarm
 			swd.stop()
-			swd.isStopped = true
+			swd.isStarted = false
 		}
 	}
 
@@ -92,12 +91,9 @@ func (swd *synchronizedWatchdog) IsStarted() bool {
 func (swd *synchronizedWatchdog) Stop() {
 	swd.mutex.Lock()
 	defer swd.mutex.Unlock()
-	if !swd.isStarted || swd.isStopped {
-		return
-	}
 	if swd.isStarted {
 		swd.stop()
-		swd.isStopped = true
+		swd.isStarted = false
 	}
 }
 
