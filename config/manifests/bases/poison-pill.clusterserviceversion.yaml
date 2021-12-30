@@ -6,7 +6,7 @@ metadata:
     capabilities: Basic Install
     categories: OpenShift Optional
     containerImage: quay.io/medik8s/poison-pill-operator:0.0.0
-    createdAt: "2021-11-22 14:21:44"
+    createdAt: "2021-12-30 12:13:26"
     operatorframework.io/suggested-namespace: poison-pill
     operators.openshift.io/infrastructure-features: '["disconnected"]'
     repository: https://github.com/medik8s/poison-pill
@@ -78,6 +78,7 @@ spec:
   - email: medik8s@googlegroups.com
     name: medik8s team
   maturity: alpha
+  minKubeVersion: 1.20.0
   provider:
     name: medik8s
     url: https://www.medik8s.io/
