@@ -132,10 +132,12 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 	case v1alpha1.ResourceDeletionRemediationStrategy:
 		return r.remediateWithResourceDeletion(ppr)
 	default:
-		r.logger.Info("Encountered unsupported remediation strategy. Please check template spec", "strategy", ppr.Spec.RemediationStrategy)
+		//this should never happen since we enforce valid values with kubebuilder
+		err := errors.New("unsupported remediation strategy")
+		r.logger.Error(err, "Encountered unsupported remediation strategy. Please check template spec", "strategy", ppr.Spec.RemediationStrategy)
+		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, nil
 }
 
 func (r *PoisonPillRemediationReconciler) isFencingCompleted(ppr *v1alpha1.PoisonPillRemediation) bool {
