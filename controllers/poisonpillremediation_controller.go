@@ -480,8 +480,6 @@ func (r *PoisonPillRemediationReconciler) updatePprStatus(node *v1.Node, ppr *v1
 	maxTimeNodeHasRebooted := metav1.NewTime(metav1.Now().Add(r.SafeTimeToAssumeNodeRebooted))
 	ppr.Status.TimeAssumedRebooted = &maxTimeNodeHasRebooted
 	ppr.Status.NodeBackup = node
-	ppr.Status.NodeBackup.Kind = node.GetObjectKind().GroupVersionKind().Kind
-	ppr.Status.NodeBackup.APIVersion = node.APIVersion
 
 	err := r.Client.Status().Update(context.Background(), ppr)
 	if err != nil {
