@@ -1,10 +1,13 @@
 filters:
   .*:
     approvers:
-    - n1r1
+    - mshitrit
     - slintes
+    - razo7
+    - beekhof
     reviewers:
-    - n1r1
+    - mshitrit
     - slintes
-    - rgolangh
+    - razo7
+    - beekhof
 options: {}
