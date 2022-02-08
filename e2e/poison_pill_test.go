@@ -13,7 +13,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/api/storage/v1beta1"
+	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -103,7 +103,7 @@ var _ = Describe("Poison Pill E2E", func() {
 
 			Context("Resource Deletion Strategy", func() {
 				var oldPodCreationTime time.Time
-				var va *v1beta1.VolumeAttachment
+				var va *storagev1.VolumeAttachment
 
 				BeforeEach(func() {
 					remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
@@ -263,25 +263,25 @@ var _ = Describe("Poison Pill E2E", func() {
 	})
 })
 
-func checkVaDeleted(va *v1beta1.VolumeAttachment) {
+func checkVaDeleted(va *storagev1.VolumeAttachment) {
 	EventuallyWithOffset(1, func() bool {
-		newVa := &v1beta1.VolumeAttachment{}
+		newVa := &storagev1.VolumeAttachment{}
 		err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(va), newVa)
 		return errors.IsNotFound(err)
 
 	}, 10*time.Second, 250*time.Millisecond).Should(BeTrue())
 }
 
-func createVolumeAttachment(node *v1.Node) *v1beta1.VolumeAttachment {
+func createVolumeAttachment(node *v1.Node) *storagev1.VolumeAttachment {
 	foo := "foo"
-	va := &v1beta1.VolumeAttachment{
+	va := &storagev1.VolumeAttachment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "some-va",
 			Namespace: testNamespace,
 		},
-		Spec: v1beta1.VolumeAttachmentSpec{
+		Spec: storagev1.VolumeAttachmentSpec{
 			Attacher: foo,
-			Source:   v1beta1.VolumeAttachmentSource{},
+			Source:   storagev1.VolumeAttachmentSource{},
 			NodeName: node.Name,
 		},
 	}
