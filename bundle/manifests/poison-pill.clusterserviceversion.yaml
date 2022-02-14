@@ -37,11 +37,11 @@ metadata:
     capabilities: Basic Install
     categories: OpenShift Optional
     containerImage: quay.io/medik8s/poison-pill-operator:0.1.3
-    createdAt: "2022-02-01 11:56:26"
+    createdAt: "2022-02-14 15:32:01"
     olm.skipRange: '>=0.1.0 <0.3.0'
     operatorframework.io/suggested-namespace: poison-pill
     operators.openshift.io/infrastructure-features: '["disconnected"]'
-    operators.operatorframework.io/builder: operator-sdk-v1.11.0+git
+    operators.operatorframework.io/builder: operator-sdk-v1.16.0+git
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v3
     repository: https://github.com/medik8s/poison-pill
   name: poison-pill.v0.1.3
