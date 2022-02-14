@@ -192,14 +192,17 @@ e2e-test:
 	go test ./e2e -ginkgo.v -ginkgo.progress -test.v -timeout 60m -count=1
 
 .PHONY: operator-sdk
-OPERATOR_SDK = ./bin/operator-sdk
+OPERATOR_SDK_VERSION = v1.17.0
+OPERATOR_SDK_BIN_FOLDER = ./bin/operator-sdk
+OPERATOR_SDK = $(OPERATOR_SDK_BIN_FOLDER)/$(OPERATOR_SDK_VERSION)/operator-sdk
 operator-sdk: ## Download operator-sdk locally if necessary.
 ifeq (,$(wildcard $(OPERATOR_SDK)))
 	@{ \
 	set -e ;\
+	rm -rf $(OPERATOR_SDK_BIN_FOLDER) ;\
 	mkdir -p $(dir $(OPERATOR_SDK)) ;\
 	OS=linux && ARCH=amd64 && \
-	curl -sSLo $(OPERATOR_SDK) https://github.com/operator-framework/operator-sdk/releases/download/v1.12.0/operator-sdk_$${OS}_$${ARCH} ;\
+	curl -sSLo $(OPERATOR_SDK) https://github.com/operator-framework/operator-sdk/releases/download/$(OPERATOR_SDK_VERSION)/operator-sdk_$${OS}_$${ARCH} ;\
 	chmod +x $(OPERATOR_SDK) ;\
 	}
 endif
