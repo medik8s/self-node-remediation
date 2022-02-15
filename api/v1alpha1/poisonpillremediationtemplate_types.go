@@ -29,9 +29,8 @@ type PoisonPillRemediationTemplateResource struct {
 
 // PoisonPillRemediationTemplateSpec defines the desired state of PoisonPillRemediationTemplate
 type PoisonPillRemediationTemplateSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
+	// Template defines the desired state of PoisonPillRemediationTemplate
+	//+operator-sdk:csv:customresourcedefinitions:type=spec
 	Template PoisonPillRemediationTemplateResource `json:"template"`
 }
 
