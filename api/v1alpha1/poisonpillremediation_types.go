@@ -69,6 +69,7 @@ type PoisonPillRemediationStatus struct {
 //+kubebuilder:resource:shortName=ppr;ppremediation
 
 // PoisonPillRemediation is the Schema for the poisonpillremediations API
+// +operator-sdk:csv:customresourcedefinitions:resources={{"PoisonPillRemediation","v1alpha1","poisonpillremediations"}}
 type PoisonPillRemediation struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
