@@ -43,6 +43,7 @@ spec:
               of PoisonPillRemediationTemplate
             properties:
               template:
+                description: Template defines the desired state of PoisonPillRemediationTemplate
                 properties:
                   spec:
                     description: PoisonPillRemediationSpec defines the desired state
