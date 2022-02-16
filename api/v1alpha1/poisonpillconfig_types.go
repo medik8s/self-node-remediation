@@ -120,6 +120,7 @@ type PoisonPillConfigStatus struct {
 //+kubebuilder:resource:shortName=ppc;ppconfig
 
 // PoisonPillConfig is the Schema for the poisonpillconfigs API in which a user can configure the poison pill agents
+// +operator-sdk:csv:customresourcedefinitions:resources={{"PoisonPillConfig","v1alpha1","poisonpillconfigs"}}
 type PoisonPillConfig struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

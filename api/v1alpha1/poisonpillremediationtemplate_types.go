@@ -29,9 +29,8 @@ type PoisonPillRemediationTemplateResource struct {
 
 // PoisonPillRemediationTemplateSpec defines the desired state of PoisonPillRemediationTemplate
 type PoisonPillRemediationTemplateSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
-
+	// Template defines the desired state of PoisonPillRemediationTemplate
+	//+operator-sdk:csv:customresourcedefinitions:type=spec
 	Template PoisonPillRemediationTemplateResource `json:"template"`
 }
 
@@ -46,6 +45,7 @@ type PoisonPillRemediationTemplateStatus struct {
 //+kubebuilder:resource:shortName=pprt;ppremediationtemplate;pprtemplate
 
 // PoisonPillRemediationTemplate is the Schema for the poisonpillremediationtemplates API
+// +operator-sdk:csv:customresourcedefinitions:resources={{"PoisonPillRemediationTemplate","v1alpha1","poisonpillremediationtemplates"}}
 type PoisonPillRemediationTemplate struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

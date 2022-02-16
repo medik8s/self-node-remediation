@@ -37,7 +37,7 @@ metadata:
     capabilities: Basic Install
     categories: OpenShift Optional
     containerImage: quay.io/medik8s/poison-pill-operator:0.1.3
-    createdAt: "2022-02-14 15:32:01"
+    createdAt: "2022-02-15 17:15:21"
     olm.skipRange: '>=0.1.0 <0.3.0'
     operatorframework.io/suggested-namespace: poison-pill
     operators.openshift.io/infrastructure-features: '["disconnected"]'
@@ -55,18 +55,46 @@ spec:
       displayName: Poison Pill Config
       kind: PoisonPillConfig
       name: poisonpillconfigs.poison-pill.medik8s.io
+      resources:
+      - kind: PoisonPillConfig
+        name: poisonpillconfigs
+        version: v1alpha1
       version: v1alpha1
     - description: PoisonPillRemediation is the Schema for the poisonpillremediations
         API
       displayName: Poison Pill Remediation
       kind: PoisonPillRemediation
       name: poisonpillremediations.poison-pill.medik8s.io
+      resources:
+      - kind: PoisonPillRemediation
+        name: poisonpillremediations
+        version: v1alpha1
+      statusDescriptors:
+      - description: NodeBackup is the node object that is going to be deleted as
+          part of the remediation process
+        displayName: Node Backup
+        path: nodeBackup
+      - description: 'Phase represents the current phase of remediation, One of: TBD'
+        displayName: Phase
+        path: phase
+      - description: TimeAssumedRebooted is the time by then the unhealthy node assumed
+          to be rebooted
+        displayName: Time Assumed Rebooted
+        path: timeAssumedRebooted
       version: v1alpha1
     - description: PoisonPillRemediationTemplate is the Schema for the poisonpillremediationtemplates
         API
       displayName: Poison Pill Remediation Template
       kind: PoisonPillRemediationTemplate
       name: poisonpillremediationtemplates.poison-pill.medik8s.io
+      resources:
+      - kind: PoisonPillRemediationTemplate
+        name: poisonpillremediationtemplates
+        version: v1alpha1
+      specDescriptors:
+      - description: Template defines the desired state of PoisonPillRemediationTemplate
+        displayName: Template
+        path: template
       version: v1alpha1
   description: This poison pill operator is using an alternate mechanism for a node
     in a cluster to detect its health status and take actions to remediate itself
