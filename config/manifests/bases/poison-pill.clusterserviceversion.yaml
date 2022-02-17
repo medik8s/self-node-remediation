@@ -11,6 +11,7 @@ metadata:
     operatorframework.io/suggested-namespace: poison-pill
     operators.openshift.io/infrastructure-features: '["disconnected"]'
     repository: https://github.com/medik8s/poison-pill
+    support: Medik8s
   name: poison-pill.v0.0.0
   namespace: placeholder
 spec:
