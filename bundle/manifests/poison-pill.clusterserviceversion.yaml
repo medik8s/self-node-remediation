@@ -362,6 +362,7 @@ spec:
                     memory: 110Mi
                 securityContext:
                   allowPrivilegeEscalation: false
+              priorityClassName: system-cluster-critical
               securityContext:
                 runAsNonRoot: false
               serviceAccountName: poison-pill-controller-manager
