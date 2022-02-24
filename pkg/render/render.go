@@ -2,7 +2,6 @@ package render
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -19,12 +18,12 @@ import (
 	mcfgv1 "github.com/openshift/machine-config-operator/pkg/apis/machineconfiguration.openshift.io/v1"
 )
 
-type RenderData struct {
+type Data struct {
 	Funcs template.FuncMap
 	Data  map[string]interface{}
 }
 
-type RenderConfig struct {
+type Config struct {
 	*mcfgv1.ControllerConfigSpec
 	PullSecret string
 }
@@ -34,23 +33,17 @@ type DeviceInfo struct {
 	NumVfs     int
 }
 
-const (
-	filesDir          = "files"
-	ovsUnitsDir       = "ovs-units"
-	switchdevUnitsDir = "switchdev-units"
-)
-
-func MakeRenderData() RenderData {
-	return RenderData{
+func MakeRenderData() Data {
+	return Data{
 		Funcs: template.FuncMap{},
 		Data:  map[string]interface{}{},
 	}
 }
 
-// RenderDir will render all manifests in a directory, descending in to subdirectories
+// Dir will render all manifests in a directory, descending in to subdirectories
 // It will perform template substitutions based on the data supplied by the RenderData
-func RenderDir(manifestDir string, d *RenderData) ([]*unstructured.Unstructured, error) {
-	out := []*unstructured.Unstructured{}
+func Dir(manifestDir string, d *Data) ([]*unstructured.Unstructured, error) {
+	var out []*unstructured.Unstructured
 
 	if err := filepath.Walk(manifestDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -65,7 +58,7 @@ func RenderDir(manifestDir string, d *RenderData) ([]*unstructured.Unstructured,
 			return nil
 		}
 
-		objs, err := RenderTemplate(path, d)
+		objs, err := Template(path, d)
 		if err != nil {
 			return err
 		}
@@ -78,15 +71,15 @@ func RenderDir(manifestDir string, d *RenderData) ([]*unstructured.Unstructured,
 	return out, nil
 }
 
-// RenderTemplate reads, renders, and attempts to parse a yaml or
+// Template reads, renders, and attempts to parse a yaml or
 // json file representing one or more k8s api objects
-func RenderTemplate(path string, d *RenderData) ([]*unstructured.Unstructured, error) {
+func Template(path string, d *Data) ([]*unstructured.Unstructured, error) {
 	rendered, err := renderTemplate(path, d)
 	if err != nil {
 		return nil, err
 	}
 
-	out := []*unstructured.Unstructured{}
+	var out []*unstructured.Unstructured
 
 	// special case - if the entire file is whitespace, skip
 	if len(strings.TrimSpace(rendered.String())) == 0 {
@@ -108,7 +101,7 @@ func RenderTemplate(path string, d *RenderData) ([]*unstructured.Unstructured, e
 	return out, nil
 }
 
-func renderTemplate(path string, d *RenderData) (*bytes.Buffer, error) {
+func renderTemplate(path string, d *Data) (*bytes.Buffer, error) {
 	tmpl := template.New(path).Option("missingkey=error")
 	if d.Funcs != nil {
 		tmpl.Funcs(d.Funcs)
@@ -133,55 +126,4 @@ func renderTemplate(path string, d *RenderData) (*bytes.Buffer, error) {
 	}
 
 	return &rendered, nil
-}
-
-func formateDeviceList(devs []DeviceInfo) string {
-	out := ""
-	for _, dev := range devs {
-		out = out + fmt.Sprintln(dev.PciAddress, dev.NumVfs)
-	}
-	return out
-}
-
-// existsDir returns true if path exists and is a directory, false if the path
-// does not exist, and error if there is a runtime error or the path is not a directory
-func existsDir(path string) (bool, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, errors.Wrapf(err, "failed to open dir %q", path)
-	}
-	if !info.IsDir() {
-		return false, errors.Wrapf(err, "expected template directory, %q is not a directory", path)
-	}
-	return true, nil
-}
-
-func filterTemplates(toFilter map[string]string, path string, d *RenderData) error {
-	walkFn := func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-
-		// empty templates signify don't create
-		if info.Size() == 0 {
-			delete(toFilter, info.Name())
-			return nil
-		}
-
-		// Render the template file
-		renderedData, err := renderTemplate(path, d)
-		if err != nil {
-			return err
-		}
-		toFilter[info.Name()] = renderedData.String()
-		return nil
-	}
-
-	return filepath.Walk(path, walkFn)
 }
