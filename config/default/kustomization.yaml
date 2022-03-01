@@ -28,7 +28,9 @@ patchesStrategicMerge:
 # Protect the /metrics endpoint by putting it behind auth.
 # If you want your controller-manager to expose the /metrics
 # endpoint w/o any authn/z, please comment the following line.
-- manager_auth_proxy_patch.yaml
+# - manager_auth_proxy_patch.yaml
+# replacement for above for setting probe and metrics ports
+- manager_ports_patch.yaml
 
 # Mount the controller config file for loading manager configurations
 # through a ComponentConfig type
@@ -37,6 +39,9 @@ patchesStrategicMerge:
 # [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in
 # crd/kustomization.yaml
 #- manager_webhook_patch.yaml
+
+# Add node name and pp image env vars
+- manager_env_patch.yaml
 
 # [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'.
 # Uncomment 'CERTMANAGER' sections in crd/kustomization.yaml to enable the CA injection in the admission webhooks.
