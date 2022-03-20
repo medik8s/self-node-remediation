@@ -13,4 +13,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: quay.io/medik8s/poison-pill-operator
-  newTag: 0.1.2-126-g2a69aa1
+  newTag: 0.1.3

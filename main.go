@@ -171,7 +171,7 @@ func initPoisonPillManager(mgr manager.Manager) {
 
 func getDurEnvVarOrDie(varName string) time.Duration {
 	intVar := getIntEnvVarOrDie(varName)
-	return time.Duration(intVar) * time.Second
+	return time.Duration(intVar)
 }
 
 func getIntEnvVarOrDie(varName string) int {
