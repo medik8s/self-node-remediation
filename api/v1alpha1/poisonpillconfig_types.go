@@ -48,54 +48,53 @@ type PoisonPillConfigSpec struct {
 	// +kubebuilder:default=180
 	SafeTimeToAssumeNodeRebootedSeconds int `json:"safeTimeToAssumeNodeRebootedSeconds,omitempty"`
 
-	// Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h".
+	// Valid time units are "ms", "s", "m", "h".
 	// +optional
 	// +kubebuilder:default:="5s"
-	// +kubebuilder:validation:Pattern="^0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ms|s|m|h)))$"
 	// +kubebuilder:validation:Type:=string
 	PeerApiServerTimeout *metav1.Duration `json:"peerApiServerTimeout,omitempty"`
 
 	// the frequency for api-server connectivity check
-	// Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h".
+	// Valid time units are "ms", "s", "m", "h".
 	// +optional
 	// +kubebuilder:default:="15s"
-	// +kubebuilder:validation:Pattern="^0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ms|s|m|h)))$"
 	// +kubebuilder:validation:Type:=string
 	// the frequency for api-server connectivity check
 	ApiCheckInterval *metav1.Duration `json:"apiCheckInterval,omitempty"`
 
-	// Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h".
+	// Valid time units are "ms", "s", "m", "h".
 	// +optional
 	// +kubebuilder:default:="15m"
-	// +kubebuilder:validation:Pattern="^0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ms|s|m|h)))$"
 	// +kubebuilder:validation:Type:=string
 	PeerUpdateInterval *metav1.Duration `json:"peerUpdateInterval,omitempty"`
 
-	// Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h".
+	// Valid time units are "ms", "s", "m", "h".
 	// +optional
 	// +kubebuilder:default:="5s"
-	// +kubebuilder:validation:Pattern="^0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ms|s|m|h)))$"
 	// +kubebuilder:validation:Type:=string
 	// timeout for each api-connectivity check
 	ApiServerTimeout *metav1.Duration `json:"apiServerTimeout,omitempty"`
 
-	// Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h".
+	// Valid time units are "ms", "s", "m", "h".
 	// +optional
 	// +kubebuilder:default:="5s"
-	// +kubebuilder:validation:Pattern="^0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ms|s|m|h)))$"
 	// +kubebuilder:validation:Type:=string
 	// timeout for establishing connection to peer
 	PeerDialTimeout *metav1.Duration `json:"peerDialTimeout,omitempty"`
 
-	// Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h".
+	// Valid time units are "ms", "s", "m", "h".
 	// +optional
 	// +kubebuilder:default:="5s"
-	// +kubebuilder:validation:Pattern="^0|([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ms|s|m|h)))$"
 	// +kubebuilder:validation:Type:=string
 	// timeout for each peer request
 	PeerRequestTimeout *metav1.Duration `json:"peerRequestTimeout,omitempty"`
 
-	// Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h".
 	// +optional
 	// +kubebuilder:default:=3
 	// +kubebuilder:validation:Minimum=1
