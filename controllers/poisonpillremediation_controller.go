@@ -612,13 +612,15 @@ func (r *PoisonPillRemediationReconciler) restoreNode(nodeToRestore *v1.Node) (c
 
 	if err := r.Client.Create(context.TODO(), nodeToRestore); err != nil {
 		if apiErrors.IsAlreadyExists(err) {
-			// there is nothing we can do about it, stop reconciling
+			// node is already created, either by another agent or by the cluster
+			r.logger.Info("failed to create node since it already exist", "node name", nodeToRestore.Name)
 			return ctrl.Result{}, nil
 		}
 		r.logger.Error(err, "failed to create node", "node name", nodeToRestore.Name)
 		return ctrl.Result{}, err
 	}
 
+	r.logger.Info("node restored successfully", "node name", nodeToRestore.Name)
 	// all done, stop reconciling
 	return ctrl.Result{Requeue: true}, nil
 }
