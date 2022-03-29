@@ -4,18 +4,18 @@ metadata:
   creationTimestamp: null
   labels:
     rbac.ext-remediation/aggregate-to-ext-remediation: "true"
-  name: poison-pill-ext-remediation
+  name: self-node-remediation-ext-remediation
 rules:
 - apiGroups:
-  - poison-pill.medik8s.io
+  - self-node-remediation.medik8s.io
   resources:
-  - poisonpillremediationtemplates
+  - selfnoderemediationtemplates
   verbs:
   - get
 - apiGroups:
-  - poison-pill.medik8s.io
+  - self-node-remediation.medik8s.io
   resources:
-  - poisonpillremediations
+  - selfnoderemediations
   verbs:
   - get
   - list

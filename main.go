@@ -20,7 +20,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/medik8s/poison-pill/pkg/utils"
+	"github.com/medik8s/self-node-remediation/pkg/utils"
 	"os"
 	"strconv"
 	"time"
@@ -43,14 +43,14 @@ import (
 
 	machinev1beta1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 
-	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
-	"github.com/medik8s/poison-pill/controllers"
-	"github.com/medik8s/poison-pill/pkg/apicheck"
-	"github.com/medik8s/poison-pill/pkg/certificates"
-	"github.com/medik8s/poison-pill/pkg/peerhealth"
-	"github.com/medik8s/poison-pill/pkg/peers"
-	"github.com/medik8s/poison-pill/pkg/reboot"
-	"github.com/medik8s/poison-pill/pkg/watchdog"
+	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/controllers"
+	"github.com/medik8s/self-node-remediation/pkg/apicheck"
+	"github.com/medik8s/self-node-remediation/pkg/certificates"
+	"github.com/medik8s/self-node-remediation/pkg/peerhealth"
+	"github.com/medik8s/self-node-remediation/pkg/peers"
+	"github.com/medik8s/self-node-remediation/pkg/reboot"
+	"github.com/medik8s/self-node-remediation/pkg/watchdog"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -67,7 +67,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(poisonpillv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(selfnoderemediationv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(machinev1beta1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
@@ -83,7 +83,7 @@ func main() {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.BoolVar(&isManager, "is-manager", false,
-		"Used to differentiate between the poison pill agents that runs in a daemonset to the 'manager' that only"+
+		"Used to differentiate between the self node remediation agents that runs in a daemonset to the 'manager' that only"+
 			"reconciles the config CRD and installs the DS")
 	opts := zap.Options{
 		Development: true,
@@ -107,9 +107,9 @@ func main() {
 	}
 
 	if isManager {
-		initPoisonPillManager(mgr)
+		initSelfNodeRemediationManager(mgr)
 	} else {
-		initPoisonPillAgent(mgr)
+		initSelfNodeRemediationAgent(mgr)
 	}
 
 	//+kubebuilder:scaffold:builder
@@ -130,7 +130,7 @@ func main() {
 	}
 }
 
-func initPoisonPillManager(mgr manager.Manager) {
+func initSelfNodeRemediationManager(mgr manager.Manager) {
 	setupLog.Info("Starting as a manager that installs the daemonset")
 	ns, err := getDeploymentNamespace()
 	if err != nil {
@@ -138,20 +138,20 @@ func initPoisonPillManager(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
-	if err := (&controllers.PoisonPillConfigReconciler{
+	if err := (&controllers.SelfNodeRemediationConfigReconciler{
 		Client:            mgr.GetClient(),
-		Log:               ctrl.Log.WithName("controllers").WithName("PoisonPillConfig"),
+		Log:               ctrl.Log.WithName("controllers").WithName("SelfNodeRemediationConfig"),
 		Scheme:            mgr.GetScheme(),
 		InstallFileFolder: "./install",
 		DefaultPpcCreator: newConfigIfNotExist,
 		Namespace:         ns,
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "PoisonPillConfig")
+		setupLog.Error(err, "unable to create controller", "controller", "SelfNodeRemediationConfig")
 		os.Exit(1)
 	}
 
 	if err := newConfigIfNotExist(mgr.GetClient()); err != nil {
-		setupLog.Error(err, "failed to create a default poison pill config CR")
+		setupLog.Error(err, "failed to create a default self node remediation config CR")
 		os.Exit(1)
 	}
 
@@ -177,8 +177,8 @@ func getIntEnvVarOrDie(varName string) int {
 	return intVar
 }
 
-func initPoisonPillAgent(mgr manager.Manager) {
-	setupLog.Info("Starting as a poison pill agent that should run as part of the daemonset")
+func initSelfNodeRemediationAgent(mgr manager.Manager) {
+	setupLog.Info("Starting as a self node remediation agent that should run as part of the daemonset")
 
 	myNodeName := os.Getenv(nodeNameEnvVar)
 	if myNodeName == "" {
@@ -276,9 +276,9 @@ func initPoisonPillAgent(mgr manager.Manager) {
 	setupLog.Info("Time to assume that unhealthy node has been rebooted", "time", timeToAssumeNodeRebooted)
 
 	restoreNodeAfter := 90 * time.Second
-	pprReconciler := &controllers.PoisonPillRemediationReconciler{
+	pprReconciler := &controllers.SelfNodeRemediationReconciler{
 		Client:                       mgr.GetClient(),
-		Log:                          ctrl.Log.WithName("controllers").WithName("PoisonPillRemediation"),
+		Log:                          ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
 		Scheme:                       mgr.GetScheme(),
 		Rebooter:                     rebooter,
 		SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
@@ -287,7 +287,7 @@ func initPoisonPillAgent(mgr manager.Manager) {
 	}
 
 	if err = pprReconciler.SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "PoisonPillRemediation")
+		setupLog.Error(err, "unable to create controller", "controller", "SelfNodeRemediation")
 		os.Exit(1)
 	}
 
@@ -304,7 +304,7 @@ func initPoisonPillAgent(mgr manager.Manager) {
 	}
 }
 
-// newConfigIfNotExist creates a new PoisonPillConfig object
+// newConfigIfNotExist creates a new SelfNodeRemediationConfig object
 // to initialize the rest of the deployment objects creation.
 func newConfigIfNotExist(c client.Client) error {
 	ns, err := getDeploymentNamespace()
@@ -312,29 +312,29 @@ func newConfigIfNotExist(c client.Client) error {
 		return errors.Wrap(err, "unable to get the deployment namespace")
 	}
 
-	config := poisonpillv1alpha1.NewDefaultPoisonPillConfig()
+	config := selfnoderemediationv1alpha1.NewDefaultSelfNodeRemediationConfig()
 	config.SetNamespace(ns)
 
 	err = c.Create(context.Background(), &config, &client.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
-		return errors.Wrap(err, "failed to create a default poison pill config CR")
+		return errors.Wrap(err, "failed to create a default self node remediation config CR")
 	}
 	return nil
 }
 
-// newDefaultTemplateIfNotExist creates a new PoisonPillRemediationTemplate object
+// newDefaultTemplateIfNotExist creates a new SelfNodeRemediationTemplate object
 func newDefaultTemplateIfNotExist(c client.Client) error {
 	ns, err := getDeploymentNamespace()
 	if err != nil {
 		return errors.Wrap(err, "unable to get the deployment namespace")
 	}
 
-	pprt := poisonpillv1alpha1.NewDefaultRemediationTemplate()
+	pprt := selfnoderemediationv1alpha1.NewDefaultRemediationTemplate()
 	pprt.SetNamespace(ns)
 
 	err = c.Create(context.Background(), &pprt, &client.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
-		return errors.Wrap(err, "failed to create a default poison pill template CR")
+		return errors.Wrap(err, "failed to create a default self node remediation template CR")
 	}
 	return nil
 }

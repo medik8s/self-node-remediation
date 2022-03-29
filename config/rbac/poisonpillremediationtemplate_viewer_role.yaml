@@ -1,20 +1,20 @@
-# permissions for end users to view poisonpillremediationtemplates.
+# permissions for end users to view selfnoderemediationtemplates.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: poisonpillremediationtemplate-viewer-role
+  name: selfnoderemediationtemplate-viewer-role
 rules:
 - apiGroups:
-  - poison-pill.medik8s.io
+  - self-node-remediation.medik8s.io
   resources:
-  - poisonpillremediationtemplates
+  - selfnoderemediationtemplates
   verbs:
   - get
   - list
   - watch
 - apiGroups:
-  - poison-pill.medik8s.io
+  - self-node-remediation.medik8s.io
   resources:
-  - poisonpillremediationtemplates/status
+  - selfnoderemediationtemplates/status
   verbs:
   - get

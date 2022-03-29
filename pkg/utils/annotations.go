@@ -12,7 +12,7 @@ import (
 
 const (
 	// IsRebootCapableAnnotation value is the key name for the node's annotation that will determine if node is reboot capable
-	IsRebootCapableAnnotation = "is-reboot-capable.poison-pill.medik8s.io"
+	IsRebootCapableAnnotation = "is-reboot-capable.self-node-remediation.medik8s.io"
 )
 
 // UpdateNodeWithIsRebootCapableAnnotation updates the is-reboot-capable node annotation to be true if any kind

@@ -1,7 +1,7 @@
-apiVersion: poison-pill.medik8s.io/v1alpha1
-kind: PoisonPillConfig
+apiVersion: self-node-remediation.medik8s.io/v1alpha1
+kind: SelfNodeRemediationConfig
 metadata:
-  name: poison-pill-config
-  namespace: poison-pill
+  name: self-node-remediation-config
+  namespace: self-node-remediation
 spec: {}
   # Add fields here

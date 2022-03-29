@@ -14,4 +14,4 @@ data:
       resourceName: 547f6cb6.medik8s.io
 kind: ConfigMap
 metadata:
-  name: poison-pill-manager-config
+  name: self-node-remediation-manager-config
