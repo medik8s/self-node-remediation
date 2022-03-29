@@ -16,11 +16,11 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	poisonPill "github.com/medik8s/poison-pill/api"
-	"github.com/medik8s/poison-pill/pkg/certificates"
-	"github.com/medik8s/poison-pill/pkg/peerhealth"
-	"github.com/medik8s/poison-pill/pkg/peers"
-	"github.com/medik8s/poison-pill/pkg/reboot"
+	selfNode "github.com/medik8s/self-node/api"
+	"github.com/medik8s/self-node/pkg/certificates"
+	"github.com/medik8s/self-node/pkg/peerhealth"
+	"github.com/medik8s/self-node/pkg/peers"
+	"github.com/medik8s/self-node/pkg/reboot"
 )
 
 type ApiConnectivityCheck struct {
@@ -142,7 +142,7 @@ func (c *ApiConnectivityCheck) handleError() bool {
 
 		chosenNodesAddresses := c.popNodes(&nodesToAsk, nodesBatchCount)
 		nrAddresses := len(chosenNodesAddresses)
-		responsesChan := make(chan poisonPill.HealthCheckResponseCode, nrAddresses)
+		responsesChan := make(chan selfNode.HealthCheckResponseCode, nrAddresses)
 
 		for _, address := range chosenNodesAddresses {
 			go c.getHealthStatusFromPeer(address, responsesChan)
@@ -205,14 +205,14 @@ func (c *ApiConnectivityCheck) popNodes(nodes *[][]v1.NodeAddress, count int) []
 }
 
 //getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer into the given channel
-func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, results chan<- poisonPill.HealthCheckResponseCode) {
+func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, results chan<- selfNode.HealthCheckResponseCode) {
 
 	logger := c.config.Log.WithValues("IP", endpointIp)
 	logger.Info("getting health status from peer")
 
 	if err := c.initClientCreds(); err != nil {
 		logger.Error(err, "failed to init client credentials")
-		results <- poisonPill.RequestFailed
+		results <- selfNode.RequestFailed
 		return
 	}
 
@@ -220,7 +220,7 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, result
 	phClient, err := peerhealth.NewClient(fmt.Sprintf("%v:%v", endpointIp, c.config.PeerHealthPort), c.config.PeerDialTimeout, c.config.Log.WithName("peerhealth client"), c.clientCreds)
 	if err != nil {
 		logger.Error(err, "failed to init grpc client")
-		results <- poisonPill.RequestFailed
+		results <- selfNode.RequestFailed
 		return
 	}
 	defer phClient.Close()
@@ -233,13 +233,13 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, result
 	})
 	if err != nil {
 		logger.Error(err, "failed to read health response from peer")
-		results <- poisonPill.RequestFailed
+		results <- selfNode.RequestFailed
 		return
 	}
 
 	logger.Info("got response from peer", "status", resp.Status)
 
-	results <- poisonPill.HealthCheckResponseCode(resp.Status)
+	results <- selfNode.HealthCheckResponseCode(resp.Status)
 	return
 }
 
@@ -256,7 +256,7 @@ func (c *ApiConnectivityCheck) initClientCreds() error {
 	return nil
 }
 
-func (c *ApiConnectivityCheck) sumPeersResponses(nodesBatchCount int, responsesChan chan poisonPill.HealthCheckResponseCode) (int, int, int, int) {
+func (c *ApiConnectivityCheck) sumPeersResponses(nodesBatchCount int, responsesChan chan selfNode.HealthCheckResponseCode) (int, int, int, int) {
 	healthyResponses := 0
 	unhealthyResponses := 0
 	apiErrorsResponses := 0
@@ -265,16 +265,16 @@ func (c *ApiConnectivityCheck) sumPeersResponses(nodesBatchCount int, responsesC
 	for i := 0; i < nodesBatchCount; i++ {
 		response := <-responsesChan
 		switch response {
-		case poisonPill.Unhealthy:
+		case selfNode.Unhealthy:
 			unhealthyResponses++
 			break
-		case poisonPill.Healthy:
+		case selfNode.Healthy:
 			healthyResponses++
 			break
-		case poisonPill.ApiError:
+		case selfNode.ApiError:
 			apiErrorsResponses++
 			break
-		case poisonPill.RequestFailed:
+		case selfNode.RequestFailed:
 			noResponse++
 		default:
 			c.config.Log.Error(fmt.Errorf("unexpected response"),

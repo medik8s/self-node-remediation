@@ -35,13 +35,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/medik8s/poison-pill/api/v1alpha1"
-	"github.com/medik8s/poison-pill/pkg/reboot"
-	"github.com/medik8s/poison-pill/pkg/utils"
+	"github.com/medik8s/self-node/api/v1alpha1"
+	"github.com/medik8s/self-node/pkg/reboot"
+	"github.com/medik8s/self-node/pkg/utils"
 )
 
 const (
-	PPRFinalizer          = "poison-pill.medik8s.io/ppr-finalizer"
+	PPRFinalizer          = "self-node.medik8s.io/ppr-finalizer"
 	fencingCompletedPhase = "Fencing-Completed"
 )
 
@@ -56,7 +56,7 @@ var (
 )
 
 //GetLastSeenPprNamespace returns the namespace of the last reconciled PPR
-func (r *PoisonPillRemediationReconciler) GetLastSeenPprNamespace() string {
+func (r *SelfNodeRemediationReconciler) GetLastSeenPprNamespace() string {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	return lastSeenPprNamespace
@@ -64,14 +64,14 @@ func (r *PoisonPillRemediationReconciler) GetLastSeenPprNamespace() string {
 
 //WasLastSeenPprMachine returns the a boolean indicating if the last reconcile PPR
 //was pointing an unhealthy machine or a node
-func (r *PoisonPillRemediationReconciler) WasLastSeenPprMachine() bool {
+func (r *SelfNodeRemediationReconciler) WasLastSeenPprMachine() bool {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	return wasLastSeenPprMachine
 }
 
-// PoisonPillRemediationReconciler reconciles a PoisonPillRemediation object
-type PoisonPillRemediationReconciler struct {
+// SelfNodeRemediationReconciler reconciles a SelfNodeRemediation object
+type SelfNodeRemediationReconciler struct {
 	client.Client
 	Log logr.Logger
 	//logger is a logger that holds the CR name being reconciled
@@ -91,27 +91,27 @@ type PoisonPillRemediationReconciler struct {
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *PoisonPillRemediationReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *SelfNodeRemediationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.PoisonPillRemediation{}).
+		For(&v1alpha1.SelfNodeRemediation{}).
 		Complete(r)
 }
 
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;update;delete;deletecollection
 //+kubebuilder:rbac:groups=storage.k8s.io,resources=volumeattachments,verbs=get;list;watch;update;delete;deletecollection
-//+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillremediationtemplates,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillremediationtemplates/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillremediationtemplates/finalizers,verbs=update
-//+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillremediations,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillremediations/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillremediations/finalizers,verbs=update
+//+kubebuilder:rbac:groups=self-node.medik8s.io,resources=selfnoderemediationtemplates,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=self-node.medik8s.io,resources=selfnoderemediationtemplates/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=self-node.medik8s.io,resources=selfnoderemediationtemplates/finalizers,verbs=update
+//+kubebuilder:rbac:groups=self-node.medik8s.io,resources=selfnoderemediations,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=self-node.medik8s.io,resources=selfnoderemediations/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=self-node.medik8s.io,resources=selfnoderemediations/finalizers,verbs=update
 //+kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=machine.openshift.io,resources=machines,verbs=get;list;watch
 
-func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	r.logger = r.Log.WithValues("poisonpillremediation", req.NamespacedName)
+func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	r.logger = r.Log.WithValues("selfnoderemediation", req.NamespacedName)
 
-	ppr := &v1alpha1.PoisonPillRemediation{}
+	ppr := &v1alpha1.SelfNodeRemediation{}
 	if err := r.Get(ctx, req.NamespacedName, ppr); err != nil {
 		if apiErrors.IsNotFound(err) {
 			// PPR is deleted, stop reconciling
@@ -140,11 +140,11 @@ func (r *PoisonPillRemediationReconciler) Reconcile(ctx context.Context, req ctr
 
 }
 
-func (r *PoisonPillRemediationReconciler) isFencingCompleted(ppr *v1alpha1.PoisonPillRemediation) bool {
+func (r *SelfNodeRemediationReconciler) isFencingCompleted(ppr *v1alpha1.SelfNodeRemediation) bool {
 	return ppr.Status.Phase != nil && *ppr.Status.Phase == fencingCompletedPhase
 }
 
-func (r *PoisonPillRemediationReconciler) remediateWithResourceDeletion(ppr *v1alpha1.PoisonPillRemediation) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(ppr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	node, err := r.getNodeFromPpr(ppr)
 	if err != nil {
 		r.logger.Error(err, "failed to get node", "node name", ppr.Name)
@@ -253,7 +253,7 @@ func (r *PoisonPillRemediationReconciler) remediateWithResourceDeletion(ppr *v1a
 	ppr.Status.Phase = &fencingCompleted
 	if err := r.Client.Status().Update(context.Background(), ppr); err != nil {
 		if apiErrors.IsConflict(err) {
-			// conflicts are expected since all poison pill deamonset pods are competing on the same requests
+			// conflicts are expected since all self node deamonset pods are competing on the same requests
 			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 		}
 		r.logger.Error(err, "failed to mark PPR as fencing completed")
@@ -263,7 +263,7 @@ func (r *PoisonPillRemediationReconciler) remediateWithResourceDeletion(ppr *v1a
 	return ctrl.Result{}, nil
 }
 
-func (r *PoisonPillRemediationReconciler) remediateWithNodeDeletion(ppr *v1alpha1.PoisonPillRemediation) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) remediateWithNodeDeletion(ppr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	node, err := r.getNodeFromPpr(ppr)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
@@ -283,7 +283,7 @@ func (r *PoisonPillRemediationReconciler) remediateWithNodeDeletion(ppr *v1alpha
 			ppr.Status.NodeBackup = nil
 			if err := r.Client.Status().Update(context.Background(), ppr); err != nil {
 				if apiErrors.IsConflict(err) {
-					// conflicts are expected since all poison pill deamonset pods are competing on the same requests
+					// conflicts are expected since all self node deamonset pods are competing on the same requests
 					return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 				}
 				r.logger.Error(err, "failed to remove node backup from ppr")
@@ -360,7 +360,7 @@ func (r *PoisonPillRemediationReconciler) remediateWithNodeDeletion(ppr *v1alpha
 }
 
 // rebootIfNeeded reboots the node if no reboot was performed so far
-func (r *PoisonPillRemediationReconciler) rebootIfNeeded(ppr *v1alpha1.PoisonPillRemediation) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) rebootIfNeeded(ppr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	shouldAvoidReboot, err := r.didIRebootMyself(ppr)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -376,7 +376,7 @@ func (r *PoisonPillRemediationReconciler) rebootIfNeeded(ppr *v1alpha1.PoisonPil
 
 // wasNodeRebooted returns true if the node assumed to been rebooted.
 // if not, it will also return the remaining time for that to happen
-func (r *PoisonPillRemediationReconciler) wasNodeRebooted(ppr *v1alpha1.PoisonPillRemediation) (bool, time.Duration) {
+func (r *SelfNodeRemediationReconciler) wasNodeRebooted(ppr *v1alpha1.SelfNodeRemediation) (bool, time.Duration) {
 	maxNodeRebootTime := ppr.Status.TimeAssumedRebooted
 
 	if maxNodeRebootTime.After(time.Now()) {
@@ -388,7 +388,7 @@ func (r *PoisonPillRemediationReconciler) wasNodeRebooted(ppr *v1alpha1.PoisonPi
 
 // didIRebootMyself returns true if system uptime is less than the time from PPR creation timestamp
 // which means that the host was already rebooted (at least) once during this PPR lifecycle
-func (r *PoisonPillRemediationReconciler) didIRebootMyself(ppr *v1alpha1.PoisonPillRemediation) (bool, error) {
+func (r *SelfNodeRemediationReconciler) didIRebootMyself(ppr *v1alpha1.SelfNodeRemediation) (bool, error) {
 	uptime, err := utils.GetLinuxUptime()
 	if err != nil {
 		r.logger.Error(err, "failed to get node's uptime")
@@ -399,15 +399,15 @@ func (r *PoisonPillRemediationReconciler) didIRebootMyself(ppr *v1alpha1.PoisonP
 }
 
 //isNodeRebootCapable checks if the node is capable to reboot itself when it becomes unhealthy
-//this boils down to check if it has an assigned poison pill pod, and the reboot-capable annotation
-func (r *PoisonPillRemediationReconciler) isNodeRebootCapable(node *v1.Node) bool {
-	//make sure that the unhealthy node has poison pill pod on it which can reboot it
-	if _, err := utils.GetPoisonPillAgentPod(node.Name, r.Client); err != nil {
-		r.logger.Error(err, "failed to get poison pill agent pod resource")
+//this boils down to check if it has an assigned self node pod, and the reboot-capable annotation
+func (r *SelfNodeRemediationReconciler) isNodeRebootCapable(node *v1.Node) bool {
+	//make sure that the unhealthy node has self node pod on it which can reboot it
+	if _, err := utils.GetSelfNodeAgentPod(node.Name, r.Client); err != nil {
+		r.logger.Error(err, "failed to get self node agent pod resource")
 		return false
 	}
 
-	//if the unhealthy node has the poison pill agent pod, but the is-reboot-capable annotation is unknown/false/doesn't exist
+	//if the unhealthy node has the self node agent pod, but the is-reboot-capable annotation is unknown/false/doesn't exist
 	//the node might not reboot, and we might end up in deleting a running node
 	if node.Annotations == nil || node.Annotations[utils.IsRebootCapableAnnotation] != "true" {
 		annVal := ""
@@ -423,7 +423,7 @@ func (r *PoisonPillRemediationReconciler) isNodeRebootCapable(node *v1.Node) boo
 	return true
 }
 
-func (r *PoisonPillRemediationReconciler) removeFinalizer(ppr *v1alpha1.PoisonPillRemediation) error {
+func (r *SelfNodeRemediationReconciler) removeFinalizer(ppr *v1alpha1.SelfNodeRemediation) error {
 	controllerutil.RemoveFinalizer(ppr, PPRFinalizer)
 	if err := r.Client.Update(context.Background(), ppr); err != nil {
 		if apiErrors.IsConflict(err) {
@@ -437,7 +437,7 @@ func (r *PoisonPillRemediationReconciler) removeFinalizer(ppr *v1alpha1.PoisonPi
 	return nil
 }
 
-func (r *PoisonPillRemediationReconciler) addFinalizer(ppr *v1alpha1.PoisonPillRemediation) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) addFinalizer(ppr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	if !ppr.DeletionTimestamp.IsZero() {
 		//ppr is going to be deleted before we started any remediation action, so taking no-op
 		//otherwise we continue the remediation even if the deletionTimestamp is not zero
@@ -457,7 +457,7 @@ func (r *PoisonPillRemediationReconciler) addFinalizer(ppr *v1alpha1.PoisonPillR
 }
 
 //returns the lastHeartbeatTime of the first condition, if exists. Otherwise returns the zero value
-func (r *PoisonPillRemediationReconciler) getLastHeartbeatTime(node *v1.Node) time.Time {
+func (r *SelfNodeRemediationReconciler) getLastHeartbeatTime(node *v1.Node) time.Time {
 	var lastHeartbeat metav1.Time
 	if node.Status.Conditions != nil && len(node.Status.Conditions) > 0 {
 		lastHeartbeat = node.Status.Conditions[0].LastHeartbeatTime
@@ -465,7 +465,7 @@ func (r *PoisonPillRemediationReconciler) getLastHeartbeatTime(node *v1.Node) ti
 	return lastHeartbeat.Time
 }
 
-func (r *PoisonPillRemediationReconciler) getReadyCond(node *v1.Node) *v1.NodeCondition {
+func (r *SelfNodeRemediationReconciler) getReadyCond(node *v1.Node) *v1.NodeCondition {
 	for _, cond := range node.Status.Conditions {
 		if cond.Type == v1.NodeReady {
 			return &cond
@@ -474,7 +474,7 @@ func (r *PoisonPillRemediationReconciler) getReadyCond(node *v1.Node) *v1.NodeCo
 	return nil
 }
 
-func (r *PoisonPillRemediationReconciler) updatePprStatus(node *v1.Node, ppr *v1alpha1.PoisonPillRemediation) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) updatePprStatus(node *v1.Node, ppr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	r.logger.Info("updating ppr with node backup and updating time to assume node has been rebooted", "node name", node.Name)
 	//we assume the unhealthy node will be rebooted by maxTimeNodeHasRebooted
 	maxTimeNodeHasRebooted := metav1.NewTime(metav1.Now().Add(r.SafeTimeToAssumeNodeRebooted))
@@ -494,7 +494,7 @@ func (r *PoisonPillRemediationReconciler) updatePprStatus(node *v1.Node, ppr *v1
 }
 
 // getNodeFromPpr returns the unhealthy node reported in the given ppr
-func (r *PoisonPillRemediationReconciler) getNodeFromPpr(ppr *v1alpha1.PoisonPillRemediation) (*v1.Node, error) {
+func (r *SelfNodeRemediationReconciler) getNodeFromPpr(ppr *v1alpha1.SelfNodeRemediation) (*v1.Node, error) {
 	//PPR could be created by either machine based controller (e.g. MHC) or
 	//by a node based controller (e.g. NHC). This assumes that machine based controller
 	//will create the ppr with machine owner reference
@@ -522,7 +522,7 @@ func (r *PoisonPillRemediationReconciler) getNodeFromPpr(ppr *v1alpha1.PoisonPil
 	return node, nil
 }
 
-func (r *PoisonPillRemediationReconciler) getNodeFromMachine(ref metav1.OwnerReference, ns string) (*v1.Node, error) {
+func (r *SelfNodeRemediationReconciler) getNodeFromMachine(ref metav1.OwnerReference, ns string) (*v1.Node, error) {
 	machine := &machinev1beta1.Machine{}
 	machineKey := client.ObjectKey{
 		Name:      ref.Name,
@@ -530,7 +530,7 @@ func (r *PoisonPillRemediationReconciler) getNodeFromMachine(ref metav1.OwnerRef
 	}
 
 	if err := r.Client.Get(context.Background(), machineKey, machine); err != nil {
-		r.logger.Error(err, "failed to get machine from PoisonPillRemediation CR owner ref",
+		r.logger.Error(err, "failed to get machine from SelfNodeRemediation CR owner ref",
 			"machine name", machineKey.Name, "namespace", machineKey.Namespace)
 		return nil, err
 	}
@@ -560,7 +560,7 @@ func (r *PoisonPillRemediationReconciler) getNodeFromMachine(ref metav1.OwnerRef
 //since we're going to delete the node eventually, we must make sure the node is deleted only
 //when there's no running workload there. Hence we mark it as unschedulable.
 //markNodeAsUnschedulable sets node.Spec.Unschedulable which triggers node controller to add the taint
-func (r *PoisonPillRemediationReconciler) markNodeAsUnschedulable(node *v1.Node) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) markNodeAsUnschedulable(node *v1.Node) (ctrl.Result, error) {
 	if node.Spec.Unschedulable {
 		r.logger.Info("waiting for unschedulable taint to appear", "node name", node.Name)
 		return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
@@ -578,7 +578,7 @@ func (r *PoisonPillRemediationReconciler) markNodeAsUnschedulable(node *v1.Node)
 	return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 }
 
-func (r *PoisonPillRemediationReconciler) handleDeletedNode(ppr *v1alpha1.PoisonPillRemediation) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) handleDeletedNode(ppr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	if ppr.Status.NodeBackup == nil {
 		err := errors.New("unhealthy node doesn't exist and there's no backup node to restore")
 		r.logger.Error(err, "remediation failed")
@@ -598,7 +598,7 @@ func (r *PoisonPillRemediationReconciler) handleDeletedNode(ppr *v1alpha1.Poison
 	return r.restoreNode(ppr.Status.NodeBackup)
 }
 
-func (r *PoisonPillRemediationReconciler) restoreNode(nodeToRestore *v1.Node) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) restoreNode(nodeToRestore *v1.Node) (ctrl.Result, error) {
 	r.logger.Info("restoring node", "node name", nodeToRestore.Name)
 
 	// todo we probably want to have some allowlist/denylist on which things to restore, we already had

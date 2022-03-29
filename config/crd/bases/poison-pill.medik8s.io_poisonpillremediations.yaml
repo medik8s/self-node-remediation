@@ -6,23 +6,23 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.4.1
   creationTimestamp: null
-  name: poisonpillremediations.poison-pill.medik8s.io
+  name: selfnoderemediations.self-node.medik8s.io
 spec:
-  group: poison-pill.medik8s.io
+  group: self-node.medik8s.io
   names:
-    kind: PoisonPillRemediation
-    listKind: PoisonPillRemediationList
-    plural: poisonpillremediations
+    kind: SelfNodeRemediation
+    listKind: SelfNodeRemediationList
+    plural: selfnoderemediations
     shortNames:
     - ppr
     - ppremediation
-    singular: poisonpillremediation
+    singular: selfnoderemediation
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: PoisonPillRemediation is the Schema for the poisonpillremediations
+        description: SelfNodeRemediation is the Schema for the selfnoderemediations
           API
         properties:
           apiVersion:
@@ -38,7 +38,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: PoisonPillRemediationSpec defines the desired state of PoisonPillRemediation
+            description: SelfNodeRemediationSpec defines the desired state of SelfNodeRemediation
             properties:
               remediationStrategy:
                 default: NodeDeletion
@@ -53,8 +53,8 @@ spec:
                 type: string
             type: object
           status:
-            description: PoisonPillRemediationStatus defines the observed state of
-              PoisonPillRemediation
+            description: SelfNodeRemediationStatus defines the observed state of
+              SelfNodeRemediation
             properties:
               nodeBackup:
                 description: NodeBackup is the node object that is going to be deleted

@@ -1,13 +1,13 @@
-# permissions for end users to edit poisonpillremediations.
+# permissions for end users to edit selfnoderemediations.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: poisonpillremediation-editor-role
+  name: selfnoderemediation-editor-role
 rules:
 - apiGroups:
-  - poison-pill.medik8s.io
+  - self-node.medik8s.io
   resources:
-  - poisonpillremediations
+  - selfnoderemediations
   verbs:
   - create
   - delete
@@ -17,8 +17,8 @@ rules:
   - update
   - watch
 - apiGroups:
-  - poison-pill.medik8s.io
+  - self-node.medik8s.io
   resources:
-  - poisonpillremediations/status
+  - selfnoderemediations/status
   verbs:
   - get

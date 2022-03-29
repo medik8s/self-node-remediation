@@ -31,7 +31,7 @@ func NewPeerHealthClient(cc grpc.ClientConnInterface) PeerHealthClient {
 
 func (c *peerHealthClient) IsHealthy(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*HealthResponse, error) {
 	out := new(HealthResponse)
-	err := c.cc.Invoke(ctx, "/poisonpill.health.PeerHealth/IsHealthy", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/selfnode.health.PeerHealth/IsHealthy", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +76,7 @@ func _PeerHealth_IsHealthy_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/poisonpill.health.PeerHealth/IsHealthy",
+		FullMethod: "/selfnode.health.PeerHealth/IsHealthy",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(PeerHealthServer).IsHealthy(ctx, req.(*HealthRequest))
@@ -88,7 +88,7 @@ func _PeerHealth_IsHealthy_Handler(srv interface{}, ctx context.Context, dec fun
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var PeerHealth_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "poisonpill.health.PeerHealth",
+	ServiceName: "selfnode.health.PeerHealth",
 	HandlerType: (*PeerHealthServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{

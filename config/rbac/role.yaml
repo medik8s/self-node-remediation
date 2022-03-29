@@ -80,9 +80,9 @@ rules:
   - patch
   - update
 - apiGroups:
-  - poison-pill.medik8s.io
+  - self-node.medik8s.io
   resources:
-  - poisonpillconfigs
+  - selfnodeconfigs
   verbs:
   - create
   - delete
@@ -92,23 +92,23 @@ rules:
   - update
   - watch
 - apiGroups:
-  - poison-pill.medik8s.io
+  - self-node.medik8s.io
   resources:
-  - poisonpillconfigs/finalizers
+  - selfnodeconfigs/finalizers
   verbs:
   - update
 - apiGroups:
-  - poison-pill.medik8s.io
+  - self-node.medik8s.io
   resources:
-  - poisonpillconfigs/status
+  - selfnodeconfigs/status
   verbs:
   - get
   - patch
   - update
 - apiGroups:
-  - poison-pill.medik8s.io
+  - self-node.medik8s.io
   resources:
-  - poisonpillremediations
+  - selfnoderemediations
   verbs:
   - create
   - delete
@@ -118,23 +118,23 @@ rules:
   - update
   - watch
 - apiGroups:
-  - poison-pill.medik8s.io
+  - self-node.medik8s.io
   resources:
-  - poisonpillremediations/finalizers
+  - selfnoderemediations/finalizers
   verbs:
   - update
 - apiGroups:
-  - poison-pill.medik8s.io
+  - self-node.medik8s.io
   resources:
-  - poisonpillremediations/status
+  - selfnoderemediations/status
   verbs:
   - get
   - patch
   - update
 - apiGroups:
-  - poison-pill.medik8s.io
+  - self-node.medik8s.io
   resources:
-  - poisonpillremediationtemplates
+  - selfnoderemediationtemplates
   verbs:
   - create
   - delete
@@ -144,15 +144,15 @@ rules:
   - update
   - watch
 - apiGroups:
-  - poison-pill.medik8s.io
+  - self-node.medik8s.io
   resources:
-  - poisonpillremediationtemplates/finalizers
+  - selfnoderemediationtemplates/finalizers
   verbs:
   - update
 - apiGroups:
-  - poison-pill.medik8s.io
+  - self-node.medik8s.io
   resources:
-  - poisonpillremediationtemplates/status
+  - selfnoderemediationtemplates/status
   verbs:
   - get
   - patch

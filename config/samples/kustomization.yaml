@@ -1,6 +1,6 @@
 ## Append samples you want in your CSV to this file as resources ##
 resources:
-- poison-pill_v1alpha1_poisonpillremediation.yaml
-- poison-pill_v1alpha1_poisonpillremediationtemplate.yaml
-- poison-pill_v1alpha1_poisonpillconfig.yaml
+- self-node_v1alpha1_selfnoderemediation.yaml
+- self-node_v1alpha1_selfnoderemediationtemplate.yaml
+- self-node_v1alpha1_selfnodeconfig.yaml
 #+kubebuilder:scaffold:manifestskustomizesamples

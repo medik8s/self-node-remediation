@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package poisonpill.health;
+package selfnode.health;
 option go_package = "pkg/peerhealth";
 
 service PeerHealth {

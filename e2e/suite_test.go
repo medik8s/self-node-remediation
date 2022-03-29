@@ -15,14 +15,14 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	"github.com/medik8s/poison-pill/api/v1alpha1"
+	"github.com/medik8s/self-node/api/v1alpha1"
 )
 
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 // needs to match CI config!
-const testNamespace = "poison-pill"
+const testNamespace = "self-node"
 
 var cfg *rest.Config
 var k8sClient client.Client

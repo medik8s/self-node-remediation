@@ -2,8 +2,8 @@ package controllers_test
 
 import (
 	"context"
-	"github.com/medik8s/poison-pill/controllers"
-	"github.com/medik8s/poison-pill/pkg/utils"
+	"github.com/medik8s/self-node/controllers"
+	"github.com/medik8s/self-node/pkg/utils"
 	"k8s.io/api/storage/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,7 +16,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
+	selfnodev1alpha1 "github.com/medik8s/self-node/api/v1alpha1"
 	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -26,7 +26,7 @@ const (
 )
 
 var _ = Describe("ppr Controller", func() {
-	ppr := &poisonpillv1alpha1.PoisonPillRemediation{}
+	ppr := &selfnodev1alpha1.SelfNodeRemediation{}
 	ppr.Name = unhealthyNodeName
 	ppr.Namespace = pprNamespace
 
@@ -58,11 +58,11 @@ var _ = Describe("ppr Controller", func() {
 		Expect(node.CreationTimestamp).ToNot(BeZero())
 	})
 
-	Context("Unhealthy node without poison-pill pod", func() {
-		//if the unhealthy node doesn't have the poison-pill pod
+	Context("Unhealthy node without self-node pod", func() {
+		//if the unhealthy node doesn't have the self-node pod
 		//we don't want to delete the node, since it might never
 		//be in a safe state (i.e. rebooted)
-		var remediationStrategy poisonpillv1alpha1.RemediationStrategyType
+		var remediationStrategy selfnodev1alpha1.RemediationStrategyType
 		JustBeforeEach(func() {
 			createPPR(ppr, remediationStrategy)
 		})
@@ -73,7 +73,7 @@ var _ = Describe("ppr Controller", func() {
 
 		Context("NodeDeletion strategy", func() {
 			BeforeEach(func() {
-				remediationStrategy = poisonpillv1alpha1.NodeDeletionRemediationStrategy
+				remediationStrategy = selfnodev1alpha1.NodeDeletionRemediationStrategy
 			})
 
 			It("ppr should not have finalizers", func() {
@@ -83,7 +83,7 @@ var _ = Describe("ppr Controller", func() {
 
 		Context("ResourceDeletion strategy", func() {
 			BeforeEach(func() {
-				remediationStrategy = poisonpillv1alpha1.ResourceDeletionRemediationStrategy
+				remediationStrategy = selfnodev1alpha1.ResourceDeletionRemediationStrategy
 			})
 
 			It("ppr should not have finalizers", func() {
@@ -93,7 +93,7 @@ var _ = Describe("ppr Controller", func() {
 
 	})
 
-	Context("Unhealthy node with poison-pill pod but unable to reboot", func() {
+	Context("Unhealthy node with self-node pod but unable to reboot", func() {
 		//if the unhealthy node doesn't have watchdog and it's is-reboot-capable annotation is not true
 		//we don't want to delete the node, since it will never
 		//be in a safe state (i.e. rebooted)
@@ -102,12 +102,12 @@ var _ = Describe("ppr Controller", func() {
 			//since we don't have a scheduler in test, we need to do its work and create pp pod for that node
 
 			BeforeEach(func() {
-				createPoisonPillPod()
-				createPPR(ppr, poisonpillv1alpha1.NodeDeletionRemediationStrategy)
+				createSelfNodePod()
+				createPPR(ppr, selfnodev1alpha1.NodeDeletionRemediationStrategy)
 			})
 
 			AfterEach(func() {
-				deletePoisonPillPod()
+				deleteSelfNodePod()
 				deletePPR(ppr)
 			})
 
@@ -137,16 +137,16 @@ var _ = Describe("ppr Controller", func() {
 
 	Context("Unhealthy node with api-server access", func() {
 		var beforePPR time.Time
-		var remediationStrategy poisonpillv1alpha1.RemediationStrategyType
+		var remediationStrategy selfnodev1alpha1.RemediationStrategyType
 
 		JustBeforeEach(func() {
-			createPoisonPillPod()
+			createSelfNodePod()
 			updateIsRebootCapable("true")
 			beforePPR = time.Now().Add(-time.Second)
 			createPPR(ppr, remediationStrategy)
 
-			By("make sure poison pill exists with correct label")
-			verifyPoisonPillPodExist()
+			By("make sure self node exists with correct label")
+			verifySelfNodePodExist()
 		})
 
 		AfterEach(func() {
@@ -155,11 +155,11 @@ var _ = Describe("ppr Controller", func() {
 
 		Context("NodeDeletion strategy", func() {
 			BeforeEach(func() {
-				remediationStrategy = poisonpillv1alpha1.NodeDeletionRemediationStrategy
+				remediationStrategy = selfnodev1alpha1.NodeDeletionRemediationStrategy
 			})
 
 			AfterEach(func() {
-				deletePoisonPillPod()
+				deleteSelfNodePod()
 			})
 
 			It("Remediation flow", func() {
@@ -207,7 +207,7 @@ var _ = Describe("ppr Controller", func() {
 			var vaName = "some-va"
 
 			BeforeEach(func() {
-				remediationStrategy = poisonpillv1alpha1.ResourceDeletionRemediationStrategy
+				remediationStrategy = selfnodev1alpha1.ResourceDeletionRemediationStrategy
 				createVolumeAttachment(vaName)
 			})
 
@@ -228,7 +228,7 @@ var _ = Describe("ppr Controller", func() {
 
 				verifyNoWatchdogFood()
 
-				verifyPoisonPillPodDoesntExist()
+				verifySelfNodePodDoesntExist()
 
 				verifyVaDeleted(vaName)
 
@@ -248,7 +248,7 @@ var _ = Describe("ppr Controller", func() {
 		BeforeEach(func() {
 			By("Simulate api-server failure")
 			k8sClient.ShouldSimulateFailure = true
-			createPPR(ppr, poisonpillv1alpha1.NodeDeletionRemediationStrategy)
+			createPPR(ppr, selfnodev1alpha1.NodeDeletionRemediationStrategy)
 		})
 
 		AfterEach(func() {
@@ -305,11 +305,11 @@ func verifyVaDeleted(vaName string) {
 	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
 }
 
-func verifyPoisonPillPodDoesntExist() {
-	By("Verify that poison pill pod has been deleted as part of the remediation")
+func verifySelfNodePodDoesntExist() {
+	By("Verify that self node pod has been deleted as part of the remediation")
 	podKey := client.ObjectKey{
 		Namespace: namespace,
-		Name:      "poison-pill",
+		Name:      "self-node",
 	}
 
 	EventuallyWithOffset(1, func() bool {
@@ -348,7 +348,7 @@ func verifyNoWatchdogFood() {
 
 func verifyFinalizerExists() {
 	By("Verify that finalizer was added")
-	ppr := &poisonpillv1alpha1.PoisonPillRemediation{}
+	ppr := &selfnodev1alpha1.SelfNodeRemediation{}
 	pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
 	ExpectWithOffset(1, k8sClient.Get(context.Background(), pprNamespacedName, ppr)).To(Succeed())
 	ExpectWithOffset(1, controllerutil.ContainsFinalizer(ppr, controllers.PPRFinalizer)).Should(BeTrue(), "finalizer should be added")
@@ -357,7 +357,7 @@ func verifyFinalizerExists() {
 // verifies that ppr node backup equals to the actual node
 func verifyNodeBackup() {
 	By("Verify that node backup annotation matches the node")
-	newPpr := &poisonpillv1alpha1.PoisonPillRemediation{}
+	newPpr := &selfnodev1alpha1.SelfNodeRemediation{}
 	pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
 
 	ExpectWithOffset(1, k8sClient.Client.Get(context.TODO(), pprNamespacedName, newPpr)).To(Succeed())
@@ -375,7 +375,7 @@ func verifyNodeBackup() {
 
 func verifyTimeHasBeenRebootedExists() {
 	By("Verify that time has been added to PPR status")
-	ppr := &poisonpillv1alpha1.PoisonPillRemediation{}
+	ppr := &selfnodev1alpha1.SelfNodeRemediation{}
 	EventuallyWithOffset(1, func() (*metav1.Time, error) {
 		pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
 		err := k8sClient.Client.Get(context.Background(), pprNamespacedName, ppr)
@@ -400,10 +400,10 @@ func verifyNodeIsUnschedulable() *v1.Node {
 	return node
 }
 
-func verifyPoisonPillPodExist() {
+func verifySelfNodePodExist() {
 	podList := &v1.PodList{}
 	selector := labels.NewSelector()
-	requirement, _ := labels.NewRequirement("app", selection.Equals, []string{"poison-pill-agent"})
+	requirement, _ := labels.NewRequirement("app", selection.Equals, []string{"self-node-agent"})
 	selector = selector.Add(*requirement)
 
 	EventuallyWithOffset(1, func() (int, error) {
@@ -412,23 +412,23 @@ func verifyPoisonPillPodExist() {
 	}, 5*time.Second, 250*time.Millisecond).Should(Equal(1))
 }
 
-func deletePPR(ppr *poisonpillv1alpha1.PoisonPillRemediation) {
+func deletePPR(ppr *selfnodev1alpha1.SelfNodeRemediation) {
 	ExpectWithOffset(1, k8sClient.Client.Delete(context.Background(), ppr)).To(Succeed(), "failed to delete ppr CR")
 }
 
-func createPPR(ppr *poisonpillv1alpha1.PoisonPillRemediation, strategy poisonpillv1alpha1.RemediationStrategyType) {
-	ppr = &poisonpillv1alpha1.PoisonPillRemediation{}
+func createPPR(ppr *selfnodev1alpha1.SelfNodeRemediation, strategy selfnodev1alpha1.RemediationStrategyType) {
+	ppr = &selfnodev1alpha1.SelfNodeRemediation{}
 	ppr.Name = unhealthyNodeName
 	ppr.Namespace = pprNamespace
 	ppr.Spec.RemediationStrategy = strategy
 	ExpectWithOffset(1, k8sClient.Client.Create(context.TODO(), ppr)).To(Succeed(), "failed to create ppr CR")
 }
 
-func createPoisonPillPod() {
+func createSelfNodePod() {
 	pod := &v1.Pod{}
 	pod.Spec.NodeName = unhealthyNodeName
-	pod.Labels = map[string]string{"app": "poison-pill-agent"}
-	pod.Name = "poison-pill"
+	pod.Labels = map[string]string{"app": "self-node-agent"}
+	pod.Name = "self-node"
 	pod.Namespace = namespace
 	container := v1.Container{
 		Name:  "foo",
@@ -438,9 +438,9 @@ func createPoisonPillPod() {
 	ExpectWithOffset(1, k8sClient.Client.Create(context.Background(), pod)).To(Succeed())
 }
 
-func deletePoisonPillPod() {
+func deleteSelfNodePod() {
 	pod := &v1.Pod{}
-	pod.Name = "poison-pill"
+	pod.Name = "self-node"
 	pod.Namespace = namespace
 	podKey := client.ObjectKey{
 		Namespace: namespace,
@@ -488,7 +488,7 @@ func deleteIsRebootCapableAnnotation() {
 
 //testNoFinalizer checks that ppr doesn't have finalizer
 func testNoFinalizer() {
-	ppr := &poisonpillv1alpha1.PoisonPillRemediation{}
+	ppr := &selfnodev1alpha1.SelfNodeRemediation{}
 	pprKey := client.ObjectKey{
 		Namespace: pprNamespace,
 		Name:      unhealthyNodeName,

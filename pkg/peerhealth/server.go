@@ -17,10 +17,10 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 
-	poisonPillApis "github.com/medik8s/poison-pill/api"
-	"github.com/medik8s/poison-pill/api/v1alpha1"
-	"github.com/medik8s/poison-pill/controllers"
-	"github.com/medik8s/poison-pill/pkg/certificates"
+	selfNodeApis "github.com/medik8s/self-node/api"
+	"github.com/medik8s/self-node/api/v1alpha1"
+	"github.com/medik8s/self-node/controllers"
+	"github.com/medik8s/self-node/pkg/certificates"
 )
 
 const (
@@ -36,7 +36,7 @@ var (
 	pprRes = schema.GroupVersionResource{
 		Group:    v1alpha1.GroupVersion.Group,
 		Version:  v1alpha1.GroupVersion.Version,
-		Resource: "poisonpillremediations",
+		Resource: "selfnoderemediations",
 	}
 	nodeRes = schema.GroupVersionResource{
 		Group:    corev1.SchemeGroupVersion.Group,
@@ -48,14 +48,14 @@ var (
 type Server struct {
 	UnimplementedPeerHealthServer
 	client     dynamic.Interface
-	ppr        *controllers.PoisonPillRemediationReconciler
+	ppr        *controllers.SelfNodeRemediationReconciler
 	log        logr.Logger
 	certReader certificates.CertStorageReader
 	port       int
 }
 
 // NewServer returns a new Server
-func NewServer(ppr *controllers.PoisonPillRemediationReconciler, conf *rest.Config, log logr.Logger, port int, certReader certificates.CertStorageReader) (*Server, error) {
+func NewServer(ppr *controllers.SelfNodeRemediationReconciler, conf *rest.Config, log logr.Logger, port int, certReader certificates.CertStorageReader) (*Server, error) {
 
 	// create dynamic client
 	c, err := dynamic.NewForConfig(conf)
@@ -132,10 +132,10 @@ func (s Server) IsHealthy(ctx context.Context, request *HealthRequest) (*HealthR
 		if _, err := s.getNode(ctx, nodeName); err != nil {
 			// TODO do we need to deal with isNotFound, and if so, how?
 			s.log.Info("no PPR seen yet, and API server issue, returning API error", "api error", err)
-			return toResponse(poisonPillApis.ApiError)
+			return toResponse(selfNodeApis.ApiError)
 		}
 		s.log.Info("no PPR seen yet, node is healthy")
-		return toResponse(poisonPillApis.Healthy)
+		return toResponse(selfNodeApis.Healthy)
 	}
 
 	if isMachine {
@@ -145,14 +145,14 @@ func (s Server) IsHealthy(ctx context.Context, request *HealthRequest) (*HealthR
 	}
 }
 
-func (s Server) isHealthyNode(ctx context.Context, nodeName string, namespace string) poisonPillApis.HealthCheckResponseCode {
+func (s Server) isHealthyNode(ctx context.Context, nodeName string, namespace string) selfNodeApis.HealthCheckResponseCode {
 	return s.isHealthyByPpr(ctx, nodeName, namespace)
 }
 
-func (s Server) isHealthyMachine(ctx context.Context, nodeName string, namespace string) poisonPillApis.HealthCheckResponseCode {
+func (s Server) isHealthyMachine(ctx context.Context, nodeName string, namespace string) selfNodeApis.HealthCheckResponseCode {
 	node, err := s.getNode(ctx, nodeName)
 	if err != nil {
-		return poisonPillApis.ApiError
+		return selfNodeApis.ApiError
 	}
 
 	ann := node.GetAnnotations()
@@ -160,19 +160,19 @@ func (s Server) isHealthyMachine(ctx context.Context, nodeName string, namespace
 
 	if !exists {
 		s.log.Info("node doesn't have machine annotation")
-		return poisonPillApis.Unhealthy //todo is this the correct response?
+		return selfNodeApis.Unhealthy //todo is this the correct response?
 	}
 	_, machineName, err := cache.SplitMetaNamespaceKey(namespacedMachine)
 
 	if err != nil {
 		s.log.Error(err, "failed to parse machine annotation on the node")
-		return poisonPillApis.Unhealthy //todo is this the correct response?
+		return selfNodeApis.Unhealthy //todo is this the correct response?
 	}
 
 	return s.isHealthyByPpr(ctx, machineName, namespace)
 }
 
-func (s Server) isHealthyByPpr(ctx context.Context, pprName string, pprNamespace string) poisonPillApis.HealthCheckResponseCode {
+func (s Server) isHealthyByPpr(ctx context.Context, pprName string, pprNamespace string) selfNodeApis.HealthCheckResponseCode {
 	apiCtx, cancelFunc := context.WithTimeout(ctx, apiServerTimeout)
 	defer cancelFunc()
 
@@ -180,14 +180,14 @@ func (s Server) isHealthyByPpr(ctx context.Context, pprName string, pprNamespace
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			s.log.Info("node is healthy")
-			return poisonPillApis.Healthy
+			return selfNodeApis.Healthy
 		}
 		s.log.Error(err, "api error")
-		return poisonPillApis.ApiError
+		return selfNodeApis.ApiError
 	}
 
 	s.log.Info("node is unhealthy")
-	return poisonPillApis.Unhealthy
+	return selfNodeApis.Unhealthy
 }
 
 func (s Server) getNode(ctx context.Context, nodeName string) (*unstructured.Unstructured, error) {
@@ -202,7 +202,7 @@ func (s Server) getNode(ctx context.Context, nodeName string) (*unstructured.Uns
 	return node, nil
 }
 
-func toResponse(status poisonPillApis.HealthCheckResponseCode) (*HealthResponse, error) {
+func toResponse(status selfNodeApis.HealthCheckResponseCode) (*HealthResponse, error) {
 	return &HealthResponse{
 		Status: int32(status),
 	}, nil

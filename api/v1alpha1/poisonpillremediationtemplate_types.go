@@ -23,19 +23,19 @@ import (
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-type PoisonPillRemediationTemplateResource struct {
-	Spec PoisonPillRemediationSpec `json:"spec"`
+type SelfNodeRemediationTemplateResource struct {
+	Spec SelfNodeRemediationSpec `json:"spec"`
 }
 
-// PoisonPillRemediationTemplateSpec defines the desired state of PoisonPillRemediationTemplate
-type PoisonPillRemediationTemplateSpec struct {
-	// Template defines the desired state of PoisonPillRemediationTemplate
+// SelfNodeRemediationTemplateSpec defines the desired state of SelfNodeRemediationTemplate
+type SelfNodeRemediationTemplateSpec struct {
+	// Template defines the desired state of SelfNodeRemediationTemplate
 	//+operator-sdk:csv:customresourcedefinitions:type=spec
-	Template PoisonPillRemediationTemplateResource `json:"template"`
+	Template SelfNodeRemediationTemplateResource `json:"template"`
 }
 
-// PoisonPillRemediationTemplateStatus defines the observed state of PoisonPillRemediationTemplate
-type PoisonPillRemediationTemplateStatus struct {
+// SelfNodeRemediationTemplateStatus defines the observed state of SelfNodeRemediationTemplate
+type SelfNodeRemediationTemplateStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 }
@@ -44,25 +44,25 @@ type PoisonPillRemediationTemplateStatus struct {
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:shortName=pprt;ppremediationtemplate;pprtemplate
 
-// PoisonPillRemediationTemplate is the Schema for the poisonpillremediationtemplates API
-// +operator-sdk:csv:customresourcedefinitions:resources={{"PoisonPillRemediationTemplate","v1alpha1","poisonpillremediationtemplates"}}
-type PoisonPillRemediationTemplate struct {
+// SelfNodeRemediationTemplate is the Schema for the selfnoderemediationtemplates API
+// +operator-sdk:csv:customresourcedefinitions:resources={{"SelfNodeRemediationTemplate","v1alpha1","selfnoderemediationtemplates"}}
+type SelfNodeRemediationTemplate struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   PoisonPillRemediationTemplateSpec   `json:"spec,omitempty"`
-	Status PoisonPillRemediationTemplateStatus `json:"status,omitempty"`
+	Spec   SelfNodeRemediationTemplateSpec   `json:"spec,omitempty"`
+	Status SelfNodeRemediationTemplateStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 
-// PoisonPillRemediationTemplateList contains a list of PoisonPillRemediationTemplate
-type PoisonPillRemediationTemplateList struct {
+// SelfNodeRemediationTemplateList contains a list of SelfNodeRemediationTemplate
+type SelfNodeRemediationTemplateList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []PoisonPillRemediationTemplate `json:"items"`
+	Items           []SelfNodeRemediationTemplate `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&PoisonPillRemediationTemplate{}, &PoisonPillRemediationTemplateList{})
+	SchemeBuilder.Register(&SelfNodeRemediationTemplate{}, &SelfNodeRemediationTemplateList{})
 }

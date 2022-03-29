@@ -1,10 +1,10 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: poison-pill-ds
+  name: self-node-ds
   namespace: {{.Namespace}}
   labels:
-    k8s-app: poison-pill
+    k8s-app: self-node
 spec:
   selector:
     matchLabels:
@@ -14,14 +14,14 @@ spec:
       creationTimestamp: null
       labels:
         control-plane: controller-manager
-        app: poison-pill-agent
+        app: self-node-agent
     spec:
       volumes:
         - name: devices
           hostPath:
             path: /dev
             type: Directory
-      serviceAccountName: poison-pill-controller-manager
+      serviceAccountName: self-node-controller-manager
       priorityClassName: system-node-critical
       hostPID: true
       containers:

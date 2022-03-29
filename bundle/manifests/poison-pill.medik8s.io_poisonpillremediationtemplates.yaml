@@ -4,24 +4,24 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.4.1
   creationTimestamp: null
-  name: poisonpillremediationtemplates.poison-pill.medik8s.io
+  name: selfnoderemediationtemplates.self-node.medik8s.io
 spec:
-  group: poison-pill.medik8s.io
+  group: self-node.medik8s.io
   names:
-    kind: PoisonPillRemediationTemplate
-    listKind: PoisonPillRemediationTemplateList
-    plural: poisonpillremediationtemplates
+    kind: SelfNodeRemediationTemplate
+    listKind: SelfNodeRemediationTemplateList
+    plural: selfnoderemediationtemplates
     shortNames:
     - pprt
     - ppremediationtemplate
     - pprtemplate
-    singular: poisonpillremediationtemplate
+    singular: selfnoderemediationtemplate
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: PoisonPillRemediationTemplate is the Schema for the poisonpillremediationtemplates
+        description: SelfNodeRemediationTemplate is the Schema for the selfnoderemediationtemplates
           API
         properties:
           apiVersion:
@@ -37,15 +37,15 @@ spec:
           metadata:
             type: object
           spec:
-            description: PoisonPillRemediationTemplateSpec defines the desired state
-              of PoisonPillRemediationTemplate
+            description: SelfNodeRemediationTemplateSpec defines the desired state
+              of SelfNodeRemediationTemplate
             properties:
               template:
-                description: Template defines the desired state of PoisonPillRemediationTemplate
+                description: Template defines the desired state of SelfNodeRemediationTemplate
                 properties:
                   spec:
-                    description: PoisonPillRemediationSpec defines the desired state
-                      of PoisonPillRemediation
+                    description: SelfNodeRemediationSpec defines the desired state
+                      of SelfNodeRemediation
                     properties:
                       remediationStrategy:
                         default: NodeDeletion
@@ -67,8 +67,8 @@ spec:
             - template
             type: object
           status:
-            description: PoisonPillRemediationTemplateStatus defines the observed
-              state of PoisonPillRemediationTemplate
+            description: SelfNodeRemediationTemplateStatus defines the observed
+              state of SelfNodeRemediationTemplate
             type: object
         type: object
     served: true

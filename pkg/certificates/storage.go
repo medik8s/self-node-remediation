@@ -32,7 +32,7 @@ func (m *MemoryCertStorage) GetCerts() (caPem, certPem, keyPem *bytes.Buffer, er
 }
 
 const (
-	secretName = "poison-pill-certificates"
+	secretName = "self-node-certificates"
 	caPemKey   = "caPem"
 	certPemKey = "certPem"
 	keyPemKey  = "keyPem"

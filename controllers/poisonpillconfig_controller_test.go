@@ -13,29 +13,29 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
+	selfnodev1alpha1 "github.com/medik8s/self-node/api/v1alpha1"
 )
 
 var _ = Describe("ppc controller Test", func() {
-	dsName := "poison-pill-ds"
+	dsName := "self-node-ds"
 
 	Context("DS installation", func() {
-		dummyPoisonPillImage := "poison-pill-image"
-		os.Setenv("POISON_PILL_IMAGE", dummyPoisonPillImage)
+		dummySelfNodeImage := "self-node-image"
+		os.Setenv("SELF_NODE_IMAGE", dummySelfNodeImage)
 
-		config := &poisonpillv1alpha1.PoisonPillConfig{}
-		config.Kind = "PoisonPillConfig"
-		config.APIVersion = "poison-pill.medik8s.io/v1alpha1"
+		config := &selfnodev1alpha1.SelfNodeConfig{}
+		config.Kind = "SelfNodeConfig"
+		config.APIVersion = "self-node.medik8s.io/v1alpha1"
 		config.Spec.WatchdogFilePath = "/dev/foo"
 		config.Spec.SafeTimeToAssumeNodeRebootedSeconds = 123
-		config.Name = poisonpillv1alpha1.ConfigCRName
+		config.Name = selfnodev1alpha1.ConfigCRName
 		config.Namespace = namespace
 
 		It("Config CR should be created", func() {
 			Expect(k8sClient).To(Not(BeNil()))
 			Expect(k8sClient.Create(context.Background(), config)).To(Succeed())
 
-			createdConfig := &poisonpillv1alpha1.PoisonPillConfig{}
+			createdConfig := &selfnodev1alpha1.SelfNodeConfig{}
 			configKey := client.ObjectKeyFromObject(config)
 
 			Eventually(func() error {
@@ -66,21 +66,21 @@ var _ = Describe("ppc controller Test", func() {
 			dsContainers := ds.Spec.Template.Spec.Containers
 			Expect(len(dsContainers)).To(BeNumerically("==", 1))
 			container := dsContainers[0]
-			Expect(container.Image).To(Equal(dummyPoisonPillImage))
+			Expect(container.Image).To(Equal(dummySelfNodeImage))
 			envVars := getEnvVarMap(container.Env)
 			Expect(envVars["WATCHDOG_PATH"].Value).To(Equal(config.Spec.WatchdogFilePath))
 			Expect(envVars["TIME_TO_ASSUME_NODE_REBOOTED"].Value).To(Equal("123"))
 
 			Expect(len(ds.OwnerReferences)).To(Equal(1))
 			Expect(ds.OwnerReferences[0].Name).To(Equal(config.Name))
-			Expect(ds.OwnerReferences[0].Kind).To(Equal("PoisonPillConfig"))
+			Expect(ds.OwnerReferences[0].Kind).To(Equal("SelfNodeConfig"))
 		})
 	})
 
 	Context("PPC defaults", func() {
-		config := &poisonpillv1alpha1.PoisonPillConfig{}
-		config.Kind = "PoisonPillConfig"
-		config.APIVersion = "poison-pill.medik8s.io/v1alpha1"
+		config := &selfnodev1alpha1.SelfNodeConfig{}
+		config.Kind = "SelfNodeConfig"
+		config.APIVersion = "self-node.medik8s.io/v1alpha1"
 		config.Name = "config-defaults"
 		config.Namespace = namespace
 
@@ -88,7 +88,7 @@ var _ = Describe("ppc controller Test", func() {
 			Expect(k8sClient).To(Not(BeNil()))
 			Expect(k8sClient.Create(context.Background(), config)).To(Succeed())
 
-			createdConfig := &poisonpillv1alpha1.PoisonPillConfig{}
+			createdConfig := &selfnodev1alpha1.SelfNodeConfig{}
 			configKey := client.ObjectKeyFromObject(config)
 
 			Eventually(func() error {
@@ -108,7 +108,7 @@ var _ = Describe("ppc controller Test", func() {
 		})
 	})
 
-	Context("Wrong poison pill config CR", func() {
+	Context("Wrong self node config CR", func() {
 		var dsResourceVersion string
 		var key types.NamespacedName
 		var ds *appsv1.DaemonSet
@@ -124,9 +124,9 @@ var _ = Describe("ppc controller Test", func() {
 			dsResourceVersion = ds.ResourceVersion
 
 			By("create a config CR")
-			config := &poisonpillv1alpha1.PoisonPillConfig{}
-			config.Kind = "PoisonPillConfig"
-			config.APIVersion = "poison-pill.medik8s.io/v1alpha1"
+			config := &selfnodev1alpha1.SelfNodeConfig{}
+			config.Kind = "SelfNodeConfig"
+			config.APIVersion = "self-node.medik8s.io/v1alpha1"
 			config.Name = "not-the-expected-name"
 			config.Spec.WatchdogFilePath = "foo"
 			config.Spec.SafeTimeToAssumeNodeRebootedSeconds = 9999

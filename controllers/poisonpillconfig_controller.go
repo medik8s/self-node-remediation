@@ -31,14 +31,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
-	"github.com/medik8s/poison-pill/pkg/apply"
-	"github.com/medik8s/poison-pill/pkg/certificates"
-	"github.com/medik8s/poison-pill/pkg/render"
+	selfnodev1alpha1 "github.com/medik8s/self-node/api/v1alpha1"
+	"github.com/medik8s/self-node/pkg/apply"
+	"github.com/medik8s/self-node/pkg/certificates"
+	"github.com/medik8s/self-node/pkg/render"
 )
 
-// PoisonPillConfigReconciler reconciles a PoisonPillConfig object
-type PoisonPillConfigReconciler struct {
+// SelfNodeConfigReconciler reconciles a SelfNodeConfig object
+type SelfNodeConfigReconciler struct {
 	client.Client
 	Log               logr.Logger
 	Scheme            *runtime.Scheme
@@ -47,25 +47,25 @@ type PoisonPillConfigReconciler struct {
 	Namespace         string
 }
 
-//+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillconfigs,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillconfigs/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=poison-pill.medik8s.io,resources=poisonpillconfigs/finalizers,verbs=update
+//+kubebuilder:rbac:groups=self-node.medik8s.io,resources=selfnodeconfigs,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=self-node.medik8s.io,resources=selfnodeconfigs/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=self-node.medik8s.io,resources=selfnodeconfigs/finalizers,verbs=update
 //+kubebuilder:rbac:groups="apps",resources=daemonsets,verbs=get;list;watch;update;patch;create;delete
 //+kubebuilder:rbac:groups="apps",resources=daemonsets/finalizers,verbs=update
 //+kubebuilder:rbac:groups="security.openshift.io",resources=securitycontextconstraints,verbs=use,resourceNames=privileged
 //+kubebuilder:rbac:groups=machine.openshift.io,resources=machines,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=machine.openshift.io,resources=machines/status,verbs=get;update;patch
 
-func (r *PoisonPillConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	logger := r.Log.WithValues("poisonpillconfig", req.NamespacedName)
+func (r *SelfNodeConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	logger := r.Log.WithValues("selfnodeconfig", req.NamespacedName)
 
-	if req.Name != poisonpillv1alpha1.ConfigCRName || req.Namespace != r.Namespace {
-		logger.Info(fmt.Sprintf("ignoring poisonpillconfig CRs that are not named '%s' or not in the namespace of the operator: '%s'",
-			poisonpillv1alpha1.ConfigCRName, r.Namespace))
+	if req.Name != selfnodev1alpha1.ConfigCRName || req.Namespace != r.Namespace {
+		logger.Info(fmt.Sprintf("ignoring selfnodeconfig CRs that are not named '%s' or not in the namespace of the operator: '%s'",
+			selfnodev1alpha1.ConfigCRName, r.Namespace))
 		return ctrl.Result{}, nil
 	}
 
-	config := &poisonpillv1alpha1.PoisonPillConfig{}
+	config := &selfnodev1alpha1.SelfNodeConfig{}
 	if err := r.Client.Get(context.Background(), req.NamespacedName, config); err != nil {
 		if errors.IsNotFound(err) {
 			err := r.DefaultPpcCreator(r.Client)
@@ -89,19 +89,19 @@ func (r *PoisonPillConfigReconciler) Reconcile(ctx context.Context, req ctrl.Req
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *PoisonPillConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *SelfNodeConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&poisonpillv1alpha1.PoisonPillConfig{}).
+		For(&selfnodev1alpha1.SelfNodeConfig{}).
 		Owns(&v1.DaemonSet{}).
 		Complete(r)
 }
 
-func (r *PoisonPillConfigReconciler) syncConfigDaemonSet(ppc *poisonpillv1alpha1.PoisonPillConfig) error {
+func (r *SelfNodeConfigReconciler) syncConfigDaemonSet(ppc *selfnodev1alpha1.SelfNodeConfig) error {
 	logger := r.Log.WithName("syncConfigDaemonset")
 	logger.Info("Start to sync config daemonset")
 
 	data := render.MakeRenderData()
-	data.Data["Image"] = os.Getenv("POISON_PILL_IMAGE")
+	data.Data["Image"] = os.Getenv("SELF_NODE_IMAGE")
 	data.Data["Namespace"] = ppc.Namespace
 
 	watchdogPath := ppc.Spec.WatchdogFilePath
@@ -135,14 +135,14 @@ func (r *PoisonPillConfigReconciler) syncConfigDaemonSet(ppc *poisonpillv1alpha1
 	for _, obj := range objs {
 		err = r.syncK8sResource(ppc, obj)
 		if err != nil {
-			logger.Error(err, "Couldn't sync poison-pill daemons objects")
+			logger.Error(err, "Couldn't sync self-node daemons objects")
 			return err
 		}
 	}
 	return nil
 }
 
-func (r *PoisonPillConfigReconciler) syncK8sResource(cr *poisonpillv1alpha1.PoisonPillConfig, in *unstructured.Unstructured) error {
+func (r *SelfNodeConfigReconciler) syncK8sResource(cr *selfnodev1alpha1.SelfNodeConfig, in *unstructured.Unstructured) error {
 	// set owner-reference only for namespaced objects
 	if in.GetKind() != "ClusterRole" && in.GetKind() != "ClusterRoleBinding" {
 		if err := controllerutil.SetControllerReference(cr, in, r.Scheme); err != nil {
@@ -156,7 +156,7 @@ func (r *PoisonPillConfigReconciler) syncK8sResource(cr *poisonpillv1alpha1.Pois
 	return nil
 }
 
-func (r *PoisonPillConfigReconciler) syncCerts(cr *poisonpillv1alpha1.PoisonPillConfig) error {
+func (r *SelfNodeConfigReconciler) syncCerts(cr *selfnodev1alpha1.SelfNodeConfig) error {
 
 	r.Log.Info("Syncing certs")
 	// check if certs exists already

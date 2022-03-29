@@ -150,12 +150,12 @@ func file_pkg_peerhealth_peerhealth_proto_rawDescGZIP() []byte {
 
 var file_pkg_peerhealth_peerhealth_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_pkg_peerhealth_peerhealth_proto_goTypes = []interface{}{
-	(*HealthRequest)(nil),  // 0: poisonpill.health.HealthRequest
-	(*HealthResponse)(nil), // 1: poisonpill.health.HealthResponse
+	(*HealthRequest)(nil),  // 0: selfnode.health.HealthRequest
+	(*HealthResponse)(nil), // 1: selfnode.health.HealthResponse
 }
 var file_pkg_peerhealth_peerhealth_proto_depIdxs = []int32{
-	0, // 0: poisonpill.health.PeerHealth.IsHealthy:input_type -> poisonpill.health.HealthRequest
-	1, // 1: poisonpill.health.PeerHealth.IsHealthy:output_type -> poisonpill.health.HealthResponse
+	0, // 0: selfnode.health.PeerHealth.IsHealthy:input_type -> selfnode.health.HealthRequest
+	1, // 1: selfnode.health.PeerHealth.IsHealthy:output_type -> selfnode.health.HealthResponse
 	1, // [1:2] is the sub-list for method output_type
 	0, // [0:1] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name

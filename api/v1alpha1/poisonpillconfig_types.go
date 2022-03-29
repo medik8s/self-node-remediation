@@ -24,15 +24,15 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 const (
-	ConfigCRName                          = "poison-pill-config"
-	templateCRName                        = "poison-pill-default-template"
+	ConfigCRName                          = "self-node-config"
+	templateCRName                        = "self-node-default-template"
 	defaultWatchdogPath                   = "/dev/watchdog"
 	defaultSafetToAssumeNodeRebootTimeout = 180
 	defaultIsSoftwareRebootEnabled        = true
 )
 
-// PoisonPillConfigSpec defines the desired state of PoisonPillConfig
-type PoisonPillConfigSpec struct {
+// SelfNodeConfigSpec defines the desired state of SelfNodeConfig
+type SelfNodeConfigSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
@@ -40,7 +40,7 @@ type PoisonPillConfigSpec struct {
 	// +kubebuilder:default=/dev/watchdog
 	WatchdogFilePath string `json:"watchdogFilePath,omitempty"`
 
-	// SafeTimeToAssumeNodeRebootedSeconds is the time after which the healthy poison pill
+	// SafeTimeToAssumeNodeRebootedSeconds is the time after which the healthy self node
 	// agents will assume the unhealthy node has been rebooted and it is safe to remove the node
 	// from the cluster. This is extremely important. Deleting a node while the workload is still
 	// running there might lead to data corruption and violation of run-once semantic.
@@ -101,15 +101,15 @@ type PoisonPillConfigSpec struct {
 	// after this threshold, the node will start contacting its peers
 	MaxApiErrorThreshold int `json:"maxApiErrorThreshold,omitempty"`
 
-	// IsSoftwareRebootEnabled indicates whether poison pill agent will do software reboot,
+	// IsSoftwareRebootEnabled indicates whether self node agent will do software reboot,
 	// if the watchdog device can not be used or will use watchdog only,
 	// without a fallback to software reboot
 	// +kubebuilder:default=true
 	IsSoftwareRebootEnabled bool `json:"isSoftwareRebootEnabled,omitempty"`
 }
 
-// PoisonPillConfigStatus defines the observed state of PoisonPillConfig
-type PoisonPillConfigStatus struct {
+// SelfNodeConfigStatus defines the observed state of SelfNodeConfig
+type SelfNodeConfigStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 }
@@ -118,33 +118,33 @@ type PoisonPillConfigStatus struct {
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:shortName=ppc;ppconfig
 
-// PoisonPillConfig is the Schema for the poisonpillconfigs API in which a user can configure the poison pill agents
-// +operator-sdk:csv:customresourcedefinitions:resources={{"PoisonPillConfig","v1alpha1","poisonpillconfigs"}}
-type PoisonPillConfig struct {
+// SelfNodeConfig is the Schema for the selfnodeconfigs API in which a user can configure the self node agents
+// +operator-sdk:csv:customresourcedefinitions:resources={{"SelfNodeConfig","v1alpha1","selfnodeconfigs"}}
+type SelfNodeConfig struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   PoisonPillConfigSpec   `json:"spec,omitempty"`
-	Status PoisonPillConfigStatus `json:"status,omitempty"`
+	Spec   SelfNodeConfigSpec   `json:"spec,omitempty"`
+	Status SelfNodeConfigStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 
-// PoisonPillConfigList contains a list of PoisonPillConfig
-type PoisonPillConfigList struct {
+// SelfNodeConfigList contains a list of SelfNodeConfig
+type SelfNodeConfigList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []PoisonPillConfig `json:"items"`
+	Items           []SelfNodeConfig `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&PoisonPillConfig{}, &PoisonPillConfigList{})
+	SchemeBuilder.Register(&SelfNodeConfig{}, &SelfNodeConfigList{})
 }
 
-func NewDefaultPoisonPillConfig() PoisonPillConfig {
-	return PoisonPillConfig{
+func NewDefaultSelfNodeConfig() SelfNodeConfig {
+	return SelfNodeConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: ConfigCRName},
-		Spec: PoisonPillConfigSpec{
+		Spec: SelfNodeConfigSpec{
 			WatchdogFilePath:                    defaultWatchdogPath,
 			SafeTimeToAssumeNodeRebootedSeconds: defaultSafetToAssumeNodeRebootTimeout,
 			IsSoftwareRebootEnabled:             defaultIsSoftwareRebootEnabled,
@@ -152,9 +152,9 @@ func NewDefaultPoisonPillConfig() PoisonPillConfig {
 	}
 }
 
-func NewDefaultRemediationTemplate() PoisonPillRemediationTemplate {
-	return PoisonPillRemediationTemplate{
+func NewDefaultRemediationTemplate() SelfNodeRemediationTemplate {
+	return SelfNodeRemediationTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: templateCRName},
-		Spec:       PoisonPillRemediationTemplateSpec{Template: PoisonPillRemediationTemplateResource{Spec: PoisonPillRemediationSpec{}}},
+		Spec:       SelfNodeRemediationTemplateSpec{Template: SelfNodeRemediationTemplateResource{Spec: SelfNodeRemediationSpec{}}},
 	}
 }

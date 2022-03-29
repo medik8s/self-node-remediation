@@ -31,8 +31,8 @@ const (
 
 type RemediationStrategyType string
 
-// PoisonPillRemediationSpec defines the desired state of PoisonPillRemediation
-type PoisonPillRemediationSpec struct {
+// SelfNodeRemediationSpec defines the desired state of SelfNodeRemediation
+type SelfNodeRemediationSpec struct {
 	//RemediationStrategy is the remediation method for unhealthy nodes
 	//could be either "NodeDeletion" or "ResourceDeletion"
 	//the first will delete the node to signal to the cluster that the node was fenced
@@ -42,8 +42,8 @@ type PoisonPillRemediationSpec struct {
 	RemediationStrategy RemediationStrategyType `json:"remediationStrategy,omitempty"`
 }
 
-// PoisonPillRemediationStatus defines the observed state of PoisonPillRemediation
-type PoisonPillRemediationStatus struct {
+// SelfNodeRemediationStatus defines the observed state of SelfNodeRemediation
+type SelfNodeRemediationStatus struct {
 	//NodeBackup is the node object that is going to be deleted as part of the remediation process
 	// +optional
 	// +kubebuilder:validation:EmbeddedResource
@@ -68,25 +68,25 @@ type PoisonPillRemediationStatus struct {
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:shortName=ppr;ppremediation
 
-// PoisonPillRemediation is the Schema for the poisonpillremediations API
-// +operator-sdk:csv:customresourcedefinitions:resources={{"PoisonPillRemediation","v1alpha1","poisonpillremediations"}}
-type PoisonPillRemediation struct {
+// SelfNodeRemediation is the Schema for the selfnoderemediations API
+// +operator-sdk:csv:customresourcedefinitions:resources={{"SelfNodeRemediation","v1alpha1","selfnoderemediations"}}
+type SelfNodeRemediation struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   PoisonPillRemediationSpec   `json:"spec,omitempty"`
-	Status PoisonPillRemediationStatus `json:"status,omitempty"`
+	Spec   SelfNodeRemediationSpec   `json:"spec,omitempty"`
+	Status SelfNodeRemediationStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 
-// PoisonPillRemediationList contains a list of PoisonPillRemediation
-type PoisonPillRemediationList struct {
+// SelfNodeRemediationList contains a list of SelfNodeRemediation
+type SelfNodeRemediationList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []PoisonPillRemediation `json:"items"`
+	Items           []SelfNodeRemediation `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&PoisonPillRemediation{}, &PoisonPillRemediationList{})
+	SchemeBuilder.Register(&SelfNodeRemediation{}, &SelfNodeRemediationList{})
 }

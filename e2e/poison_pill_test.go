@@ -21,8 +21,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/medik8s/poison-pill/api/v1alpha1"
-	"github.com/medik8s/poison-pill/e2e/utils"
+	"github.com/medik8s/self-node/api/v1alpha1"
+	"github.com/medik8s/self-node/e2e/utils"
 )
 
 const (
@@ -32,7 +32,7 @@ const (
 	reconnectInterval = 300 * time.Second
 )
 
-var _ = Describe("Poison Pill E2E", func() {
+var _ = Describe("Self Node E2E", func() {
 
 	var node *v1.Node
 	workers := &v1.NodeList{}
@@ -74,12 +74,12 @@ var _ = Describe("Poison Pill E2E", func() {
 	})
 
 	JustAfterEach(func() {
-		By("printing poison pill log of healthy node")
+		By("printing self node log of healthy node")
 		healthyNode := &workers.Items[1]
 		pod := findPPPod(healthyNode)
 		logs, err := utils.GetLogs(k8sClientSet, pod)
 		Expect(err).ToNot(HaveOccurred())
-		logger.Info("logs of healthy poison-pill pod", "logs", logs)
+		logger.Info("logs of healthy self-node pod", "logs", logs)
 	})
 
 	Describe("With API connectivity", func() {
@@ -89,7 +89,7 @@ var _ = Describe("Poison Pill E2E", func() {
 			// - node should reboot
 			// - node should be deleted and re-created
 
-			var ppr *v1alpha1.PoisonPillRemediation
+			var ppr *v1alpha1.SelfNodeRemediation
 			var remediationStrategy v1alpha1.RemediationStrategyType
 			JustBeforeEach(func() {
 				ppr = createPPR(node, remediationStrategy)
@@ -169,7 +169,7 @@ var _ = Describe("Poison Pill E2E", func() {
 			//    - create PPR
 			//    - verify node does reboot and and is deleted / re-created
 
-			var ppr *v1alpha1.PoisonPillRemediation
+			var ppr *v1alpha1.SelfNodeRemediation
 
 			BeforeEach(func() {
 				killApiConnection(node, apiIPs, false)
@@ -299,14 +299,14 @@ func checkPodRecreated(node *v1.Node, oldPodCreationTime time.Time) bool {
 	}, 7*time.Minute, 10*time.Second).Should(BeTemporally(">", oldPodCreationTime))
 }
 
-func createPPR(node *v1.Node, remediationStrategy v1alpha1.RemediationStrategyType) *v1alpha1.PoisonPillRemediation {
+func createPPR(node *v1.Node, remediationStrategy v1alpha1.RemediationStrategyType) *v1alpha1.SelfNodeRemediation {
 	By("creating a PPR")
-	ppr := &v1alpha1.PoisonPillRemediation{
+	ppr := &v1alpha1.SelfNodeRemediation{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      node.GetName(),
 			Namespace: testNamespace,
 		},
-		Spec: v1alpha1.PoisonPillRemediationSpec{
+		Spec: v1alpha1.SelfNodeRemediationSpec{
 			RemediationStrategy: remediationStrategy,
 		},
 	}
@@ -474,7 +474,7 @@ func findPPPod(node *v1.Node) *v1.Pod {
 		}
 		for i := range pods.Items {
 			pod := pods.Items[i]
-			if strings.HasPrefix(pod.GetName(), "poison-pill-ds") && pod.Spec.NodeName == node.GetName() {
+			if strings.HasPrefix(pod.GetName(), "self-node-ds") && pod.Spec.NodeName == node.GetName() {
 				ppPod = &pod
 				return true
 			}

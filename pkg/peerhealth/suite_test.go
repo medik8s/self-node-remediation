@@ -19,8 +19,8 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
-	"github.com/medik8s/poison-pill/controllers"
+	selfnodev1alpha1 "github.com/medik8s/self-node/api/v1alpha1"
+	"github.com/medik8s/self-node/controllers"
 )
 
 func TestPeerHealth(t *testing.T) {
@@ -35,7 +35,7 @@ const nodeName = "somenode"
 var cfg *rest.Config
 var k8sClient client.Client
 var testEnv *envtest.Environment
-var pprr *controllers.PoisonPillRemediationReconciler
+var pprr *controllers.SelfNodeRemediationReconciler
 
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
@@ -52,7 +52,7 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
-	err = poisonpillv1alpha1.AddToScheme(scheme.Scheme)
+	err = selfnodev1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme
@@ -73,9 +73,9 @@ var _ = BeforeSuite(func() {
 	Expect(k8sClient).ToNot(BeNil())
 
 	// we need a reconciler for getting last PPR namespace
-	pprr = &controllers.PoisonPillRemediationReconciler{
+	pprr = &controllers.SelfNodeRemediationReconciler{
 		Client:     k8sClient,
-		Log:        ctrl.Log.WithName("controllers").WithName("poison-pill-controller").WithName("peer node"),
+		Log:        ctrl.Log.WithName("controllers").WithName("self-node-controller").WithName("peer node"),
 		MyNodeName: nodeName,
 	}
 	err = pprr.SetupWithManager(k8sManager)
