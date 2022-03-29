@@ -2,7 +2,7 @@
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: poisonpillconfigs.poison-pill.medik8s.io
+  name: selfnoderemediationconfigs.self-node-remediation.medik8s.io
 spec:
   conversion:
     strategy: Webhook

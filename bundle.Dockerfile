@@ -4,7 +4,7 @@ FROM scratch
 LABEL operators.operatorframework.io.bundle.mediatype.v1=registry+v1
 LABEL operators.operatorframework.io.bundle.manifests.v1=manifests/
 LABEL operators.operatorframework.io.bundle.metadata.v1=metadata/
-LABEL operators.operatorframework.io.bundle.package.v1=poison-pill
+LABEL operators.operatorframework.io.bundle.package.v1=self-node-remediation
 LABEL operators.operatorframework.io.bundle.channels.v1=stable
 LABEL operators.operatorframework.io.metrics.builder=operator-sdk-v1.16.0+git
 LABEL operators.operatorframework.io.metrics.mediatype.v1=metrics+v1

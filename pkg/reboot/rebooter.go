@@ -4,7 +4,7 @@ import (
 	"os/exec"
 
 	"github.com/go-logr/logr"
-	"github.com/medik8s/poison-pill/pkg/watchdog"
+	"github.com/medik8s/self-node-remediation/pkg/watchdog"
 )
 
 type Rebooter interface {

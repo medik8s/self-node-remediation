@@ -4,4 +4,4 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: $(CERTIFICATE_NAMESPACE)/$(CERTIFICATE_NAME)
-  name: poisonpillconfigs.poison-pill.medik8s.io
+  name: selfnoderemediationconfigs.self-node-remediation.medik8s.io

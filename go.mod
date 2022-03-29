@@ -1,4 +1,4 @@
-module github.com/medik8s/poison-pill
+module github.com/medik8s/self-node-remediation
 
 go 1.16
 

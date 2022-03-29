@@ -1,5 +1,5 @@
-apiVersion: poison-pill.medik8s.io/v1alpha1
-kind: PoisonPillRemediation
+apiVersion: self-node-remediation.medik8s.io/v1alpha1
+kind: SelfNodeRemediation
 metadata:
-  name: poisonpillremediation-sample
+  name: selfnoderemediation-sample
 spec: {}

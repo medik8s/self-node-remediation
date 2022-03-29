@@ -37,13 +37,13 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	poisonpillv1alpha1 "github.com/medik8s/poison-pill/api/v1alpha1"
-	"github.com/medik8s/poison-pill/controllers"
-	"github.com/medik8s/poison-pill/pkg/apicheck"
-	"github.com/medik8s/poison-pill/pkg/certificates"
-	"github.com/medik8s/poison-pill/pkg/peers"
-	"github.com/medik8s/poison-pill/pkg/reboot"
-	"github.com/medik8s/poison-pill/pkg/watchdog"
+	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/controllers"
+	"github.com/medik8s/self-node-remediation/pkg/apicheck"
+	"github.com/medik8s/self-node-remediation/pkg/certificates"
+	"github.com/medik8s/self-node-remediation/pkg/peers"
+	"github.com/medik8s/self-node-remediation/pkg/reboot"
+	"github.com/medik8s/self-node-remediation/pkg/watchdog"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -76,7 +76,7 @@ const (
 	apiCheckInterval   = 1 * time.Second
 	maxErrorThreshold  = 1
 
-	namespace         = "poison-pill"
+	namespace         = "self-node-remediation"
 	unhealthyNodeName = "node1"
 	peerNodeName      = "node2"
 )
@@ -125,7 +125,7 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
-	err = poisonpillv1alpha1.AddToScheme(scheme.Scheme)
+	err = selfnoderemediationv1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme
@@ -151,9 +151,9 @@ var _ = BeforeSuite(func() {
 
 	Expect(k8sClient.Create(context.Background(), nsToCreate)).To(Succeed())
 
-	err = (&controllers.PoisonPillConfigReconciler{
+	err = (&controllers.SelfNodeRemediationConfigReconciler{
 		Client:            k8sManager.GetClient(),
-		Log:               ctrl.Log.WithName("controllers").WithName("poison-pill-config-controller"),
+		Log:               ctrl.Log.WithName("controllers").WithName("self-node-remediation-config-controller"),
 		InstallFileFolder: "../install/",
 		Scheme:            scheme.Scheme,
 		Namespace:         namespace,
@@ -199,9 +199,9 @@ var _ = BeforeSuite(func() {
 	restoreNodeAfter := 5 * time.Second
 
 	// reconciler for unhealthy node
-	err = (&controllers.PoisonPillRemediationReconciler{
+	err = (&controllers.SelfNodeRemediationReconciler{
 		Client:                       k8sClient,
-		Log:                          ctrl.Log.WithName("controllers").WithName("poison-pill-controller").WithName("unhealthy node"),
+		Log:                          ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("unhealthy node"),
 		Rebooter:                     rebooter,
 		SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
 		MyNodeName:                   unhealthyNodeName,
@@ -210,9 +210,9 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	// reconciler for peer node
-	err = (&controllers.PoisonPillRemediationReconciler{
+	err = (&controllers.SelfNodeRemediationReconciler{
 		Client:                       k8sClient,
-		Log:                          ctrl.Log.WithName("controllers").WithName("poison-pill-controller").WithName("peer node"),
+		Log:                          ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
 		SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
 		MyNodeName:                   peerNodeName,
 		RestoreNodeAfter:             restoreNodeAfter,

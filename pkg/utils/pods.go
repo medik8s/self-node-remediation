@@ -9,11 +9,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func GetPoisonPillAgentPod(nodeName string, r client.Reader) (*v1.Pod, error) {
+func GetSelfNodeRemediationAgentPod(nodeName string, r client.Reader) (*v1.Pod, error) {
 	podList := &v1.PodList{}
 
 	selector := labels.NewSelector()
-	requirement, _ := labels.NewRequirement("app", selection.Equals, []string{"poison-pill-agent"})
+	requirement, _ := labels.NewRequirement("app", selection.Equals, []string{"self-node-remediation-agent"})
 	selector = selector.Add(*requirement)
 
 	err := r.List(context.Background(), podList, &client.ListOptions{LabelSelector: selector})
@@ -27,5 +27,5 @@ func GetPoisonPillAgentPod(nodeName string, r client.Reader) (*v1.Pod, error) {
 		}
 	}
 
-	return nil, errors.New("failed to find poison pill pod matching the given node")
+	return nil, errors.New("failed to find self node remediation pod matching the given node")
 }

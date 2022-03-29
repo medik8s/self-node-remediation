@@ -34,10 +34,10 @@ BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 
 # BUNDLE_IMG defines the image:tag used for the bundle. 
 # You can use it as an arg. (E.g make bundle-build BUNDLE_IMG=<some-registry>/<project-name-bundle>:<tag>)
-BUNDLE_IMG ?= quay.io/medik8s/poison-pill-operator-bundle:$(VERSION)
+BUNDLE_IMG ?= quay.io/medik8s/self-node-remediation-operator-bundle:$(VERSION)
 
 # Image URL to use all building/pushing image targets
-IMG ?= quay.io/medik8s/poison-pill-operator:$(VERSION)
+IMG ?= quay.io/medik8s/self-node-remediation-operator:$(VERSION)
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd:trivialVersions=true,preserveUnknownFields=false"
 
@@ -164,7 +164,7 @@ endef
 bundle: manifests operator-sdk kustomize
 	$(OPERATOR_SDK) generate kustomize manifests -q
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
-	sed -r -i "s|createdAt: \".*\"|createdAt: \"`date "+%Y-%m-%d %T" `\"|;" ./config/manifests/bases/poison-pill.clusterserviceversion.yaml
+	sed -r -i "s|createdAt: \".*\"|createdAt: \"`date "+%Y-%m-%d %T" `\"|;" ./config/manifests/bases/self-node-remediation.clusterserviceversion.yaml
 	$(KUSTOMIZE) build config/manifests | envsubst | $(OPERATOR_SDK) generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
 	$(OPERATOR_SDK) bundle validate ./bundle
 
