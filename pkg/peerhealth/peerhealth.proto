@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package poisonpill.health;
+option go_package = "pkg/peerhealth";
+
+service PeerHealth {
+  rpc IsHealthy(HealthRequest) returns (HealthResponse) {}
+}
+
+message HealthRequest {
+  string nodeName = 1;
+}
+
+message HealthResponse {
+  int32 status = 1;
+}

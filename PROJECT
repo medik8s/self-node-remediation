@@ -1,0 +1,35 @@
+domain: medik8s.io
+layout: go.kubebuilder.io/v3
+plugins:
+  manifests.sdk.operatorframework.io/v2: {}
+  scorecard.sdk.operatorframework.io/v2: {}
+projectName: poison-pill
+repo: github.com/medik8s/poison-pill
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: medik8s.io
+  group: poison-pill
+  kind: PoisonPillRemediation
+  path: github.com/medik8s/poison-pill/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: medik8s.io
+  group: poison-pill
+  kind: PoisonPillRemediationTemplate
+  path: github.com/medik8s/poison-pill/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: medik8s.io
+  group: poison-pill
+  kind: PoisonPillConfig
+  path: github.com/medik8s/poison-pill/api/v1alpha1
+  version: v1alpha1
+version: "3"
