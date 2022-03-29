@@ -20,8 +20,8 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: SelfNodeConfig is the Schema for the selfnodeconfigs API
-          in which a user can configure the self node agents
+        description: SelfNodeConfig is the Schema for the selfnodeconfigs API in which
+          a user can configure the self node agents
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -53,9 +53,9 @@ spec:
                 type: string
               isSoftwareRebootEnabled:
                 default: true
-                description: IsSoftwareRebootEnabled indicates whether self node
-                  agent will do software reboot, if the watchdog device can not be
-                  used or will use watchdog only, without a fallback to software reboot
+                description: IsSoftwareRebootEnabled indicates whether self node agent
+                  will do software reboot, if the watchdog device can not be used
+                  or will use watchdog only, without a fallback to software reboot
                 type: boolean
               maxApiErrorThreshold:
                 default: 3
