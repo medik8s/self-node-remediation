@@ -21,8 +21,8 @@ limitations under the License.
 package v1alpha1
 
 import (
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -117,32 +117,32 @@ func (in *SelfNodeRemediationConfigSpec) DeepCopyInto(out *SelfNodeRemediationCo
 	*out = *in
 	if in.PeerApiServerTimeout != nil {
 		in, out := &in.PeerApiServerTimeout, &out.PeerApiServerTimeout
-		*out = new(v1.Duration)
+		*out = new(metav1.Duration)
 		**out = **in
 	}
 	if in.ApiCheckInterval != nil {
 		in, out := &in.ApiCheckInterval, &out.ApiCheckInterval
-		*out = new(v1.Duration)
+		*out = new(metav1.Duration)
 		**out = **in
 	}
 	if in.PeerUpdateInterval != nil {
 		in, out := &in.PeerUpdateInterval, &out.PeerUpdateInterval
-		*out = new(v1.Duration)
+		*out = new(metav1.Duration)
 		**out = **in
 	}
 	if in.ApiServerTimeout != nil {
 		in, out := &in.ApiServerTimeout, &out.ApiServerTimeout
-		*out = new(v1.Duration)
+		*out = new(metav1.Duration)
 		**out = **in
 	}
 	if in.PeerDialTimeout != nil {
 		in, out := &in.PeerDialTimeout, &out.PeerDialTimeout
-		*out = new(v1.Duration)
+		*out = new(metav1.Duration)
 		**out = **in
 	}
 	if in.PeerRequestTimeout != nil {
 		in, out := &in.PeerRequestTimeout, &out.PeerRequestTimeout
-		*out = new(v1.Duration)
+		*out = new(metav1.Duration)
 		**out = **in
 	}
 }
@@ -224,7 +224,7 @@ func (in *SelfNodeRemediationStatus) DeepCopyInto(out *SelfNodeRemediationStatus
 	*out = *in
 	if in.NodeBackup != nil {
 		in, out := &in.NodeBackup, &out.NodeBackup
-		*out = new(corev1.Node)
+		*out = new(v1.Node)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.TimeAssumedRebooted != nil {

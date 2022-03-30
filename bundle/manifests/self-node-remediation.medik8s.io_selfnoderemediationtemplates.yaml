@@ -67,8 +67,8 @@ spec:
             - template
             type: object
           status:
-            description: SelfNodeRemediationTemplateStatus defines the observed
-              state of SelfNodeRemediationTemplate
+            description: SelfNodeRemediationTemplateStatus defines the observed state
+              of SelfNodeRemediationTemplate
             type: object
         type: object
     served: true
