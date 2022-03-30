@@ -51,8 +51,7 @@ spec:
                 type: string
             type: object
           status:
-            description: SelfNodeRemediationStatus defines the observed state of
-              SelfNodeRemediation
+            description: SelfNodeRemediationStatus defines the observed state of SelfNodeRemediation
             properties:
               nodeBackup:
                 description: NodeBackup is the node object that is going to be deleted

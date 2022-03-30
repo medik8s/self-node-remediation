@@ -80,6 +80,14 @@ rules:
   - patch
   - update
 - apiGroups:
+  - security.openshift.io
+  resourceNames:
+  - privileged
+  resources:
+  - securitycontextconstraints
+  verbs:
+  - use
+- apiGroups:
   - self-node-remediation.medik8s.io
   resources:
   - selfnoderemediationconfigs
@@ -157,14 +165,6 @@ rules:
   - get
   - patch
   - update
-- apiGroups:
-  - security.openshift.io
-  resourceNames:
-  - privileged
-  resources:
-  - securitycontextconstraints
-  verbs:
-  - use
 - apiGroups:
   - storage.k8s.io
   resources:
