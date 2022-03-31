@@ -1,0 +1,13 @@
+filters:
+  .*:
+    approvers:
+    - mshitrit
+    - slintes
+    - razo7
+    - beekhof
+    reviewers:
+    - mshitrit
+    - slintes
+    - razo7
+    - beekhof
+options: {}
