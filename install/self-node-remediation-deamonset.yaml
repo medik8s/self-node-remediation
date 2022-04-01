@@ -70,7 +70,7 @@ spec:
         ports:
         - containerPort: 30001
           hostPort: 30001
-          name: p-pill-port
+          name: self-n-r-port
           protocol: TCP
         resources:
           requests:
