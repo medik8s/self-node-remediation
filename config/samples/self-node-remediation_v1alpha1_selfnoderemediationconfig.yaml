@@ -1,0 +1,7 @@
+apiVersion: self-node-remediation.medik8s.io/v1alpha1
+kind: SelfNodeRemediationConfig
+metadata:
+  name: self-node-remediation-config
+  namespace: self-node-remediation
+spec: {}
+  # Add fields here

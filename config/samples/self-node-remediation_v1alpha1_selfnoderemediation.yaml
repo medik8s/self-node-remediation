@@ -1,0 +1,5 @@
+apiVersion: self-node-remediation.medik8s.io/v1alpha1
+kind: SelfNodeRemediation
+metadata:
+  name: selfnoderemediation-sample
+spec: {}

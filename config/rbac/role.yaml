@@ -1,0 +1,178 @@
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: manager-role
+rules:
+- apiGroups:
+  - apps
+  resources:
+  - daemonsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - daemonsets/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - delete
+  - deletecollection
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - machine.openshift.io
+  resources:
+  - machines
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - machine.openshift.io
+  resources:
+  - machines/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - security.openshift.io
+  resourceNames:
+  - privileged
+  resources:
+  - securitycontextconstraints
+  verbs:
+  - use
+- apiGroups:
+  - self-node-remediation.medik8s.io
+  resources:
+  - selfnoderemediationconfigs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - self-node-remediation.medik8s.io
+  resources:
+  - selfnoderemediationconfigs/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - self-node-remediation.medik8s.io
+  resources:
+  - selfnoderemediationconfigs/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - self-node-remediation.medik8s.io
+  resources:
+  - selfnoderemediations
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - self-node-remediation.medik8s.io
+  resources:
+  - selfnoderemediations/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - self-node-remediation.medik8s.io
+  resources:
+  - selfnoderemediations/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - self-node-remediation.medik8s.io
+  resources:
+  - selfnoderemediationtemplates
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - self-node-remediation.medik8s.io
+  resources:
+  - selfnoderemediationtemplates/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - self-node-remediation.medik8s.io
+  resources:
+  - selfnoderemediationtemplates/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - storage.k8s.io
+  resources:
+  - volumeattachments
+  verbs:
+  - delete
+  - deletecollection
+  - get
+  - list
+  - update
+  - watch

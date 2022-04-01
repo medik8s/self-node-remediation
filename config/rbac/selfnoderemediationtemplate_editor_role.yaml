@@ -1,0 +1,24 @@
+# permissions for end users to edit selfnoderemediationtemplates.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: selfnoderemediationtemplate-editor-role
+rules:
+- apiGroups:
+  - self-node-remediation.medik8s.io
+  resources:
+  - selfnoderemediationtemplates
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - self-node-remediation.medik8s.io
+  resources:
+  - selfnoderemediationtemplates/status
+  verbs:
+  - get

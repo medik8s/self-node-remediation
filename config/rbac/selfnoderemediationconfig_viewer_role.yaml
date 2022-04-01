@@ -1,0 +1,20 @@
+# permissions for end users to view selfnoderemediationconfigs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: selfnoderemediationconfig-viewer-role
+rules:
+- apiGroups:
+  - self-node-remediation.medik8s.io
+  resources:
+  - selfnoderemediationconfigs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - self-node-remediation.medik8s.io
+  resources:
+  - selfnoderemediationconfigs/status
+  verbs:
+  - get
