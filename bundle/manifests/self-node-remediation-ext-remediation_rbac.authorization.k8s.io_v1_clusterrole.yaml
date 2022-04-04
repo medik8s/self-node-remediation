@@ -4,6 +4,7 @@ metadata:
   creationTimestamp: null
   labels:
     rbac.ext-remediation/aggregate-to-ext-remediation: "true"
+    self-node-remediation-operator: ""
   name: self-node-remediation-ext-remediation
 rules:
 - apiGroups:

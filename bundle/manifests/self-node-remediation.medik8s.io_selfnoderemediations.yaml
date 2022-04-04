@@ -4,6 +4,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.4.1
   creationTimestamp: null
+  labels:
+    self-node-remediation-operator: ""
   name: selfnoderemediations.self-node-remediation.medik8s.io
 spec:
   group: self-node-remediation.medik8s.io

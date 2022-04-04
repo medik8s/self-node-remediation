@@ -37,7 +37,7 @@ metadata:
     capabilities: Basic Install
     categories: OpenShift Optional
     containerImage: quay.io/medik8s/self-node-remediation-operator:0.1.3
-    createdAt: "2022-03-30 11:31:20"
+    createdAt: "2022-04-04 12:42:48"
     olm.skipRange: '>=0.1.0 <0.3.0'
     operators.openshift.io/infrastructure-features: '["disconnected"]'
     operators.operatorframework.io/builder: operator-sdk-v1.16.0+git
@@ -306,11 +306,13 @@ spec:
           selector:
             matchLabels:
               control-plane: controller-manager
+              self-node-remediation-operator: ""
           strategy: {}
           template:
             metadata:
               labels:
                 control-plane: controller-manager
+                self-node-remediation-operator: ""
             spec:
               containers:
               - args:

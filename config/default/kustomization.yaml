@@ -9,8 +9,8 @@ namespace: self-node-remediation
 namePrefix: self-node-remediation-
 
 # Labels to add to all resources and selectors.
-#commonLabels:
-#  someName: someValue
+commonLabels:
+  self-node-remediation-operator: ""
 
 bases:
 - ../crd
