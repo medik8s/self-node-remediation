@@ -4,6 +4,7 @@ metadata:
   creationTimestamp: null
   labels:
     control-plane: controller-manager
+    self-node-remediation-operator: ""
   name: self-node-remediation-controller-manager-metrics-service
 spec:
   ports:
@@ -12,5 +13,6 @@ spec:
     targetPort: https
   selector:
     control-plane: controller-manager
+    self-node-remediation-operator: ""
 status:
   loadBalancer: {}
