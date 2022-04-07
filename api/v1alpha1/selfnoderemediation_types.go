@@ -66,7 +66,7 @@ type SelfNodeRemediationStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
-//+kubebuilder:resource:shortName=ppr;ppremediation
+//+kubebuilder:resource:shortName=snr;snremediation
 
 // SelfNodeRemediation is the Schema for the selfnoderemediations API
 // +operator-sdk:csv:customresourcedefinitions:resources={{"SelfNodeRemediation","v1alpha1","selfnoderemediations"}}

@@ -14,9 +14,9 @@ spec:
     listKind: SelfNodeRemediationTemplateList
     plural: selfnoderemediationtemplates
     shortNames:
-    - pprt
-    - ppremediationtemplate
-    - pprtemplate
+    - snrt
+    - snremediationtemplate
+    - snrtemplate
     singular: selfnoderemediationtemplate
   scope: Namespaced
   versions:

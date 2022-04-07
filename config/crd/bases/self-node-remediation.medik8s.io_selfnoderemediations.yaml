@@ -14,8 +14,8 @@ spec:
     listKind: SelfNodeRemediationList
     plural: selfnoderemediations
     shortNames:
-    - ppr
-    - ppremediation
+    - snr
+    - snremediation
     singular: selfnoderemediation
   scope: Namespaced
   versions:

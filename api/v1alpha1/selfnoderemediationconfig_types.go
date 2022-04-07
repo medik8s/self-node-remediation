@@ -116,7 +116,7 @@ type SelfNodeRemediationConfigStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
-//+kubebuilder:resource:shortName=ppc;ppconfig
+//+kubebuilder:resource:shortName=snrc;snrconfig
 
 // SelfNodeRemediationConfig is the Schema for the selfnoderemediationconfigs API in which a user can configure the self node remediation agents
 // +operator-sdk:csv:customresourcedefinitions:resources={{"SelfNodeRemediationConfig","v1alpha1","selfnoderemediationconfigs"}}

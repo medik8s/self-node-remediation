@@ -42,7 +42,7 @@ type SelfNodeRemediationTemplateStatus struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
-//+kubebuilder:resource:shortName=pprt;ppremediationtemplate;pprtemplate
+//+kubebuilder:resource:shortName=snrt;snremediationtemplate;snrtemplate
 
 // SelfNodeRemediationTemplate is the Schema for the selfnoderemediationtemplates API
 // +operator-sdk:csv:customresourcedefinitions:resources={{"SelfNodeRemediationTemplate","v1alpha1","selfnoderemediationtemplates"}}
