@@ -48,14 +48,14 @@ var (
 type Server struct {
 	UnimplementedPeerHealthServer
 	client     dynamic.Interface
-	ppr        *controllers.SelfNodeRemediationReconciler
+	snr        *controllers.SelfNodeRemediationReconciler
 	log        logr.Logger
 	certReader certificates.CertStorageReader
 	port       int
 }
 
 // NewServer returns a new Server
-func NewServer(ppr *controllers.SelfNodeRemediationReconciler, conf *rest.Config, log logr.Logger, port int, certReader certificates.CertStorageReader) (*Server, error) {
+func NewServer(snr *controllers.SelfNodeRemediationReconciler, conf *rest.Config, log logr.Logger, port int, certReader certificates.CertStorageReader) (*Server, error) {
 
 	// create dynamic client
 	c, err := dynamic.NewForConfig(conf)
@@ -65,7 +65,7 @@ func NewServer(ppr *controllers.SelfNodeRemediationReconciler, conf *rest.Config
 
 	return &Server{
 		client:     c,
-		ppr:        ppr,
+		snr:        snr,
 		log:        log,
 		certReader: certReader,
 		port:       port,
@@ -122,19 +122,19 @@ func (s Server) IsHealthy(ctx context.Context, request *HealthRequest) (*HealthR
 
 	s.log.Info("checking health for", "node", nodeName)
 
-	namespace := s.ppr.GetLastSeenPprNamespace()
-	isMachine := s.ppr.WasLastSeenPprMachine()
+	namespace := s.snr.GetLastSeenSnrNamespace()
+	isMachine := s.snr.WasLastSeenSnrMachine()
 
-	// when namespace is empty, there wasn't a PPR yet, which also means that the node must be healthy
+	// when namespace is empty, there wasn't a SNR yet, which also means that the node must be healthy
 	if namespace == "" {
-		// we didn't see a PPR yet, so the node is healthy
+		// we didn't see a SNR yet, so the node is healthy
 		// but we need to check for API error, so let's get node
 		if _, err := s.getNode(ctx, nodeName); err != nil {
 			// TODO do we need to deal with isNotFound, and if so, how?
-			s.log.Info("no PPR seen yet, and API server issue, returning API error", "api error", err)
+			s.log.Info("no SNR seen yet, and API server issue, returning API error", "api error", err)
 			return toResponse(selfNodeRemediationApis.ApiError)
 		}
-		s.log.Info("no PPR seen yet, node is healthy")
+		s.log.Info("no SNR seen yet, node is healthy")
 		return toResponse(selfNodeRemediationApis.Healthy)
 	}
 

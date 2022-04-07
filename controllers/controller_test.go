@@ -22,13 +22,13 @@ import (
 )
 
 const (
-	pprNamespace = "default"
+	snrNamespace = "default"
 )
 
-var _ = Describe("ppr Controller", func() {
-	ppr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
-	ppr.Name = unhealthyNodeName
-	ppr.Namespace = pprNamespace
+var _ = Describe("snr Controller", func() {
+	snr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
+	snr.Name = unhealthyNodeName
+	snr.Namespace = snrNamespace
 
 	BeforeEach(func() {
 		k8sClient.ShouldSimulateFailure = false
@@ -64,11 +64,11 @@ var _ = Describe("ppr Controller", func() {
 		//be in a safe state (i.e. rebooted)
 		var remediationStrategy selfnoderemediationv1alpha1.RemediationStrategyType
 		JustBeforeEach(func() {
-			createPPR(ppr, remediationStrategy)
+			createSNR(snr, remediationStrategy)
 		})
 
 		AfterEach(func() {
-			deletePPR(ppr)
+			deleteSNR(snr)
 		})
 
 		Context("NodeDeletion strategy", func() {
@@ -76,7 +76,7 @@ var _ = Describe("ppr Controller", func() {
 				remediationStrategy = selfnoderemediationv1alpha1.NodeDeletionRemediationStrategy
 			})
 
-			It("ppr should not have finalizers", func() {
+			It("snr should not have finalizers", func() {
 				testNoFinalizer()
 			})
 		})
@@ -86,7 +86,7 @@ var _ = Describe("ppr Controller", func() {
 				remediationStrategy = selfnoderemediationv1alpha1.ResourceDeletionRemediationStrategy
 			})
 
-			It("ppr should not have finalizers", func() {
+			It("snr should not have finalizers", func() {
 				testNoFinalizer()
 			})
 		})
@@ -103,12 +103,12 @@ var _ = Describe("ppr Controller", func() {
 
 			BeforeEach(func() {
 				createSelfNodeRemediationPod()
-				createPPR(ppr, selfnoderemediationv1alpha1.NodeDeletionRemediationStrategy)
+				createSNR(snr, selfnoderemediationv1alpha1.NodeDeletionRemediationStrategy)
 			})
 
 			AfterEach(func() {
 				deleteSelfNodeRemediationPod()
-				deletePPR(ppr)
+				deleteSNR(snr)
 			})
 
 			Context("node doesn't have is-reboot-capable annotation", func() {
@@ -117,7 +117,7 @@ var _ = Describe("ppr Controller", func() {
 					deleteIsRebootCapableAnnotation()
 				})
 
-				It("ppr should not have finalizers when is-reboot-capable annotation doesn't exist", func() {
+				It("snr should not have finalizers when is-reboot-capable annotation doesn't exist", func() {
 					testNoFinalizer()
 				})
 			})
@@ -128,7 +128,7 @@ var _ = Describe("ppr Controller", func() {
 					updateIsRebootCapable(rebootCapableAnnotationValue)
 				})
 
-				It("ppr should not have finalizers when is-reboot-capable annotation is false", func() {
+				It("snr should not have finalizers when is-reboot-capable annotation is false", func() {
 					testNoFinalizer()
 				})
 			})
@@ -136,21 +136,21 @@ var _ = Describe("ppr Controller", func() {
 	})
 
 	Context("Unhealthy node with api-server access", func() {
-		var beforePPR time.Time
+		var beforeSNR time.Time
 		var remediationStrategy selfnoderemediationv1alpha1.RemediationStrategyType
 
 		JustBeforeEach(func() {
 			createSelfNodeRemediationPod()
 			updateIsRebootCapable("true")
-			beforePPR = time.Now().Add(-time.Second)
-			createPPR(ppr, remediationStrategy)
+			beforeSNR = time.Now().Add(-time.Second)
+			createSNR(snr, remediationStrategy)
 
 			By("make sure self node remediation exists with correct label")
 			verifySelfNodeRemediationPodExist()
 		})
 
 		AfterEach(func() {
-			deletePPR(ppr)
+			deleteSNR(snr)
 		})
 
 		Context("NodeDeletion strategy", func() {
@@ -175,7 +175,7 @@ var _ = Describe("ppr Controller", func() {
 
 				verifyNoWatchdogFood()
 
-				verifyNodeDeletedAndRestored(beforePPR)
+				verifyNodeDeletedAndRestored(beforeSNR)
 
 				verifyNodeIsSchedulable()
 
@@ -197,7 +197,7 @@ var _ = Describe("ppr Controller", func() {
 				node.Status.Conditions[0].Reason = "foo"
 				Expect(k8sClient.Client.Status().Update(context.Background(), node)).To(Succeed())
 
-				By("Verify that finalizer was removed and PPR can be deleted")
+				By("Verify that finalizer was removed and SNR can be deleted")
 				testNoFinalizer()
 
 			})
@@ -234,7 +234,7 @@ var _ = Describe("ppr Controller", func() {
 
 				verifyNodeIsSchedulable()
 
-				By("Verify that finalizer was removed and PPR can be deleted")
+				By("Verify that finalizer was removed and SNR can be deleted")
 				testNoFinalizer()
 
 			})
@@ -248,11 +248,11 @@ var _ = Describe("ppr Controller", func() {
 		BeforeEach(func() {
 			By("Simulate api-server failure")
 			k8sClient.ShouldSimulateFailure = true
-			createPPR(ppr, selfnoderemediationv1alpha1.NodeDeletionRemediationStrategy)
+			createSNR(snr, selfnoderemediationv1alpha1.NodeDeletionRemediationStrategy)
 		})
 
 		AfterEach(func() {
-			deletePPR(ppr)
+			deleteSNR(snr)
 		})
 
 		It("Verify that watchdog is not receiving food after some time", func() {
@@ -329,13 +329,13 @@ func verifyNodeIsSchedulable() {
 	}, 95*time.Second, 250*time.Millisecond).Should(BeFalse())
 }
 
-func verifyNodeDeletedAndRestored(beforePPR time.Time) {
+func verifyNodeDeletedAndRestored(beforeSNR time.Time) {
 	By("Verify that node has been deleted and restored")
 	node := &v1.Node{}
 	Eventually(func() (time.Time, error) {
 		err := k8sClient.Reader.Get(context.TODO(), unhealthyNodeNamespacedName, node)
 		return node.CreationTimestamp.Time, err
-	}, 10*time.Second, 200*time.Millisecond).Should(BeTemporally(">", beforePPR))
+	}, 10*time.Second, 200*time.Millisecond).Should(BeTemporally(">", beforeSNR))
 }
 
 func verifyNoWatchdogFood() {
@@ -348,21 +348,21 @@ func verifyNoWatchdogFood() {
 
 func verifyFinalizerExists() {
 	By("Verify that finalizer was added")
-	ppr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
-	pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
-	ExpectWithOffset(1, k8sClient.Get(context.Background(), pprNamespacedName, ppr)).To(Succeed())
-	ExpectWithOffset(1, controllerutil.ContainsFinalizer(ppr, controllers.PPRFinalizer)).Should(BeTrue(), "finalizer should be added")
+	snr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
+	snrNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: snrNamespace}
+	ExpectWithOffset(1, k8sClient.Get(context.Background(), snrNamespacedName, snr)).To(Succeed())
+	ExpectWithOffset(1, controllerutil.ContainsFinalizer(snr, controllers.SNRFinalizer)).Should(BeTrue(), "finalizer should be added")
 }
 
-// verifies that ppr node backup equals to the actual node
+// verifies that snr node backup equals to the actual node
 func verifyNodeBackup() {
 	By("Verify that node backup annotation matches the node")
-	newPpr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
-	pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
+	newSnr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
+	snrNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: snrNamespace}
 
-	ExpectWithOffset(1, k8sClient.Client.Get(context.TODO(), pprNamespacedName, newPpr)).To(Succeed())
-	ExpectWithOffset(1, newPpr.Status.NodeBackup).ToNot(BeNil(), "node backup should exist")
-	nodeToRestore := newPpr.Status.NodeBackup
+	ExpectWithOffset(1, k8sClient.Client.Get(context.TODO(), snrNamespacedName, newSnr)).To(Succeed())
+	ExpectWithOffset(1, newSnr.Status.NodeBackup).ToNot(BeNil(), "node backup should exist")
+	nodeToRestore := newSnr.Status.NodeBackup
 
 	node := &v1.Node{}
 	ExpectWithOffset(1, k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)).To(Succeed())
@@ -374,12 +374,12 @@ func verifyNodeBackup() {
 }
 
 func verifyTimeHasBeenRebootedExists() {
-	By("Verify that time has been added to PPR status")
-	ppr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
+	By("Verify that time has been added to SNR status")
+	snr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
 	EventuallyWithOffset(1, func() (*metav1.Time, error) {
-		pprNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: pprNamespace}
-		err := k8sClient.Client.Get(context.Background(), pprNamespacedName, ppr)
-		return ppr.Status.TimeAssumedRebooted, err
+		snrNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: snrNamespace}
+		err := k8sClient.Client.Get(context.Background(), snrNamespacedName, snr)
+		return snr.Status.TimeAssumedRebooted, err
 
 	}, 5*time.Second, 250*time.Millisecond).ShouldNot(BeZero())
 }
@@ -412,16 +412,16 @@ func verifySelfNodeRemediationPodExist() {
 	}, 5*time.Second, 250*time.Millisecond).Should(Equal(1))
 }
 
-func deletePPR(ppr *selfnoderemediationv1alpha1.SelfNodeRemediation) {
-	ExpectWithOffset(1, k8sClient.Client.Delete(context.Background(), ppr)).To(Succeed(), "failed to delete ppr CR")
+func deleteSNR(snr *selfnoderemediationv1alpha1.SelfNodeRemediation) {
+	ExpectWithOffset(1, k8sClient.Client.Delete(context.Background(), snr)).To(Succeed(), "failed to delete snr CR")
 }
 
-func createPPR(ppr *selfnoderemediationv1alpha1.SelfNodeRemediation, strategy selfnoderemediationv1alpha1.RemediationStrategyType) {
-	ppr = &selfnoderemediationv1alpha1.SelfNodeRemediation{}
-	ppr.Name = unhealthyNodeName
-	ppr.Namespace = pprNamespace
-	ppr.Spec.RemediationStrategy = strategy
-	ExpectWithOffset(1, k8sClient.Client.Create(context.TODO(), ppr)).To(Succeed(), "failed to create ppr CR")
+func createSNR(snr *selfnoderemediationv1alpha1.SelfNodeRemediation, strategy selfnoderemediationv1alpha1.RemediationStrategyType) {
+	snr = &selfnoderemediationv1alpha1.SelfNodeRemediation{}
+	snr.Name = unhealthyNodeName
+	snr.Namespace = snrNamespace
+	snr.Spec.RemediationStrategy = strategy
+	ExpectWithOffset(1, k8sClient.Client.Create(context.TODO(), snr)).To(Succeed(), "failed to create snr CR")
 }
 
 func createSelfNodeRemediationPod() {
@@ -486,22 +486,22 @@ func deleteIsRebootCapableAnnotation() {
 	ExpectWithOffset(1, k8sClient.Client.Update(context.Background(), unhealthyNode)).To(Succeed())
 }
 
-//testNoFinalizer checks that ppr doesn't have finalizer
+//testNoFinalizer checks that snr doesn't have finalizer
 func testNoFinalizer() {
-	ppr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
-	pprKey := client.ObjectKey{
-		Namespace: pprNamespace,
+	snr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
+	snrKey := client.ObjectKey{
+		Namespace: snrNamespace,
 		Name:      unhealthyNodeName,
 	}
 
 	EventuallyWithOffset(1, func() ([]string, error) {
-		err := k8sClient.Client.Get(context.Background(), pprKey, ppr)
-		return ppr.Finalizers, err
+		err := k8sClient.Client.Get(context.Background(), snrKey, snr)
+		return snr.Finalizers, err
 	}, 10*time.Second, 200*time.Millisecond).Should(BeEmpty())
 
 	ConsistentlyWithOffset(1, func() ([]string, error) {
-		err := k8sClient.Client.Get(context.Background(), pprKey, ppr)
+		err := k8sClient.Client.Get(context.Background(), snrKey, snr)
 		//if no finalizer was set, it means we didn't start remediation process
-		return ppr.Finalizers, err
+		return snr.Finalizers, err
 	}, 10*time.Second, 250*time.Millisecond).Should(BeEmpty())
 }
