@@ -41,7 +41,7 @@ import (
 )
 
 const (
-	PPRFinalizer          = "self-node-remediation.medik8s.io/ppr-finalizer"
+	SNRFinalizer          = "self-node-remediation.medik8s.io/snr-finalizer"
 	fencingCompletedPhase = "Fencing-Completed"
 )
 
@@ -51,23 +51,23 @@ var (
 		Effect: v1.TaintEffectNoSchedule,
 	}
 
-	lastSeenPprNamespace  string
-	wasLastSeenPprMachine bool
+	lastSeenSnrNamespace  string
+	wasLastSeenSnrMachine bool
 )
 
-//GetLastSeenPprNamespace returns the namespace of the last reconciled PPR
-func (r *SelfNodeRemediationReconciler) GetLastSeenPprNamespace() string {
+//GetLastSeenSnrNamespace returns the namespace of the last reconciled SNR
+func (r *SelfNodeRemediationReconciler) GetLastSeenSnrNamespace() string {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	return lastSeenPprNamespace
+	return lastSeenSnrNamespace
 }
 
-//WasLastSeenPprMachine returns the a boolean indicating if the last reconcile PPR
+//WasLastSeenSnrMachine returns the a boolean indicating if the last reconcile SNR
 //was pointing an unhealthy machine or a node
-func (r *SelfNodeRemediationReconciler) WasLastSeenPprMachine() bool {
+func (r *SelfNodeRemediationReconciler) WasLastSeenSnrMachine() bool {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	return wasLastSeenPprMachine
+	return wasLastSeenSnrMachine
 }
 
 // SelfNodeRemediationReconciler reconciles a SelfNodeRemediation object
@@ -111,47 +111,47 @@ func (r *SelfNodeRemediationReconciler) SetupWithManager(mgr ctrl.Manager) error
 func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.logger = r.Log.WithValues("selfnoderemediation", req.NamespacedName)
 
-	ppr := &v1alpha1.SelfNodeRemediation{}
-	if err := r.Get(ctx, req.NamespacedName, ppr); err != nil {
+	snr := &v1alpha1.SelfNodeRemediation{}
+	if err := r.Get(ctx, req.NamespacedName, snr); err != nil {
 		if apiErrors.IsNotFound(err) {
 			// SNR    is deleted, stop reconciling
 			r.logger.Info("SNR already deleted")
 			return ctrl.Result{}, nil
 		}
-		r.logger.Error(err, "failed to get PPR")
+		r.logger.Error(err, "failed to get SNR")
 		return ctrl.Result{}, err
 	}
 
 	r.mutex.Lock()
-	lastSeenPprNamespace = req.Namespace
+	lastSeenSnrNamespace = req.Namespace
 	r.mutex.Unlock()
 
-	switch ppr.Spec.RemediationStrategy {
+	switch snr.Spec.RemediationStrategy {
 	case v1alpha1.NodeDeletionRemediationStrategy:
-		return r.remediateWithNodeDeletion(ppr)
+		return r.remediateWithNodeDeletion(snr)
 	case v1alpha1.ResourceDeletionRemediationStrategy:
-		return r.remediateWithResourceDeletion(ppr)
+		return r.remediateWithResourceDeletion(snr)
 	default:
 		//this should never happen since we enforce valid values with kubebuilder
 		err := errors.New("unsupported remediation strategy")
-		r.logger.Error(err, "Encountered unsupported remediation strategy. Please check template spec", "strategy", ppr.Spec.RemediationStrategy)
+		r.logger.Error(err, "Encountered unsupported remediation strategy. Please check template spec", "strategy", snr.Spec.RemediationStrategy)
 		return ctrl.Result{}, err
 	}
 
 }
 
-func (r *SelfNodeRemediationReconciler) isFencingCompleted(ppr *v1alpha1.SelfNodeRemediation) bool {
-	return ppr.Status.Phase != nil && *ppr.Status.Phase == fencingCompletedPhase
+func (r *SelfNodeRemediationReconciler) isFencingCompleted(snr *v1alpha1.SelfNodeRemediation) bool {
+	return snr.Status.Phase != nil && *snr.Status.Phase == fencingCompletedPhase
 }
 
-func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(ppr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
-	node, err := r.getNodeFromPpr(ppr)
+func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+	node, err := r.getNodeFromSnr(snr)
 	if err != nil {
-		r.logger.Error(err, "failed to get node", "node name", ppr.Name)
+		r.logger.Error(err, "failed to get node", "node name", snr.Name)
 		return ctrl.Result{}, err
 	}
 
-	if r.isFencingCompleted(ppr) {
+	if r.isFencingCompleted(snr) {
 		if node.Spec.Unschedulable {
 			node.Spec.Unschedulable = false
 			if err := r.Client.Update(context.Background(), node); err != nil {
@@ -163,8 +163,8 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(ppr *v1alp
 			}
 		}
 
-		if controllerutil.ContainsFinalizer(ppr, PPRFinalizer) {
-			if err := r.removeFinalizer(ppr); err != nil {
+		if controllerutil.ContainsFinalizer(snr, SNRFinalizer) {
+			if err := r.removeFinalizer(snr); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
@@ -176,25 +176,25 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(ppr *v1alp
 		return ctrl.Result{}, errors.New("Node is not capable to reboot itself")
 	}
 
-	if !controllerutil.ContainsFinalizer(ppr, PPRFinalizer) {
-		return r.addFinalizer(ppr)
+	if !controllerutil.ContainsFinalizer(snr, SNRFinalizer) {
+		return r.addFinalizer(snr)
 	}
 
 	if !node.Spec.Unschedulable || !utils.TaintExists(node.Spec.Taints, NodeUnschedulableTaint) {
 		return r.markNodeAsUnschedulable(node)
 	}
 
-	if ppr.Status.TimeAssumedRebooted.IsZero() {
+	if snr.Status.TimeAssumedRebooted.IsZero() {
 		//todo this also updates the node but we don't need it
-		return r.updatePprStatus(node, ppr)
+		return r.updateSnrStatus(node, snr)
 	}
 
 	if r.MyNodeName == node.Name {
 		// we have a problem on this node, reboot!
-		return r.rebootIfNeeded(ppr)
+		return r.rebootIfNeeded(snr)
 	}
 
-	wasRebooted, timeLeft := r.wasNodeRebooted(ppr)
+	wasRebooted, timeLeft := r.wasNodeRebooted(snr)
 	if !wasRebooted {
 		return ctrl.Result{RequeueAfter: timeLeft}, nil
 	}
@@ -250,8 +250,8 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(ppr *v1alp
 	}
 
 	fencingCompleted := fencingCompletedPhase
-	ppr.Status.Phase = &fencingCompleted
-	if err := r.Client.Status().Update(context.Background(), ppr); err != nil {
+	snr.Status.Phase = &fencingCompleted
+	if err := r.Client.Status().Update(context.Background(), snr); err != nil {
 		if apiErrors.IsConflict(err) {
 			// conflicts are expected since all self node remediation deamonset pods are competing on the same requests
 			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
@@ -263,36 +263,36 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(ppr *v1alp
 	return ctrl.Result{}, nil
 }
 
-func (r *SelfNodeRemediationReconciler) remediateWithNodeDeletion(ppr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
-	node, err := r.getNodeFromPpr(ppr)
+func (r *SelfNodeRemediationReconciler) remediateWithNodeDeletion(snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+	node, err := r.getNodeFromSnr(snr)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			//as part of the remediation flow, we delete the node, and then we need to restore it
-			return r.handleDeletedNode(ppr)
+			return r.handleDeletedNode(snr)
 		}
-		r.logger.Error(err, "failed to get node", "node name", ppr.Name)
+		r.logger.Error(err, "failed to get node", "node name", snr.Name)
 		return ctrl.Result{}, err
 	}
 
-	if node.CreationTimestamp.After(ppr.CreationTimestamp.Time) {
+	if node.CreationTimestamp.After(snr.CreationTimestamp.Time) {
 		//this node was created after the node was reported as unhealthy
 		//we assume this is the new node after remediation and take no-op expecting the snr     to be deleted
-		if ppr.Status.NodeBackup != nil {
+		if snr.Status.NodeBackup != nil {
 			//TODO: this is an ugly hack. without it the api-server complains about
 			//missing apiVersion and Kind for the nodeBackup.
-			ppr.Status.NodeBackup = nil
-			if err := r.Client.Status().Update(context.Background(), ppr); err != nil {
+			snr.Status.NodeBackup = nil
+			if err := r.Client.Status().Update(context.Background(), snr); err != nil {
 				if apiErrors.IsConflict(err) {
 					// conflicts are expected since all self node remediation deamonset pods are competing on the same requests
 					return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 				}
-				r.logger.Error(err, "failed to remove node backup from ppr")
+				r.logger.Error(err, "failed to remove node backup from snr")
 				return ctrl.Result{}, err
 			}
 			return ctrl.Result{Requeue: true}, nil
 		}
 
-		if controllerutil.ContainsFinalizer(ppr, PPRFinalizer) {
+		if controllerutil.ContainsFinalizer(snr, SNRFinalizer) {
 			readyCond := r.getReadyCond(node)
 			if readyCond == nil || readyCond.Status != v1.ConditionTrue {
 				//don't remove finalizer until the node is back online
@@ -303,14 +303,14 @@ func (r *SelfNodeRemediationReconciler) remediateWithNodeDeletion(ppr *v1alpha1.
 				return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 			}
 
-			if err := r.removeFinalizer(ppr); err != nil {
+			if err := r.removeFinalizer(snr); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
 
 		r.logger.Info("node has been restored", "node name", node.Name)
 
-		//todo this means we only allow one remediation attempt per ppr. we could add some config to
+		//todo this means we only allow one remediation attempt per snr. we could add some config to
 		//snr     which states max remediation attempts, and the timeout to consider a remediation failed.
 		return ctrl.Result{}, nil
 	}
@@ -319,24 +319,24 @@ func (r *SelfNodeRemediationReconciler) remediateWithNodeDeletion(ppr *v1alpha1.
 		return ctrl.Result{}, errors.New("Node is not capable to reboot itself")
 	}
 
-	if !controllerutil.ContainsFinalizer(ppr, PPRFinalizer) {
-		return r.addFinalizer(ppr)
+	if !controllerutil.ContainsFinalizer(snr, SNRFinalizer) {
+		return r.addFinalizer(snr)
 	}
 
 	if !node.Spec.Unschedulable || !utils.TaintExists(node.Spec.Taints, NodeUnschedulableTaint) {
 		return r.markNodeAsUnschedulable(node)
 	}
 
-	if ppr.Status.NodeBackup == nil || ppr.Status.TimeAssumedRebooted.IsZero() {
-		return r.updatePprStatus(node, ppr)
+	if snr.Status.NodeBackup == nil || snr.Status.TimeAssumedRebooted.IsZero() {
+		return r.updateSnrStatus(node, snr)
 	}
 
 	if r.MyNodeName == node.Name {
 		// we have a problem on this node, reboot!
-		return r.rebootIfNeeded(ppr)
+		return r.rebootIfNeeded(snr)
 	}
 
-	wasRebooted, timeLeft := r.wasNodeRebooted(ppr)
+	wasRebooted, timeLeft := r.wasNodeRebooted(snr)
 	if !wasRebooted {
 		return ctrl.Result{RequeueAfter: timeLeft}, nil
 	}
@@ -360,8 +360,8 @@ func (r *SelfNodeRemediationReconciler) remediateWithNodeDeletion(ppr *v1alpha1.
 }
 
 // rebootIfNeeded reboots the node if no reboot was performed so far
-func (r *SelfNodeRemediationReconciler) rebootIfNeeded(ppr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
-	shouldAvoidReboot, err := r.didIRebootMyself(ppr)
+func (r *SelfNodeRemediationReconciler) rebootIfNeeded(snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+	shouldAvoidReboot, err := r.didIRebootMyself(snr)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -376,8 +376,8 @@ func (r *SelfNodeRemediationReconciler) rebootIfNeeded(ppr *v1alpha1.SelfNodeRem
 
 // wasNodeRebooted returns true if the node assumed to been rebooted.
 // if not, it will also return the remaining time for that to happen
-func (r *SelfNodeRemediationReconciler) wasNodeRebooted(ppr *v1alpha1.SelfNodeRemediation) (bool, time.Duration) {
-	maxNodeRebootTime := ppr.Status.TimeAssumedRebooted
+func (r *SelfNodeRemediationReconciler) wasNodeRebooted(snr *v1alpha1.SelfNodeRemediation) (bool, time.Duration) {
+	maxNodeRebootTime := snr.Status.TimeAssumedRebooted
 
 	if maxNodeRebootTime.After(time.Now()) {
 		return false, maxNodeRebootTime.Sub(time.Now()) + time.Second
@@ -388,14 +388,14 @@ func (r *SelfNodeRemediationReconciler) wasNodeRebooted(ppr *v1alpha1.SelfNodeRe
 
 // didIRebootMyself returns true if system uptime is less than the time from SNR      creation timestamp
 // which means that the host was already rebooted (at least) once during this SNR      lifecycle
-func (r *SelfNodeRemediationReconciler) didIRebootMyself(ppr *v1alpha1.SelfNodeRemediation) (bool, error) {
+func (r *SelfNodeRemediationReconciler) didIRebootMyself(snr *v1alpha1.SelfNodeRemediation) (bool, error) {
 	uptime, err := utils.GetLinuxUptime()
 	if err != nil {
 		r.logger.Error(err, "failed to get node's uptime")
 		return false, err
 	}
 
-	return uptime < time.Since(ppr.CreationTimestamp.Time), nil
+	return uptime < time.Since(snr.CreationTimestamp.Time), nil
 }
 
 //isNodeRebootCapable checks if the node is capable to reboot itself when it becomes unhealthy
@@ -423,34 +423,34 @@ func (r *SelfNodeRemediationReconciler) isNodeRebootCapable(node *v1.Node) bool 
 	return true
 }
 
-func (r *SelfNodeRemediationReconciler) removeFinalizer(ppr *v1alpha1.SelfNodeRemediation) error {
-	controllerutil.RemoveFinalizer(ppr, PPRFinalizer)
-	if err := r.Client.Update(context.Background(), ppr); err != nil {
+func (r *SelfNodeRemediationReconciler) removeFinalizer(snr *v1alpha1.SelfNodeRemediation) error {
+	controllerutil.RemoveFinalizer(snr, SNRFinalizer)
+	if err := r.Client.Update(context.Background(), snr); err != nil {
 		if apiErrors.IsConflict(err) {
 			//we don't need to log anything as conflict is expected, but we do want to return an err
 			//to trigger a requeue
 			return err
 		}
-		r.logger.Error(err, "failed to remove finalizer from ppr")
+		r.logger.Error(err, "failed to remove finalizer from snr")
 		return err
 	}
 	return nil
 }
 
-func (r *SelfNodeRemediationReconciler) addFinalizer(ppr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
-	if !ppr.DeletionTimestamp.IsZero() {
+func (r *SelfNodeRemediationReconciler) addFinalizer(snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+	if !snr.DeletionTimestamp.IsZero() {
 		//snr       is going to be deleted before we started any remediation action, so taking no-op
 		//otherwise we continue the remediation even if the deletionTimestamp is not zero
 		r.logger.Info("snr is about to be deleted, which means the resource is healthy again. taking no-op")
 		return ctrl.Result{}, nil
 	}
 
-	controllerutil.AddFinalizer(ppr, PPRFinalizer)
-	if err := r.Client.Update(context.Background(), ppr); err != nil {
+	controllerutil.AddFinalizer(snr, SNRFinalizer)
+	if err := r.Client.Update(context.Background(), snr); err != nil {
 		if apiErrors.IsConflict(err) {
 			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 		}
-		r.logger.Error(err, "failed to add finalizer to ppr")
+		r.logger.Error(err, "failed to add finalizer to snr")
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{Requeue: true}, nil
@@ -474,14 +474,14 @@ func (r *SelfNodeRemediationReconciler) getReadyCond(node *v1.Node) *v1.NodeCond
 	return nil
 }
 
-func (r *SelfNodeRemediationReconciler) updatePprStatus(node *v1.Node, ppr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) updateSnrStatus(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	r.logger.Info("updating snr with node backup and updating time to assume node has been rebooted", "node name", node.Name)
 	//we assume the unhealthy node will be rebooted by maxTimeNodeHasRebooted
 	maxTimeNodeHasRebooted := metav1.NewTime(metav1.Now().Add(r.SafeTimeToAssumeNodeRebooted))
-	ppr.Status.TimeAssumedRebooted = &maxTimeNodeHasRebooted
-	ppr.Status.NodeBackup = node
+	snr.Status.TimeAssumedRebooted = &maxTimeNodeHasRebooted
+	snr.Status.NodeBackup = node
 
-	err := r.Client.Status().Update(context.Background(), ppr)
+	err := r.Client.Status().Update(context.Background(), snr)
 	if err != nil {
 		if apiErrors.IsConflict(err) {
 			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
@@ -493,25 +493,25 @@ func (r *SelfNodeRemediationReconciler) updatePprStatus(node *v1.Node, ppr *v1al
 	return ctrl.Result{Requeue: true}, nil
 }
 
-// getNodeFromPpr returns the unhealthy node reported in the given ppr
-func (r *SelfNodeRemediationReconciler) getNodeFromPpr(ppr *v1alpha1.SelfNodeRemediation) (*v1.Node, error) {
+// getNodeFromSnr returns the unhealthy node reported in the given snr
+func (r *SelfNodeRemediationReconciler) getNodeFromSnr(snr *v1alpha1.SelfNodeRemediation) (*v1.Node, error) {
 	//SNR        could be created by either machine based controller (e.g. MHC) or
 	//by a node based controller (e.g. NHC). This assumes that machine based controller
 	//will create the snr         with machine owner reference
 
-	for _, ownerRef := range ppr.OwnerReferences {
+	for _, ownerRef := range snr.OwnerReferences {
 		if ownerRef.Kind == "Machine" {
 			r.mutex.Lock()
-			wasLastSeenPprMachine = true
+			wasLastSeenSnrMachine = true
 			r.mutex.Unlock()
-			return r.getNodeFromMachine(ownerRef, ppr.Namespace)
+			return r.getNodeFromMachine(ownerRef, snr.Namespace)
 		}
 	}
 
 	//since we didn't find a machine owner ref, we assume that snr         name is the unhealthy node name
 	node := &v1.Node{}
 	key := client.ObjectKey{
-		Name:      ppr.Name,
+		Name:      snr.Name,
 		Namespace: "",
 	}
 
@@ -578,8 +578,8 @@ func (r *SelfNodeRemediationReconciler) markNodeAsUnschedulable(node *v1.Node) (
 	return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 }
 
-func (r *SelfNodeRemediationReconciler) handleDeletedNode(ppr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
-	if ppr.Status.NodeBackup == nil {
+func (r *SelfNodeRemediationReconciler) handleDeletedNode(snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+	if snr.Status.NodeBackup == nil {
 		err := errors.New("unhealthy node doesn't exist and there's no backup node to restore")
 		r.logger.Error(err, "remediation failed")
 		// there is nothing we can do about it, stop reconciling
@@ -587,7 +587,7 @@ func (r *SelfNodeRemediationReconciler) handleDeletedNode(ppr *v1alpha1.SelfNode
 	}
 
 	//todo this assumes the node has been deleted on time, but this is not necessarily the case
-	minRestoreNodeTime := ppr.Status.TimeAssumedRebooted.Add(r.RestoreNodeAfter)
+	minRestoreNodeTime := snr.Status.TimeAssumedRebooted.Add(r.RestoreNodeAfter)
 	if time.Now().Before(minRestoreNodeTime) {
 		//we wait some time before we restore the node to let the cluster realize that the node has been deleted
 		//so workloads can be rescheduled elsewhere
@@ -595,7 +595,7 @@ func (r *SelfNodeRemediationReconciler) handleDeletedNode(ppr *v1alpha1.SelfNode
 		return ctrl.Result{RequeueAfter: minRestoreNodeTime.Sub(time.Now()) + time.Second}, nil
 	}
 
-	return r.restoreNode(ppr.Status.NodeBackup)
+	return r.restoreNode(snr.Status.NodeBackup)
 }
 
 func (r *SelfNodeRemediationReconciler) restoreNode(nodeToRestore *v1.Node) (ctrl.Result, error) {

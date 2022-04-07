@@ -65,7 +65,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 		oldBootTime, err = getBootTime(node)
 		Expect(err).ToNot(HaveOccurred())
 
-		ensurePPRunning(workers)
+		ensureSnrRunning(workers)
 	})
 
 	AfterEach(func() {
@@ -83,21 +83,21 @@ var _ = Describe("Self Node Remediation E2E", func() {
 	})
 
 	Describe("With API connectivity", func() {
-		Context("creating a PPR", func() {
+		Context("creating a SNR", func() {
 			// normal remediation
-			// - create PPR
+			// - create SNR
 			// - node should reboot
 			// - node should be deleted and re-created
 
-			var ppr *v1alpha1.SelfNodeRemediation
+			var snr *v1alpha1.SelfNodeRemediation
 			var remediationStrategy v1alpha1.RemediationStrategyType
 			JustBeforeEach(func() {
-				ppr = createPPR(node, remediationStrategy)
+				snr = createSNR(node, remediationStrategy)
 			})
 
 			AfterEach(func() {
-				if ppr != nil {
-					deleteAndWait(ppr)
+				if snr != nil {
+					deleteAndWait(snr)
 				}
 			})
 
@@ -133,7 +133,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 	})
 
 	Describe("Without API connectivity", func() {
-		Context("Healthy node (no PPR)", func() {
+		Context("Healthy node (no SNR)", func() {
 
 			// no api connectivity
 			// a) healthy
@@ -161,24 +161,24 @@ var _ = Describe("Self Node Remediation E2E", func() {
 			})
 		})
 
-		Context("Unhealthy node (with PPR)", func() {
+		Context("Unhealthy node (with SNR)", func() {
 
 			// no api connectivity
 			// b) unhealthy
 			//    - kill connectivity on one node
-			//    - create PPR
+			//    - create SNR
 			//    - verify node does reboot and and is deleted / re-created
 
-			var ppr *v1alpha1.SelfNodeRemediation
+			var snr *v1alpha1.SelfNodeRemediation
 
 			BeforeEach(func() {
 				killApiConnection(node, apiIPs, false)
-				ppr = createPPR(node, v1alpha1.NodeDeletionRemediationStrategy)
+				snr = createSNR(node, v1alpha1.NodeDeletionRemediationStrategy)
 			})
 
 			AfterEach(func() {
-				if ppr != nil {
-					deleteAndWait(ppr)
+				if snr != nil {
+					deleteAndWait(snr)
 				}
 			})
 
@@ -299,9 +299,9 @@ func checkPodRecreated(node *v1.Node, oldPodCreationTime time.Time) bool {
 	}, 7*time.Minute, 10*time.Second).Should(BeTemporally(">", oldPodCreationTime))
 }
 
-func createPPR(node *v1.Node, remediationStrategy v1alpha1.RemediationStrategyType) *v1alpha1.SelfNodeRemediation {
-	By("creating a PPR")
-	ppr := &v1alpha1.SelfNodeRemediation{
+func createSNR(node *v1.Node, remediationStrategy v1alpha1.RemediationStrategyType) *v1alpha1.SelfNodeRemediation {
+	By("creating a SNR")
+	snr := &v1alpha1.SelfNodeRemediation{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      node.GetName(),
 			Namespace: testNamespace,
@@ -310,8 +310,8 @@ func createPPR(node *v1.Node, remediationStrategy v1alpha1.RemediationStrategyTy
 			RemediationStrategy: remediationStrategy,
 		},
 	}
-	ExpectWithOffset(1, k8sClient.Create(context.Background(), ppr)).ToNot(HaveOccurred())
-	return ppr
+	ExpectWithOffset(1, k8sClient.Create(context.Background(), snr)).ToNot(HaveOccurred())
+	return snr
 }
 
 func getBootTime(node *v1.Node) (*time.Time, error) {
@@ -552,7 +552,7 @@ func deleteAndWait(resource client.Object) {
 	}, 2*time.Minute, 10*time.Second).Should(BeTrue(), "resource not deleted in time")
 }
 
-func ensurePPRunning(nodes *v1.NodeList) {
+func ensureSnrRunning(nodes *v1.NodeList) {
 	wg := sync.WaitGroup{}
 	for i := range nodes.Items {
 		wg.Add(1)

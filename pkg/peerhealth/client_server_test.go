@@ -79,18 +79,18 @@ var _ = Describe("Checking health using grpc client and server", func() {
 
 		BeforeEach(func() {
 			By("creating a PPR")
-			ppr := &v1alpha1.SelfNodeRemediation{
+			snr := &v1alpha1.SelfNodeRemediation{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      nodeName,
 					Namespace: "default",
 				},
 			}
-			err := k8sClient.Create(context.Background(), ppr)
+			err := k8sClient.Create(context.Background(), snr)
 			Expect(err).ToNot(HaveOccurred())
 
 			// wait until reconciled
 			Eventually(func() bool {
-				return pprr.GetLastSeenPprNamespace() != ""
+				return pprr.GetLastSeenSnrNamespace() != ""
 			}, 5*time.Second, 250*time.Millisecond).Should(BeTrue(), "SNR          not reconciled")
 		})
 
