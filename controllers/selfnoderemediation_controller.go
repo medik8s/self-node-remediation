@@ -114,7 +114,7 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	snr := &v1alpha1.SelfNodeRemediation{}
 	if err := r.Get(ctx, req.NamespacedName, snr); err != nil {
 		if apiErrors.IsNotFound(err) {
-			// SNR    is deleted, stop reconciling
+			// SNR is deleted, stop reconciling
 			r.logger.Info("SNR already deleted")
 			return ctrl.Result{}, nil
 		}
@@ -276,7 +276,7 @@ func (r *SelfNodeRemediationReconciler) remediateWithNodeDeletion(snr *v1alpha1.
 
 	if node.CreationTimestamp.After(snr.CreationTimestamp.Time) {
 		//this node was created after the node was reported as unhealthy
-		//we assume this is the new node after remediation and take no-op expecting the snr     to be deleted
+		//we assume this is the new node after remediation and take no-op expecting the snr to be deleted
 		if snr.Status.NodeBackup != nil {
 			//TODO: this is an ugly hack. without it the api-server complains about
 			//missing apiVersion and Kind for the nodeBackup.
@@ -297,7 +297,7 @@ func (r *SelfNodeRemediationReconciler) remediateWithNodeDeletion(snr *v1alpha1.
 			if readyCond == nil || readyCond.Status != v1.ConditionTrue {
 				//don't remove finalizer until the node is back online
 				//this helps to prevent remediation loops
-				//note that it means we block snr     deletion forever for node that were not remediated
+				//note that it means we block snr deletion forever for node that were not remediated
 				//todo consider add some timeout, should be quite long to allow bm reboot (at least 10 minutes)
 				r.logger.Info("waiting for node to become ready before removing snr finalizer")
 				return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
@@ -311,7 +311,7 @@ func (r *SelfNodeRemediationReconciler) remediateWithNodeDeletion(snr *v1alpha1.
 		r.logger.Info("node has been restored", "node name", node.Name)
 
 		//todo this means we only allow one remediation attempt per snr. we could add some config to
-		//snr     which states max remediation attempts, and the timeout to consider a remediation failed.
+		//snr which states max remediation attempts, and the timeout to consider a remediation failed.
 		return ctrl.Result{}, nil
 	}
 
@@ -367,7 +367,7 @@ func (r *SelfNodeRemediationReconciler) rebootIfNeeded(snr *v1alpha1.SelfNodeRem
 	}
 
 	if shouldAvoidReboot {
-		//node already rebooted once during this SNR      lifecycle, no need for additional reboot
+		//node already rebooted once during this SNR lifecycle, no need for additional reboot
 		return ctrl.Result{}, nil
 	}
 
@@ -386,8 +386,8 @@ func (r *SelfNodeRemediationReconciler) wasNodeRebooted(snr *v1alpha1.SelfNodeRe
 	return true, 0
 }
 
-// didIRebootMyself returns true if system uptime is less than the time from SNR      creation timestamp
-// which means that the host was already rebooted (at least) once during this SNR      lifecycle
+// didIRebootMyself returns true if system uptime is less than the time from SNR creation timestamp
+// which means that the host was already rebooted (at least) once during this SNR lifecycle
 func (r *SelfNodeRemediationReconciler) didIRebootMyself(snr *v1alpha1.SelfNodeRemediation) (bool, error) {
 	uptime, err := utils.GetLinuxUptime()
 	if err != nil {
@@ -439,7 +439,7 @@ func (r *SelfNodeRemediationReconciler) removeFinalizer(snr *v1alpha1.SelfNodeRe
 
 func (r *SelfNodeRemediationReconciler) addFinalizer(snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	if !snr.DeletionTimestamp.IsZero() {
-		//snr       is going to be deleted before we started any remediation action, so taking no-op
+		//snr is going to be deleted before we started any remediation action, so taking no-op
 		//otherwise we continue the remediation even if the deletionTimestamp is not zero
 		r.logger.Info("snr is about to be deleted, which means the resource is healthy again. taking no-op")
 		return ctrl.Result{}, nil
@@ -495,9 +495,9 @@ func (r *SelfNodeRemediationReconciler) updateSnrStatus(node *v1.Node, snr *v1al
 
 // getNodeFromSnr returns the unhealthy node reported in the given snr
 func (r *SelfNodeRemediationReconciler) getNodeFromSnr(snr *v1alpha1.SelfNodeRemediation) (*v1.Node, error) {
-	//SNR        could be created by either machine based controller (e.g. MHC) or
+	//SNR could be created by either machine based controller (e.g. MHC) or
 	//by a node based controller (e.g. NHC). This assumes that machine based controller
-	//will create the snr         with machine owner reference
+	//will create the snr with machine owner reference
 
 	for _, ownerRef := range snr.OwnerReferences {
 		if ownerRef.Kind == "Machine" {
@@ -508,7 +508,7 @@ func (r *SelfNodeRemediationReconciler) getNodeFromSnr(snr *v1alpha1.SelfNodeRem
 		}
 	}
 
-	//since we didn't find a machine owner ref, we assume that snr         name is the unhealthy node name
+	//since we didn't find a machine owner ref, we assume that snr name is the unhealthy node name
 	node := &v1.Node{}
 	key := client.ObjectKey{
 		Name:      snr.Name,

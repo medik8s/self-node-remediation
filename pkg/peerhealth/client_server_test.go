@@ -91,7 +91,7 @@ var _ = Describe("Checking health using grpc client and server", func() {
 			// wait until reconciled
 			Eventually(func() bool {
 				return pprr.GetLastSeenSnrNamespace() != ""
-			}, 5*time.Second, 250*time.Millisecond).Should(BeTrue(), "SNR          not reconciled")
+			}, 5*time.Second, 250*time.Millisecond).Should(BeTrue(), "SNR not reconciled")
 		})
 
 		It("should return unhealthy", func() {

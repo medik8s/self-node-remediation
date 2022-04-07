@@ -25,7 +25,7 @@ const (
 	snrNamespace = "default"
 )
 
-var _ = Describe("snr  Controller", func() {
+var _ = Describe("snr Controller", func() {
 	snr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
 	snr.Name = unhealthyNodeName
 	snr.Namespace = snrNamespace
@@ -76,7 +76,7 @@ var _ = Describe("snr  Controller", func() {
 				remediationStrategy = selfnoderemediationv1alpha1.NodeDeletionRemediationStrategy
 			})
 
-			It("snr  should not have finalizers", func() {
+			It("snr should not have finalizers", func() {
 				testNoFinalizer()
 			})
 		})
@@ -86,7 +86,7 @@ var _ = Describe("snr  Controller", func() {
 				remediationStrategy = selfnoderemediationv1alpha1.ResourceDeletionRemediationStrategy
 			})
 
-			It("snr  should not have finalizers", func() {
+			It("snr should not have finalizers", func() {
 				testNoFinalizer()
 			})
 		})
@@ -117,7 +117,7 @@ var _ = Describe("snr  Controller", func() {
 					deleteIsRebootCapableAnnotation()
 				})
 
-				It("snr  should not have finalizers when is-reboot-capable annotation doesn't exist", func() {
+				It("snr should not have finalizers when is-reboot-capable annotation doesn't exist", func() {
 					testNoFinalizer()
 				})
 			})
@@ -128,7 +128,7 @@ var _ = Describe("snr  Controller", func() {
 					updateIsRebootCapable(rebootCapableAnnotationValue)
 				})
 
-				It("snr  should not have finalizers when is-reboot-capable annotation is false", func() {
+				It("snr should not have finalizers when is-reboot-capable annotation is false", func() {
 					testNoFinalizer()
 				})
 			})
@@ -197,7 +197,7 @@ var _ = Describe("snr  Controller", func() {
 				node.Status.Conditions[0].Reason = "foo"
 				Expect(k8sClient.Client.Status().Update(context.Background(), node)).To(Succeed())
 
-				By("Verify that finalizer was removed and SNR   can be deleted")
+				By("Verify that finalizer was removed and SNR can be deleted")
 				testNoFinalizer()
 
 			})
@@ -234,7 +234,7 @@ var _ = Describe("snr  Controller", func() {
 
 				verifyNodeIsSchedulable()
 
-				By("Verify that finalizer was removed and SNR   can be deleted")
+				By("Verify that finalizer was removed and SNR can be deleted")
 				testNoFinalizer()
 
 			})
@@ -374,7 +374,7 @@ func verifyNodeBackup() {
 }
 
 func verifyTimeHasBeenRebootedExists() {
-	By("Verify that time has been added to SNR  status")
+	By("Verify that time has been added to SNR status")
 	snr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
 	EventuallyWithOffset(1, func() (*metav1.Time, error) {
 		snrNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: snrNamespace}
@@ -413,7 +413,7 @@ func verifySelfNodeRemediationPodExist() {
 }
 
 func deleteSNR(snr *selfnoderemediationv1alpha1.SelfNodeRemediation) {
-	ExpectWithOffset(1, k8sClient.Client.Delete(context.Background(), snr)).To(Succeed(), "failed to delete snr   CR")
+	ExpectWithOffset(1, k8sClient.Client.Delete(context.Background(), snr)).To(Succeed(), "failed to delete snr CR")
 }
 
 func createSNR(snr *selfnoderemediationv1alpha1.SelfNodeRemediation, strategy selfnoderemediationv1alpha1.RemediationStrategyType) {
@@ -421,7 +421,7 @@ func createSNR(snr *selfnoderemediationv1alpha1.SelfNodeRemediation, strategy se
 	snr.Name = unhealthyNodeName
 	snr.Namespace = snrNamespace
 	snr.Spec.RemediationStrategy = strategy
-	ExpectWithOffset(1, k8sClient.Client.Create(context.TODO(), snr)).To(Succeed(), "failed to create snr   CR")
+	ExpectWithOffset(1, k8sClient.Client.Create(context.TODO(), snr)).To(Succeed(), "failed to create snr CR")
 }
 
 func createSelfNodeRemediationPod() {
@@ -486,7 +486,7 @@ func deleteIsRebootCapableAnnotation() {
 	ExpectWithOffset(1, k8sClient.Client.Update(context.Background(), unhealthyNode)).To(Succeed())
 }
 
-//testNoFinalizer checks that snr   doesn't have finalizer
+//testNoFinalizer checks that snr doesn't have finalizer
 func testNoFinalizer() {
 	snr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
 	snrKey := client.ObjectKey{

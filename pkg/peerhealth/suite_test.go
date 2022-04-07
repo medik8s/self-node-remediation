@@ -72,7 +72,7 @@ var _ = BeforeSuite(func() {
 	k8sClient = k8sManager.GetClient()
 	Expect(k8sClient).ToNot(BeNil())
 
-	// we need a reconciler for getting last SNR          namespace
+	// we need a reconciler for getting last SNR namespace
 	pprr = &controllers.SelfNodeRemediationReconciler{
 		Client:     k8sClient,
 		Log:        ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
