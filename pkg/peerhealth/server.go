@@ -131,10 +131,10 @@ func (s Server) IsHealthy(ctx context.Context, request *HealthRequest) (*HealthR
 		// but we need to check for API error, so let's get node
 		if _, err := s.getNode(ctx, nodeName); err != nil {
 			// TODO do we need to deal with isNotFound, and if so, how?
-			s.log.Info("no PPR seen yet, and API server issue, returning API error", "api error", err)
+			s.log.Info("no SNR seen yet, and API server issue, returning API error", "api error", err)
 			return toResponse(selfNodeRemediationApis.ApiError)
 		}
-		s.log.Info("no PPR seen yet, node is healthy")
+		s.log.Info("no SNR seen yet, node is healthy")
 		return toResponse(selfNodeRemediationApis.Healthy)
 	}
 

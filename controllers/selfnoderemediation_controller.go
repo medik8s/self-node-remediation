@@ -115,7 +115,7 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	if err := r.Get(ctx, req.NamespacedName, ppr); err != nil {
 		if apiErrors.IsNotFound(err) {
 			// PPR is deleted, stop reconciling
-			r.logger.Info("PPR already deleted")
+			r.logger.Info("SNR already deleted")
 			return ctrl.Result{}, nil
 		}
 		r.logger.Error(err, "failed to get PPR")
@@ -256,7 +256,7 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(ppr *v1alp
 			// conflicts are expected since all self node remediation deamonset pods are competing on the same requests
 			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 		}
-		r.logger.Error(err, "failed to mark PPR as fencing completed")
+		r.logger.Error(err, "failed to mark SNR as fencing completed")
 		return ctrl.Result{}, err
 	}
 
@@ -299,7 +299,7 @@ func (r *SelfNodeRemediationReconciler) remediateWithNodeDeletion(ppr *v1alpha1.
 				//this helps to prevent remediation loops
 				//note that it means we block ppr deletion forever for node that were not remediated
 				//todo consider add some timeout, should be quite long to allow bm reboot (at least 10 minutes)
-				r.logger.Info("waiting for node to become ready before removing ppr finalizer")
+				r.logger.Info("waiting for node to become ready before removing snr finalizer")
 				return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 			}
 
@@ -441,7 +441,7 @@ func (r *SelfNodeRemediationReconciler) addFinalizer(ppr *v1alpha1.SelfNodeRemed
 	if !ppr.DeletionTimestamp.IsZero() {
 		//ppr is going to be deleted before we started any remediation action, so taking no-op
 		//otherwise we continue the remediation even if the deletionTimestamp is not zero
-		r.logger.Info("ppr is about to be deleted, which means the resource is healthy again. taking no-op")
+		r.logger.Info("snr is about to be deleted, which means the resource is healthy again. taking no-op")
 		return ctrl.Result{}, nil
 	}
 
@@ -475,7 +475,7 @@ func (r *SelfNodeRemediationReconciler) getReadyCond(node *v1.Node) *v1.NodeCond
 }
 
 func (r *SelfNodeRemediationReconciler) updatePprStatus(node *v1.Node, ppr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
-	r.logger.Info("updating ppr with node backup and updating time to assume node has been rebooted", "node name", node.Name)
+	r.logger.Info("updating snr with node backup and updating time to assume node has been rebooted", "node name", node.Name)
 	//we assume the unhealthy node will be rebooted by maxTimeNodeHasRebooted
 	maxTimeNodeHasRebooted := metav1.NewTime(metav1.Now().Add(r.SafeTimeToAssumeNodeRebooted))
 	ppr.Status.TimeAssumedRebooted = &maxTimeNodeHasRebooted
