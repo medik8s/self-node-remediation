@@ -14,8 +14,8 @@ spec:
     listKind: SelfNodeRemediationConfigList
     plural: selfnoderemediationconfigs
     shortNames:
-    - ppc
-    - ppconfig
+    - snrc
+    - snrconfig
     singular: selfnoderemediationconfig
   scope: Namespaced
   versions:
