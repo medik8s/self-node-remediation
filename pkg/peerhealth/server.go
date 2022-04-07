@@ -125,9 +125,9 @@ func (s Server) IsHealthy(ctx context.Context, request *HealthRequest) (*HealthR
 	namespace := s.ppr.GetLastSeenPprNamespace()
 	isMachine := s.ppr.WasLastSeenPprMachine()
 
-	// when namespace is empty, there wasn't a PPR yet, which also means that the node must be healthy
+	// when namespace is empty, there wasn't a SNR yet, which also means that the node must be healthy
 	if namespace == "" {
-		// we didn't see a PPR yet, so the node is healthy
+		// we didn't see a SNR yet, so the node is healthy
 		// but we need to check for API error, so let's get node
 		if _, err := s.getNode(ctx, nodeName); err != nil {
 			// TODO do we need to deal with isNotFound, and if so, how?
