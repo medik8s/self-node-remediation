@@ -37,7 +37,7 @@ metadata:
     capabilities: Basic Install
     categories: OpenShift Optional
     containerImage: quay.io/medik8s/self-node-remediation-operator:0.4.0
-    createdAt: "2022-04-05 12:19:14"
+    createdAt: "2022-04-12 17:34:12"
     olm.skipRange: '>=0.1.0 <0.4.0'
     operators.openshift.io/infrastructure-features: '["disconnected"]'
     operators.operatorframework.io/builder: operator-sdk-v1.16.0+git
@@ -399,7 +399,7 @@ spec:
   - recovery
   - high-availability
   - baremetal
-  - PP
+  - SNR
   links:
   - name: Self Node Remediation
     url: https://www.medik8s.io/
