@@ -7,8 +7,9 @@ metadata:
     categories: OpenShift Optional
     containerImage: quay.io/medik8s/self-node-remediation-operator:0.0.0
     createdAt: "2022-04-12 17:34:12"
+    description: Self Node Remediation Operator for remediate itself in case of a
+      failure.
     olm.skipRange: '>=0.1.0 <0.4.0'
-    operators.openshift.io/infrastructure-features: '["disconnected"]'
     repository: https://github.com/medik8s/self-node-remediation
     support: Medik8s
   name: self-node-remediation.v0.0.0
