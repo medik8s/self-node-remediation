@@ -20,10 +20,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/medik8s/self-node-remediation/pkg/utils"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/medik8s/self-node-remediation/pkg/utils"
 
 	"github.com/pkg/errors"
 
@@ -112,6 +113,10 @@ func main() {
 		initSelfNodeRemediationAgent(mgr)
 	}
 
+	if err = (&selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "SelfNodeRemediationConfig")
+		os.Exit(1)
+	}
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

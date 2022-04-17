@@ -1,5 +1,6 @@
 domain: medik8s.io
-layout: go.kubebuilder.io/v3
+layout:
+- go.kubebuilder.io/v3
 plugins:
   manifests.sdk.operatorframework.io/v2: {}
   scorecard.sdk.operatorframework.io/v2: {}
@@ -32,4 +33,7 @@ resources:
   kind: SelfNodeRemediationConfig
   path: github.com/medik8s/self-node-remediation/api/v1alpha1
   version: v1alpha1
+  webhooks:
+    validation: true
+    webhookVersion: v1
 version: "3"
