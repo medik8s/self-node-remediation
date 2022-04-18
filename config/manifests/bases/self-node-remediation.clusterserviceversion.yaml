@@ -6,7 +6,7 @@ metadata:
     capabilities: Basic Install
     categories: OpenShift Optional
     containerImage: quay.io/medik8s/self-node-remediation-operator:0.0.0
-    createdAt: "2022-04-12 17:34:12"
+    createdAt: "2022-04-18 11:25:40"
     description: Self Node Remediation Operator for remediate itself in case of a
       failure.
     olm.skipRange: '>=0.1.0 <0.4.0'
