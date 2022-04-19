@@ -139,7 +139,7 @@ func (r *SelfNodeRemediationConfig) validateTimes() error {
 func (f *field) validate() error {
 	if f.durationValue < f.minDurationValue {
 		err := fmt.Errorf(f.name + " cannot be less than " + f.minDurationValue.String())
-		selfNodeRemediationConfigLog.Error(err, "invalid time duration for field " + f.name)
+		selfNodeRemediationConfigLog.Error(err, "invalid duration value for field " + f.name)
 		return err
 	}
 
