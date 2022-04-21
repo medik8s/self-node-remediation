@@ -19,12 +19,9 @@ package main
 import (
 	"context"
 	"flag"
-	"github.com/medik8s/self-node-remediation/pkg/snrconfighelper"
 	"os"
 	"strconv"
 	"time"
-
-	"github.com/medik8s/self-node-remediation/pkg/utils"
 
 	"github.com/pkg/errors"
 
@@ -52,6 +49,8 @@ import (
 	"github.com/medik8s/self-node-remediation/pkg/peers"
 	"github.com/medik8s/self-node-remediation/pkg/reboot"
 	"github.com/medik8s/self-node-remediation/pkg/watchdog"
+	"github.com/medik8s/self-node-remediation/pkg/snrconfighelper"
+	"github.com/medik8s/self-node-remediation/pkg/utils"
 	//+kubebuilder:scaffold:imports
 )
 

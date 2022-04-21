@@ -11,7 +11,6 @@ import (
 )
 
 type ConfigInitializer struct {
-	//defaultConfig poisonpillv1alpha1.PoisonPillConfig
 	client client.Client
 	log    logr.Logger
 }
