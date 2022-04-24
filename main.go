@@ -19,8 +19,6 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
-	"github.com/medik8s/self-node-remediation/pkg/utils"
 	"os"
 	"strconv"
 	"time"
@@ -51,6 +49,8 @@ import (
 	"github.com/medik8s/self-node-remediation/pkg/peers"
 	"github.com/medik8s/self-node-remediation/pkg/reboot"
 	"github.com/medik8s/self-node-remediation/pkg/watchdog"
+	"github.com/medik8s/self-node-remediation/pkg/snrconfighelper"
+	"github.com/medik8s/self-node-remediation/pkg/utils"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -132,7 +132,13 @@ func main() {
 
 func initSelfNodeRemediationManager(mgr manager.Manager) {
 	setupLog.Info("Starting as a manager that installs the daemonset")
-	ns, err := getDeploymentNamespace()
+
+	if err := (&selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "SelfNodeRemediationConfig")
+		os.Exit(1)
+	}
+
+	ns, err := utils.GetDeploymentNamespace()
 	if err != nil {
 		setupLog.Error(err, "failed to get deployed namespace from env var")
 		os.Exit(1)
@@ -143,15 +149,16 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 		Log:               ctrl.Log.WithName("controllers").WithName("SelfNodeRemediationConfig"),
 		Scheme:            mgr.GetScheme(),
 		InstallFileFolder: "./install",
-		DefaultPpcCreator: newConfigIfNotExist,
+		DefaultPpcCreator: snrconfighelper.NewConfigIfNotExist,
 		Namespace:         ns,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SelfNodeRemediationConfig")
 		os.Exit(1)
 	}
 
-	if err := newConfigIfNotExist(mgr.GetClient()); err != nil {
-		setupLog.Error(err, "failed to create a default self node remediation config CR")
+	snrConfigInit := snrconfighelper.New(mgr.GetClient(), ctrl.Log.WithName("default SelfNodeRemediationConfig"))
+	if err = mgr.Add(snrConfigInit); err != nil {
+		setupLog.Error(err, "failed to add config to the manager")
 		os.Exit(1)
 	}
 
@@ -186,7 +193,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 			"env var name", nodeNameEnvVar)
 	}
 
-	ns, err := getDeploymentNamespace()
+	ns, err := utils.GetDeploymentNamespace()
 	if err != nil {
 		setupLog.Error(err, "unable to get the deployment namespace")
 		os.Exit(1)
@@ -304,27 +311,9 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	}
 }
 
-// newConfigIfNotExist creates a new SelfNodeRemediationConfig object
-// to initialize the rest of the deployment objects creation.
-func newConfigIfNotExist(c client.Client) error {
-	ns, err := getDeploymentNamespace()
-	if err != nil {
-		return errors.Wrap(err, "unable to get the deployment namespace")
-	}
-
-	config := selfnoderemediationv1alpha1.NewDefaultSelfNodeRemediationConfig()
-	config.SetNamespace(ns)
-
-	err = c.Create(context.Background(), &config, &client.CreateOptions{})
-	if err != nil && !apierrors.IsAlreadyExists(err) {
-		return errors.Wrap(err, "failed to create a default self node remediation config CR")
-	}
-	return nil
-}
-
 // newDefaultTemplateIfNotExist creates a new SelfNodeRemediationTemplate object
 func newDefaultTemplateIfNotExist(c client.Client) error {
-	ns, err := getDeploymentNamespace()
+	ns, err := utils.GetDeploymentNamespace()
 	if err != nil {
 		return errors.Wrap(err, "unable to get the deployment namespace")
 	}
@@ -337,18 +326,4 @@ func newDefaultTemplateIfNotExist(c client.Client) error {
 		return errors.Wrap(err, "failed to create a default self node remediation template CR")
 	}
 	return nil
-}
-
-// getDeploymentNamespace returns the Namespace this operator is deployed on.
-func getDeploymentNamespace() (string, error) {
-	// deployNamespaceEnvVar is the constant for env variable DEPLOYMENT_NAMESPACE
-	// which specifies the Namespace to watch.
-	// An empty value means the operator is running with cluster scope.
-	var deployNamespaceEnvVar = "DEPLOYMENT_NAMESPACE"
-
-	ns, found := os.LookupEnv(deployNamespaceEnvVar)
-	if !found {
-		return "", fmt.Errorf("%s must be set", deployNamespaceEnvVar)
-	}
-	return ns, nil
 }
