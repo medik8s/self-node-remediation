@@ -36,13 +36,13 @@ var cfg *rest.Config
 var k8sClient client.Client
 var testEnv *envtest.Environment
 var pprr *controllers.SelfNodeRemediationReconciler
+var cancelFunc context.CancelFunc
 
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
-		//BinaryAssetsDirectory: "../../testbin/bin",
 		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "config", "crd", "bases")},
 		ErrorIfCRDPathMissing: true,
 	}
@@ -62,10 +62,11 @@ var _ = BeforeSuite(func() {
 		MetricsBindAddress: ":8081",
 	})
 	Expect(err).ToNot(HaveOccurred())
-
+	var ctx context.Context
+	ctx, cancelFunc = context.WithCancel(ctrl.SetupSignalHandler())
 	go func() {
 		defer GinkgoRecover()
-		err = k8sManager.Start(ctrl.SetupSignalHandler())
+		err = k8sManager.Start(ctx)
 		Expect(err).ToNot(HaveOccurred())
 	}()
 
@@ -93,6 +94,7 @@ var _ = BeforeSuite(func() {
 
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
+	cancelFunc()
 	err := testEnv.Stop()
 	Expect(err).NotTo(HaveOccurred())
 })

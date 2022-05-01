@@ -4,7 +4,7 @@ import (
 	"context"
 	"github.com/medik8s/self-node-remediation/controllers"
 	"github.com/medik8s/self-node-remediation/pkg/utils"
-	"k8s.io/api/storage/v1beta1"
+	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -275,14 +275,14 @@ var _ = Describe("snr Controller", func() {
 })
 
 func createVolumeAttachment(vaName string) {
-	va := &v1beta1.VolumeAttachment{
+	va := &storagev1.VolumeAttachment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      vaName,
 			Namespace: namespace,
 		},
-		Spec: v1beta1.VolumeAttachmentSpec{
+		Spec: storagev1.VolumeAttachmentSpec{
 			Attacher: "foo",
-			Source:   v1beta1.VolumeAttachmentSource{},
+			Source:   storagev1.VolumeAttachmentSource{},
 			NodeName: unhealthyNodeName,
 		},
 	}
@@ -298,7 +298,7 @@ func verifyVaDeleted(vaName string) {
 	}
 
 	EventuallyWithOffset(1, func() bool {
-		va := &v1beta1.VolumeAttachment{}
+		va := &storagev1.VolumeAttachment{}
 		err := k8sClient.Get(context.Background(), vaKey, va)
 		return apierrors.IsNotFound(err)
 

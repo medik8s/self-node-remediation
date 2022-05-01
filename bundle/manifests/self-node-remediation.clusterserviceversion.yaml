@@ -41,7 +41,7 @@ metadata:
     description: Self Node Remediation Operator for remediate itself in case of a
       failure.
     olm.skipRange: '>=0.1.0 <0.4.0'
-    operators.operatorframework.io/builder: operator-sdk-v1.17.0+git
+    operators.operatorframework.io/builder: operator-sdk-v1.18.0+git
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v3
     repository: https://github.com/medik8s/self-node-remediation
     support: Medik8s
@@ -301,7 +301,10 @@ spec:
           - create
         serviceAccountName: self-node-remediation-controller-manager
       deployments:
-      - name: self-node-remediation-controller-manager
+      - label:
+          control-plane: controller-manager
+          self-node-remediation-operator: ""
+        name: self-node-remediation-controller-manager
         spec:
           replicas: 1
           selector:
