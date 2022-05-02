@@ -6,7 +6,7 @@ metadata:
     capabilities: Basic Install
     categories: OpenShift Optional
     containerImage: quay.io/medik8s/self-node-remediation-operator:0.0.0
-    createdAt: "2022-04-18 11:25:40"
+    createdAt: "2022-04-28 21:46:09"
     description: Self Node Remediation Operator for remediate itself in case of a
       failure.
     olm.skipRange: '>=0.1.0 <0.4.0'
@@ -38,6 +38,10 @@ spec:
         name: selfnoderemediations
         version: v1alpha1
       statusDescriptors:
+      - description: LastError captures the last error that occurred during remediation.
+          If no error occurred it would be nil
+        displayName: Last Error
+        path: lastError
       - description: NodeBackup is the node object that is going to be deleted as
           part of the remediation process
         displayName: Node Backup

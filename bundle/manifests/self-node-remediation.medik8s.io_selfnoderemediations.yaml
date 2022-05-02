@@ -55,6 +55,10 @@ spec:
           status:
             description: SelfNodeRemediationStatus defines the observed state of SelfNodeRemediation
             properties:
+              lastError:
+                description: LastError captures the last error that occurred during
+                  remediation. If no error occurred it would be nil
+                type: string
               nodeBackup:
                 description: NodeBackup is the node object that is going to be deleted
                   as part of the remediation process
