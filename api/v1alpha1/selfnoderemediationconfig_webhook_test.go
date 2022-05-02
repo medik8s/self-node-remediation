@@ -33,27 +33,44 @@ var testItems = []field{
 	{peerUpdateInterval, -10 * time.Second, minDurPeerUpdateInterval},
 }
 
+var testItems2 = []field{
+	{peerApiServerTimeout, 7 * time.Millisecond, minDurPeerApiServerTimeout},
+	{apiServerTimeout, -5 * time.Minute, minDurApiServerTimeout},
+	{peerDialTimeout, 0, minDurPeerDialTimeout},
+	{peerRequestTimeout, -1 * time.Second, minDurPeerRequestTimeout},
+	{apiCheckInterval, 0, minDurApiCheckInterval},
+	{peerUpdateInterval, 1 * time.Millisecond, minDurPeerUpdateInterval},
+}
+
 var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 
 	Describe("creating SelfNodeRemediationConfig CR", func() {
 		// test create validation on CRs with time field that has value shorter than allowed
-		testInvalidCRs("create")
+		testSingleInvalidField("create")
+
+		// test create validation on CRs with multiple fields that has value shorter than allowed
+		testMultipleInvalidFields("create")
 
 		// test create validation on a valid CR
 		testValidCR("create")
+
 	})
 
 	Describe("updating SelfNodeRemediationConfig CR", func() {
 		// test update validation on CRs with time field that has value shorter than allowed
-		testInvalidCRs("update")
+		testSingleInvalidField("update")
+
+		// test update validation on CRs with multiple fields that has value shorter than allowed
+		testMultipleInvalidFields("update")
 
 		// test update validation on a valid CR
 		testValidCR("update")
 
 	})
+
 })
 
-func testInvalidCRs(validationType string) {
+func testSingleInvalidField(validationType string) {
 	for _, item := range testItems {
 		item := item
 
@@ -75,6 +92,33 @@ func testInvalidCRs(validationType string) {
 			})
 		})
 	}
+}
+
+func testMultipleInvalidFields(validationType string) {
+	var errorMsg string
+	snrc := createDefaultSelfNodeRemediationConfigCR()
+
+	for _, item := range testItems2 {
+		item := item
+		setFieldValue(snrc, item.name, item.durationValue)
+		errorMsg += "\n" + item.name + " cannot be less than " + item.minDurationValue.String()
+	}
+	println(errorMsg)
+
+	Context("for CR multiple invalid fields", func() {
+		It("should be rejected", func() {
+			var err error
+			if validationType == "update" {
+				snrcOld := createDefaultSelfNodeRemediationConfigCR()
+				err = snrc.ValidateUpdate(snrcOld)
+			} else {
+				err = snrc.ValidateCreate()
+			}
+
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(errorMsg))
+		})
+	})
 }
 
 func testValidCR(validationType string) {
