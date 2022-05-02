@@ -1,6 +1,7 @@
 package certificates
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -27,7 +28,7 @@ func TestCertificates(t *testing.T) {
 var cfg *rest.Config
 var k8sClient client.Client
 var testEnv *envtest.Environment
-
+var cancelFunc context.CancelFunc
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
@@ -48,10 +49,11 @@ var _ = BeforeSuite(func() {
 		MetricsBindAddress: ":8082",
 	})
 	Expect(err).ToNot(HaveOccurred())
-
+	var ctx context.Context
+	ctx, cancelFunc = context.WithCancel(ctrl.SetupSignalHandler())
 	go func() {
 		defer GinkgoRecover()
-		err = k8sManager.Start(ctrl.SetupSignalHandler())
+		err = k8sManager.Start(ctx)
 		Expect(err).ToNot(HaveOccurred())
 	}()
 
@@ -62,6 +64,7 @@ var _ = BeforeSuite(func() {
 
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
+	cancelFunc()
 	err := testEnv.Stop()
 	Expect(err).NotTo(HaveOccurred())
 })
