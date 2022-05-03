@@ -103,7 +103,6 @@ func testMultipleInvalidFields(validationType string) {
 		setFieldValue(snrc, item.name, item.durationValue)
 		errorMsg += "\n" + item.name + " cannot be less than " + item.minDurationValue.String()
 	}
-	println(errorMsg)
 
 	Context("for CR multiple invalid fields", func() {
 		It("should be rejected", func() {
