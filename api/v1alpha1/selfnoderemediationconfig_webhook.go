@@ -115,6 +115,7 @@ func (r *SelfNodeRemediationConfig) ValidateDelete() error {
 // validateTimes validates that each time field in the SelfNodeRemediationConfig CR doesn't go below the minimum time
 // that was defined to it
 func (r *SelfNodeRemediationConfig) validateTimes() error {
+	errMsg := ""
 
 	s := r.Spec
 	fields := []field{
@@ -129,17 +130,19 @@ func (r *SelfNodeRemediationConfig) validateTimes() error {
 	for _, field := range fields {
 		err := field.validate()
 		if err != nil {
-			return err
+			errMsg += "\n" + err.Error()
 		}
 	}
 
+	if errMsg != "" {
+		return fmt.Errorf(errMsg)
+	}
 	return nil
 }
 
 func (f *field) validate() error {
 	if f.durationValue < f.minDurationValue {
 		err := fmt.Errorf(f.name + " cannot be less than " + f.minDurationValue.String())
-		selfNodeRemediationConfigLog.Error(err, "invalid duration value for field " + f.name)
 		return err
 	}
 
