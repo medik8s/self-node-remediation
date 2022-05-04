@@ -64,7 +64,7 @@ type SelfNodeRemediationStatus struct {
 	Phase *string `json:"phase,omitempty"`
 
 	// LastError captures the last error that occurred during remediation.
-	// If no error occurred it would be nil
+	// If no error occurred it would be empty
 	//+operator-sdk:csv:customresourcedefinitions:type=status
 	LastError string `json:"lastError,omitempty"`
 }

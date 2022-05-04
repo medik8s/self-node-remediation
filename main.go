@@ -48,9 +48,9 @@ import (
 	"github.com/medik8s/self-node-remediation/pkg/peerhealth"
 	"github.com/medik8s/self-node-remediation/pkg/peers"
 	"github.com/medik8s/self-node-remediation/pkg/reboot"
-	"github.com/medik8s/self-node-remediation/pkg/watchdog"
 	"github.com/medik8s/self-node-remediation/pkg/snrconfighelper"
 	"github.com/medik8s/self-node-remediation/pkg/utils"
+	"github.com/medik8s/self-node-remediation/pkg/watchdog"
 	//+kubebuilder:scaffold:imports
 )
 

@@ -18,7 +18,6 @@ package controllers
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -54,9 +53,15 @@ var (
 
 	lastSeenSnrNamespace  string
 	wasLastSeenSnrMachine bool
-
-	untreatableError = errors.New("untreatable error, stop reconciling")
 )
+
+type UnreconcilableError struct {
+	msg string
+}
+
+func (e *UnreconcilableError) Error() string {
+	return e.msg
+}
 
 //GetLastSeenSnrNamespace returns the namespace of the last reconciled SNR
 func (r *SelfNodeRemediationReconciler) GetLastSeenSnrNamespace() string {
@@ -587,7 +592,7 @@ func (r *SelfNodeRemediationReconciler) markNodeAsUnschedulable(node *v1.Node) (
 func (r *SelfNodeRemediationReconciler) handleDeletedNode(snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	if snr.Status.NodeBackup == nil {
 		// there is nothing we can do about it, stop reconciling
-		err := fmt.Errorf("unhealthy node doesn't exist and there's no backup node to restore: %w", untreatableError)
+		err := &UnreconcilableError{"unhealthy node doesn't exist and there's no backup node to restore"}
 		r.logger.Error(err, "remediation failed")
 		return ctrl.Result{}, err
 	}
@@ -633,22 +638,25 @@ func (r *SelfNodeRemediationReconciler) restoreNode(nodeToRestore *v1.Node) (ctr
 
 func (r *SelfNodeRemediationReconciler) updateSnrStatusLastError(snr *v1alpha1.SelfNodeRemediation, err error) error {
 	var lastErrorVal string
+	patch := client.MergeFrom(snr.DeepCopy())
 
 	if err != nil {
 		lastErrorVal = err.Error()
 	} else {
-		lastErrorVal = "successful reconcile"
+		lastErrorVal = ""
 	}
 
 	if snr.Status.LastError != lastErrorVal {
 		snr.Status.LastError = lastErrorVal
-		updateErr := r.Client.Status().Update(context.Background(), snr)
+		updateErr := r.Client.Status().Patch(context.Background(), snr, patch)
 		if updateErr != nil {
 			r.logger.Error(updateErr, "Failed to update SelfNodeRemediation status")
 		}
 	}
 
-	if errors.Unwrap(err) == untreatableError {
+	_, isUnreconcilableError := err.(*UnreconcilableError)
+
+	if isUnreconcilableError {
 		// return nil to not enter reconcile again
 		return nil
 	}
