@@ -651,6 +651,7 @@ func (r *SelfNodeRemediationReconciler) updateSnrStatusLastError(snr *v1alpha1.S
 		updateErr := r.Client.Status().Patch(context.Background(), snr, patch)
 		if updateErr != nil {
 			r.logger.Error(updateErr, "Failed to update SelfNodeRemediation status")
+			return updateErr
 		}
 	}
 
