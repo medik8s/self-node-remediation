@@ -50,7 +50,7 @@ spec:
                       of SelfNodeRemediation
                     properties:
                       remediationStrategy:
-                        default: NodeDeletion
+                        default: ResourceDeletion
                         description: RemediationStrategy is the remediation method
                           for unhealthy nodes could be either "NodeDeletion" or "ResourceDeletion"
                           the first will delete the node to signal to the cluster

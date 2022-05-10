@@ -37,7 +37,7 @@ type SelfNodeRemediationSpec struct {
 	//could be either "NodeDeletion" or "ResourceDeletion"
 	//the first will delete the node to signal to the cluster that the node was fenced
 	//the latter will iterate over all pos and volumeattachments related to the unhealthy node and delete them
-	// +kubebuilder:default:="NodeDeletion"
+	// +kubebuilder:default:="ResourceDeletion"
 	// +kubebuilder:validation:Enum=NodeDeletion;ResourceDeletion
 	RemediationStrategy RemediationStrategyType `json:"remediationStrategy,omitempty"`
 }
