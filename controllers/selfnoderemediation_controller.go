@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"reflect"
 	"sync"
 	"time"
 
@@ -49,6 +50,11 @@ var (
 	NodeUnschedulableTaint = &v1.Taint{
 		Key:    "node.kubernetes.io/unschedulable",
 		Effect: v1.TaintEffectNoSchedule,
+	}
+
+	NodeNoExecuteTaint = &v1.Taint{
+		Key:    "node.kubernetes.io/out-of-service",
+		Effect: v1.TaintEffectNoExecute,
 	}
 
 	lastSeenSnrNamespace  string
@@ -142,6 +148,8 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 		result, err = r.remediateWithNodeDeletion(snr)
 	case v1alpha1.ResourceDeletionRemediationStrategy:
 		result, err = r.remediateWithResourceDeletion(snr)
+	case v1alpha1.AddTaintRemediationStrategy:
+		result, err = r.remediateByAddingTaint(snr)
 	default:
 		//this should never happen since we enforce valid values with kubebuilder
 		err := errors.New("unsupported remediation strategy")
@@ -368,6 +376,35 @@ func (r *SelfNodeRemediationReconciler) remediateWithNodeDeletion(snr *v1alpha1.
 	}
 
 	return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
+}
+
+func (r *SelfNodeRemediationReconciler) remediateByAddingTaint(snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+	node, err := r.getNodeFromSnr(snr)
+	if err != nil {
+		r.logger.Error(err, "failed to get node", "node name", snr.Name)
+		return ctrl.Result{}, err
+	}
+
+	if !controllerutil.ContainsFinalizer(snr, SNRFinalizer) {
+		return r.addFinalizer(snr)
+	}
+
+	if !utils.TaintExists(node.Spec.Taints, NodeNoExecuteTaint) {
+		return r.addOutOfServiceTaint(node)
+	}
+	//Remediation is done
+	if !snr.DeletionTimestamp.IsZero() {
+		if err := r.removeOutOfServiceTaint(node); err != nil {
+			return ctrl.Result{}, err
+		}
+		if controllerutil.ContainsFinalizer(snr, SNRFinalizer) {
+			if err := r.removeFinalizer(snr); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
+	return ctrl.Result{}, nil
 }
 
 // rebootIfNeeded reboots the node if no reboot was performed so far
@@ -663,4 +700,38 @@ func (r *SelfNodeRemediationReconciler) updateSnrStatusLastError(snr *v1alpha1.S
 	}
 
 	return err
+}
+
+func (r *SelfNodeRemediationReconciler) addOutOfServiceTaint(node *v1.Node) (ctrl.Result, error) {
+	patch := client.MergeFrom(node.DeepCopy())
+	node.Spec.Taints = append(node.Spec.Taints, *NodeNoExecuteTaint)
+	if err := r.Client.Patch(context.Background(), node, patch); err != nil {
+		r.logger.Error(err, "Failed to add out-of-service taint on node", "node name", node.Name)
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, nil
+}
+
+func (r *SelfNodeRemediationReconciler) removeOutOfServiceTaint(node *v1.Node) error {
+	patch := client.MergeFrom(node.DeepCopy())
+	var taintIndex int
+	taintFound := false
+	for index, taint := range node.Spec.Taints {
+		if reflect.DeepEqual(taint, *NodeNoExecuteTaint) {
+			taintIndex = index
+			taintFound = true
+			break
+		}
+	}
+	if !taintFound {
+		r.logger.Info("out-of-service taint not found on node", "node name", node.Name)
+		return nil
+	}
+	node.Spec.Taints = append(node.Spec.Taints[:taintIndex], node.Spec.Taints[taintIndex+1:]...)
+
+	if err := r.Client.Patch(context.Background(), node, patch); err != nil {
+		r.logger.Error(err, "Failed to remove out-of-service taint on node", "node name", node.Name)
+		return err
+	}
+	return nil
 }

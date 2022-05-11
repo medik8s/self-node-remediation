@@ -24,6 +24,7 @@ import (
 const (
 	NodeDeletionRemediationStrategy     = RemediationStrategyType("NodeDeletion")
 	ResourceDeletionRemediationStrategy = RemediationStrategyType("ResourceDeletion")
+	AddTaintRemediationStrategy         = RemediationStrategyType("AddTaint")
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -34,11 +35,11 @@ type RemediationStrategyType string
 // SelfNodeRemediationSpec defines the desired state of SelfNodeRemediation
 type SelfNodeRemediationSpec struct {
 	//RemediationStrategy is the remediation method for unhealthy nodes
-	//could be either "NodeDeletion" or "ResourceDeletion"
+	//could be either "NodeDeletion", "ResourceDeletion" or "AddTaint"
 	//the first will delete the node to signal to the cluster that the node was fenced
 	//the latter will iterate over all pos and volumeattachments related to the unhealthy node and delete them
 	// +kubebuilder:default:="ResourceDeletion"
-	// +kubebuilder:validation:Enum=NodeDeletion;ResourceDeletion
+	// +kubebuilder:validation:Enum=NodeDeletion;ResourceDeletion;AddTaint
 	RemediationStrategy RemediationStrategyType `json:"remediationStrategy,omitempty"`
 }
 
