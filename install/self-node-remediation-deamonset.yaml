@@ -83,3 +83,8 @@ spec:
       schedulerName: default-scheduler
       securityContext: {}
       terminationGracePeriodSeconds: 10
+      tolerations:
+        - key: "healthcheck"
+          operator: "Equal"
+          value: "medik8s"
+          effect: "NoExecute"

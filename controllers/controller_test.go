@@ -64,7 +64,7 @@ var _ = Describe("snr Controller", func() {
 		//be in a safe state (i.e. rebooted)
 		var remediationStrategy selfnoderemediationv1alpha1.RemediationStrategyType
 		JustBeforeEach(func() {
-			createSNR(snr, remediationStrategy)
+			createSNR(remediationStrategy)
 		})
 
 		AfterEach(func() {
@@ -103,7 +103,7 @@ var _ = Describe("snr Controller", func() {
 
 			BeforeEach(func() {
 				createSelfNodeRemediationPod()
-				createSNR(snr, selfnoderemediationv1alpha1.NodeDeletionRemediationStrategy)
+				createSNR(selfnoderemediationv1alpha1.NodeDeletionRemediationStrategy)
 			})
 
 			AfterEach(func() {
@@ -143,7 +143,7 @@ var _ = Describe("snr Controller", func() {
 			createSelfNodeRemediationPod()
 			updateIsRebootCapable("true")
 			beforeSNR = time.Now().Add(-time.Second)
-			createSNR(snr, remediationStrategy)
+			createSNR(remediationStrategy)
 
 			By("make sure self node remediation exists with correct label")
 			verifySelfNodeRemediationPodExist()
@@ -248,7 +248,7 @@ var _ = Describe("snr Controller", func() {
 		BeforeEach(func() {
 			By("Simulate api-server failure")
 			k8sClient.ShouldSimulateFailure = true
-			createSNR(snr, selfnoderemediationv1alpha1.NodeDeletionRemediationStrategy)
+			createSNR(selfnoderemediationv1alpha1.NodeDeletionRemediationStrategy)
 		})
 
 		AfterEach(func() {
@@ -416,8 +416,8 @@ func deleteSNR(snr *selfnoderemediationv1alpha1.SelfNodeRemediation) {
 	ExpectWithOffset(1, k8sClient.Client.Delete(context.Background(), snr)).To(Succeed(), "failed to delete snr CR")
 }
 
-func createSNR(snr *selfnoderemediationv1alpha1.SelfNodeRemediation, strategy selfnoderemediationv1alpha1.RemediationStrategyType) {
-	snr = &selfnoderemediationv1alpha1.SelfNodeRemediation{}
+func createSNR(strategy selfnoderemediationv1alpha1.RemediationStrategyType) {
+	snr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
 	snr.Name = unhealthyNodeName
 	snr.Namespace = snrNamespace
 	snr.Spec.RemediationStrategy = strategy
@@ -462,6 +462,7 @@ func updateIsRebootCapable(rebootCapableAnnotationValue string) {
 	}
 	node := &v1.Node{}
 	ExpectWithOffset(1, k8sClient.Client.Get(context.Background(), unhealthyNodeKey, node)).To(Succeed())
+	patch := client.MergeFrom(node.DeepCopy())
 	if node.Annotations == nil {
 		node.Annotations = map[string]string{}
 	}
@@ -469,7 +470,7 @@ func updateIsRebootCapable(rebootCapableAnnotationValue string) {
 		node.Annotations[utils.IsRebootCapableAnnotation] = rebootCapableAnnotationValue
 	}
 
-	ExpectWithOffset(1, k8sClient.Client.Update(context.Background(), node)).To(Succeed())
+	ExpectWithOffset(1, k8sClient.Client.Patch(context.Background(), node, patch)).To(Succeed())
 }
 
 func deleteIsRebootCapableAnnotation() {
@@ -478,12 +479,12 @@ func deleteIsRebootCapableAnnotation() {
 	}
 	unhealthyNode := &v1.Node{}
 	ExpectWithOffset(1, k8sClient.Client.Get(context.Background(), unhealthyNodeKey, unhealthyNode)).To(Succeed())
-
+	patch := client.MergeFrom(unhealthyNode.DeepCopy())
 	if unhealthyNode.Annotations != nil {
 		delete(unhealthyNode.Annotations, utils.IsRebootCapableAnnotation)
 	}
 
-	ExpectWithOffset(1, k8sClient.Client.Update(context.Background(), unhealthyNode)).To(Succeed())
+	ExpectWithOffset(1, k8sClient.Client.Patch(context.Background(), unhealthyNode, patch)).To(Succeed())
 }
 
 //testNoFinalizer checks that snr doesn't have finalizer

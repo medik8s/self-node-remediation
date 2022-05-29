@@ -51,6 +51,12 @@ var (
 		Effect: v1.TaintEffectNoSchedule,
 	}
 
+	NodeNoExecuteTaint = &v1.Taint{
+		Key:    "healthcheck",
+		Value:  "medik8s",
+		Effect: v1.TaintEffectNoExecute,
+	}
+
 	lastSeenSnrNamespace  string
 	wasLastSeenSnrMachine bool
 )
@@ -174,17 +180,26 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alp
 			}
 		}
 
+		if err := r.removeNoExecuteTaint(node); err != nil {
+			return ctrl.Result{}, err
+		}
+
 		if controllerutil.ContainsFinalizer(snr, SNRFinalizer) {
 			if err := r.removeFinalizer(snr); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
+
 		return ctrl.Result{}, nil
 	}
 
 	if !r.isNodeRebootCapable(node) {
 		//use err to trigger exponential backoff
 		return ctrl.Result{}, errors.New("Node is not capable to reboot itself")
+	}
+
+	if err = r.addNoExecuteTaint(node); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	if !controllerutil.ContainsFinalizer(snr, SNRFinalizer) {
@@ -287,6 +302,10 @@ func (r *SelfNodeRemediationReconciler) remediateWithNodeDeletion(snr *v1alpha1.
 		return ctrl.Result{}, err
 	}
 
+	if err = r.addNoExecuteTaint(node); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	if node.CreationTimestamp.After(snr.CreationTimestamp.Time) {
 		//this node was created after the node was reported as unhealthy
 		//we assume this is the new node after remediation and take no-op expecting the snr to be deleted
@@ -314,6 +333,10 @@ func (r *SelfNodeRemediationReconciler) remediateWithNodeDeletion(snr *v1alpha1.
 				//todo consider add some timeout, should be quite long to allow bm reboot (at least 10 minutes)
 				r.logger.Info("waiting for node to become ready before removing snr finalizer")
 				return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+			}
+
+			if err := r.removeNoExecuteTaint(node); err != nil {
+				return ctrl.Result{}, err
 			}
 
 			if err := r.removeFinalizer(snr); err != nil {
@@ -665,4 +688,46 @@ func (r *SelfNodeRemediationReconciler) updateSnrStatusLastError(snr *v1alpha1.S
 	}
 
 	return err
+}
+
+func (r *SelfNodeRemediationReconciler) addNoExecuteTaint(node *v1.Node) error {
+	if utils.TaintExists(node.Spec.Taints, NodeNoExecuteTaint) {
+		return nil
+	}
+
+	patch := client.MergeFrom(node.DeepCopy())
+	node.Spec.Taints = append(node.Spec.Taints, *NodeNoExecuteTaint)
+	if err := r.Client.Patch(context.Background(), node, patch); err != nil {
+		r.logger.Error(err, "Failed to add taint on node", "node name", node.Name, "taint key", NodeNoExecuteTaint.Key, "taint effect", NodeNoExecuteTaint.Effect)
+		return err
+	}
+	return nil
+}
+
+func (r *SelfNodeRemediationReconciler) removeNoExecuteTaint(node *v1.Node) error {
+	if !utils.TaintExists(node.Spec.Taints, NodeNoExecuteTaint) {
+		return nil
+	}
+
+	patch := client.MergeFrom(node.DeepCopy())
+	var taintIndex int
+	taintFound := false
+	for index, taint := range node.Spec.Taints {
+		if taint.MatchTaint(NodeNoExecuteTaint) {
+			taintIndex = index
+			taintFound = true
+			break
+		}
+	}
+	if !taintFound {
+		r.logger.Info("Failed to remove taint from node, taint not found", "node name", node.Name, "taint key", NodeNoExecuteTaint.Key, "taint effect", NodeNoExecuteTaint.Effect)
+		return nil
+	}
+	node.Spec.Taints = append(node.Spec.Taints[:taintIndex], node.Spec.Taints[taintIndex+1:]...)
+
+	if err := r.Client.Patch(context.Background(), node, patch); err != nil {
+		r.logger.Error(err, "Failed to remove taint from node,", "node name", node.Name, "taint key", NodeNoExecuteTaint.Key, "taint effect", NodeNoExecuteTaint.Effect)
+		return err
+	}
+	return nil
 }
