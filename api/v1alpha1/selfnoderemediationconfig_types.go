@@ -25,7 +25,6 @@ import (
 
 const (
 	ConfigCRName                          = "self-node-remediation-config"
-	templateCRName                        = "self-node-remediation-default-template"
 	defaultWatchdogPath                   = "/dev/watchdog"
 	defaultSafetToAssumeNodeRebootTimeout = 180
 	defaultIsSoftwareRebootEnabled        = true
@@ -149,12 +148,5 @@ func NewDefaultSelfNodeRemediationConfig() SelfNodeRemediationConfig {
 			SafeTimeToAssumeNodeRebootedSeconds: defaultSafetToAssumeNodeRebootTimeout,
 			IsSoftwareRebootEnabled:             defaultIsSoftwareRebootEnabled,
 		},
-	}
-}
-
-func NewDefaultRemediationTemplate() SelfNodeRemediationTemplate {
-	return SelfNodeRemediationTemplate{
-		ObjectMeta: metav1.ObjectMeta{Name: templateCRName},
-		Spec:       SelfNodeRemediationTemplateSpec{Template: SelfNodeRemediationTemplateResource{Spec: SelfNodeRemediationSpec{}}},
 	}
 }

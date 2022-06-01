@@ -162,8 +162,8 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
-	if err := newDefaultTemplateIfNotExist(mgr.GetClient()); err != nil {
-		setupLog.Error(err, "failed to create default remediation template")
+	if err := newTemplatesIfNotExist(mgr.GetClient()); err != nil {
+		setupLog.Error(err, "failed to create remediation templates")
 		os.Exit(1)
 	}
 }
@@ -311,19 +311,21 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	}
 }
 
-// newDefaultTemplateIfNotExist creates a new SelfNodeRemediationTemplate object
-func newDefaultTemplateIfNotExist(c client.Client) error {
+// newTemplatesIfNotExist creates new SelfNodeRemediationTemplate objects
+func newTemplatesIfNotExist(c client.Client) error {
 	ns, err := utils.GetDeploymentNamespace()
 	if err != nil {
 		return errors.Wrap(err, "unable to get the deployment namespace")
 	}
 
-	pprt := selfnoderemediationv1alpha1.NewDefaultRemediationTemplate()
-	pprt.SetNamespace(ns)
+	templates := selfnoderemediationv1alpha1.NewRemediationTemplates()
 
-	err = c.Create(context.Background(), &pprt, &client.CreateOptions{})
-	if err != nil && !apierrors.IsAlreadyExists(err) {
-		return errors.Wrap(err, "failed to create a default self node remediation template CR")
+	for _, template := range templates {
+		template.SetNamespace(ns)
+		err = c.Create(context.Background(), template, &client.CreateOptions{})
+		if err != nil && !apierrors.IsAlreadyExists(err) {
+			return errors.Wrap(err, "failed to create self node remediation template CR")
+		}
 	}
 	return nil
 }
