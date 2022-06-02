@@ -249,10 +249,12 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alp
 		r.logger.Error(err, "failed to get volumeAttachments list")
 		return ctrl.Result{}, err
 	}
-
+	forceDeleteOption := &client.DeleteOptions{
+		GracePeriodSeconds: &zero,
+	}
 	for _, va := range volumeAttachments.Items {
 		if va.Spec.NodeName == node.Name {
-			err = r.Client.Delete(context.Background(), &va)
+			err = r.Client.Delete(context.Background(), &va, forceDeleteOption)
 			if err != nil {
 				r.logger.Error(err, "failed to delete volumeAttachment", "name", va.Name)
 				return ctrl.Result{}, err
