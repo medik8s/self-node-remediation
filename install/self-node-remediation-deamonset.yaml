@@ -84,7 +84,7 @@ spec:
       securityContext: {}
       terminationGracePeriodSeconds: 10
       tolerations:
-        - key: "healthcheck"
+        - key: "medik8s.io/remediation"
           operator: "Equal"
-          value: "medik8s"
+          value: "nodefencing"
           effect: "NoExecute"
