@@ -302,10 +302,6 @@ func (r *SelfNodeRemediationReconciler) remediateWithNodeDeletion(snr *v1alpha1.
 		return ctrl.Result{}, err
 	}
 
-	if err = r.addNoExecuteTaint(node); err != nil {
-		return ctrl.Result{}, err
-	}
-
 	if node.CreationTimestamp.After(snr.CreationTimestamp.Time) {
 		//this node was created after the node was reported as unhealthy
 		//we assume this is the new node after remediation and take no-op expecting the snr to be deleted
@@ -349,6 +345,10 @@ func (r *SelfNodeRemediationReconciler) remediateWithNodeDeletion(snr *v1alpha1.
 		//todo this means we only allow one remediation attempt per snr. we could add some config to
 		//snr which states max remediation attempts, and the timeout to consider a remediation failed.
 		return ctrl.Result{}, nil
+	}
+
+	if err = r.addNoExecuteTaint(node); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	if !r.isNodeRebootCapable(node) {
