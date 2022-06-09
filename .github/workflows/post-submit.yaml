@@ -3,12 +3,8 @@ on:
   push:
     branches:
       - main
-      - 'release-*'
     tags:
       - 'v*'
-  release:
-    types:
-      - created
 
 jobs:
   push_to_registry:
@@ -32,8 +28,11 @@ jobs:
           password: ${{ secrets.QUAY_PASSWORD }}
           registry: quay.io
 
-      - name: Prepare Container Image
-        run: make docker-build
+      - name: Build and push operator and bundle images, using version 0.0.1, for pushes to main
+        if: ${{ github.ref_type != 'tag' }}
+        run: export VERSION=0.0.1 make docker-build bundle bundle-build docker-push bundle-push
 
-      - name: Push to Quay.io
-        run: make docker-push
+      - name: Build and push versioned operator and bundle images, for tags
+        if: ${{ github.ref_type == 'tag' }}
+        # remove leading 'v' from tag!
+        run: export VERSION=$(echo $GITHUB_REF_NAME | sed 's/v//') && make docker-build bundle bundle-build docker-push bundle-push

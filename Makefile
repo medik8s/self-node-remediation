@@ -36,7 +36,7 @@ BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 # You can use it as an arg. (E.g make bundle-build BUNDLE_IMG=<some-registry>/<project-name-bundle>:<tag>)
 BUNDLE_IMG ?= quay.io/medik8s/self-node-remediation-operator-bundle:$(VERSION)
 
-# Image URL to use all building/pushing image targets
+# Image URL to use building/pushing operator image
 IMG ?= quay.io/medik8s/self-node-remediation-operator:$(VERSION)
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
@@ -186,9 +186,13 @@ bundle: manifests operator-sdk kustomize
 	$(KUSTOMIZE) build config/manifests | envsubst | $(OPERATOR_SDK) generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
 	$(OPERATOR_SDK) bundle validate ./bundle
 
-.PHONY: bundle-build ## Build the bundle image.
-bundle-build:
+.PHONY: bundle-build
+bundle-build: ## Build the bundle image.
 	docker build -f bundle.Dockerfile -t $(BUNDLE_IMG) .
+
+.PHONY: bundle-push
+bundle-push: ## Push the bundle image.
+	docker push $(BUNDLE_IMG)
 
 .PHONY: protoc ## Download protoc (protocol buffers tool needed for gRPC)
 PROTOC = $(shell pwd)/bin/proto/bin/protoc
