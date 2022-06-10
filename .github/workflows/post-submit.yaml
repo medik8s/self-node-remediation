@@ -30,7 +30,7 @@ jobs:
 
       - name: Build and push operator and bundle images, using version 0.0.1, for pushes to main
         if: ${{ github.ref_type != 'tag' }}
-        run: export VERSION=0.0.1 make docker-build bundle bundle-build docker-push bundle-push
+        run: export VERSION=0.0.1 && make docker-build bundle bundle-build docker-push bundle-push
 
       - name: Build and push versioned operator and bundle images, for tags
         if: ${{ github.ref_type == 'tag' }}
