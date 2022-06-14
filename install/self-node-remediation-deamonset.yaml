@@ -83,3 +83,8 @@ spec:
       schedulerName: default-scheduler
       securityContext: {}
       terminationGracePeriodSeconds: 10
+      tolerations:
+        - key: "medik8s.io/remediation"
+          operator: "Equal"
+          value: "self-node-remediation"
+          effect: "NoExecute"
