@@ -14,4 +14,4 @@ spec:
             fieldRef:
               fieldPath: spec.nodeName
         - name: SELF_NODE_REMEDIATION_IMAGE
-          value: quay.io/medik8s/self-node-remediation-operator:${VERSION}
+          value: ${IMG}
