@@ -366,28 +366,26 @@ func verifyFinalizerExists() {
 
 func verifyNoExecuteTaintRemoved() {
 	By("Verify that node does not have NoExecute taint")
-	Eventually(isNoExecuteTaintExist(), 10*time.Second, 200*time.Millisecond).Should(BeFalse())
+	Eventually(isNoExecuteTaintExist, 10*time.Second, 200*time.Millisecond).Should(BeFalse())
 }
 
 func verifyNoExecuteTaintExist() {
 	By("Verify that node has NoExecute taint")
-	Eventually(isNoExecuteTaintExist(), 10*time.Second, 200*time.Millisecond).Should(BeTrue())
+	Eventually(isNoExecuteTaintExist, 10*time.Second, 200*time.Millisecond).Should(BeTrue())
 }
 
-func isNoExecuteTaintExist() func() bool {
+func isNoExecuteTaintExist() (bool, error) {
 	node := &v1.Node{}
-	return func() bool {
-		err := k8sClient.Reader.Get(context.TODO(), unhealthyNodeNamespacedName, node)
-		if err != nil {
-			return false
-		}
-		for _, taint := range node.Spec.Taints {
-			if controllers.NodeNoExecuteTaint.MatchTaint(&taint) {
-				return true
-			}
-		}
-		return false
+	err := k8sClient.Reader.Get(context.TODO(), unhealthyNodeNamespacedName, node)
+	if err != nil {
+		return false, err
 	}
+	for _, taint := range node.Spec.Taints {
+		if controllers.NodeNoExecuteTaint.MatchTaint(&taint) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // verifies that snr node backup equals to the actual node
