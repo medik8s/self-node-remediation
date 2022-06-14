@@ -53,7 +53,7 @@ var (
 
 	NodeNoExecuteTaint = &v1.Taint{
 		Key:    "medik8s.io/remediation",
-		Value:  "nodefencing",
+		Value:  "self-node-remediation",
 		Effect: v1.TaintEffectNoExecute,
 	}
 
