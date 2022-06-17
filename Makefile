@@ -37,7 +37,7 @@ BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 BUNDLE_IMG ?= quay.io/medik8s/self-node-remediation-operator-bundle:$(VERSION)
 
 # Image URL to use building/pushing operator image
-IMG ?= quay.io/medik8s/self-node-remediation-operator:$(VERSION)
+export IMG ?= quay.io/medik8s/self-node-remediation-operator:$(VERSION)
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.23
