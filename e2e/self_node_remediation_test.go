@@ -3,7 +3,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	gomegatypes "github.com/onsi/gomega/types"
 	"strconv"
 	"strings"
 	"sync"
@@ -11,6 +10,7 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	gomegatypes "github.com/onsi/gomega/types"
 
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
@@ -22,6 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/controllers"
 	"github.com/medik8s/self-node-remediation/e2e/utils"
 )
 
@@ -114,6 +115,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				It("should delete pods and volume attachments", func() {
 					checkPodRecreated(node, oldPodCreationTime)
 					checkVaDeleted(va)
+					checkNoExecuteTaintRemoved(node)
 				})
 			})
 
@@ -127,6 +129,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 					// - because the 2nd check has a small timeout only
 					checkNodeRecreate(node, oldUID)
 					checkReboot(node, oldBootTime)
+					checkNoExecuteTaintRemoved(node)
 				})
 			})
 		})
@@ -349,6 +352,27 @@ func checkNodeRecreate(node *v1.Node, oldUID types.UID) {
 		logger.Info("UID", "new", newUID)
 		return newUID
 	}, 7*time.Minute, 10*time.Second).ShouldNot(Equal(oldUID))
+}
+
+func checkNoExecuteTaintRemoved(node *v1.Node) {
+	By("checking if NoExecute taint was removed")
+	EventuallyWithOffset(1, func() error {
+		key := client.ObjectKey{
+			Name: node.GetName(),
+		}
+		newNode := &v1.Node{}
+		if err := k8sClient.Get(context.Background(), key, newNode); err != nil {
+			logger.Error(err, "error getting node")
+			return err
+		}
+		logger.Info("", "taints", newNode.Spec.Taints)
+		for _, taint := range newNode.Spec.Taints {
+			if taint.MatchTaint(controllers.NodeNoExecuteTaint) {
+				return fmt.Errorf("NoExecute taint still exists")
+			}
+		}
+		return nil
+	}, 1*time.Minute, 10*time.Second).Should(Succeed())
 }
 
 func checkReboot(node *v1.Node, oldBootTime *time.Time) {
