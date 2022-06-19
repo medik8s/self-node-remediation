@@ -198,12 +198,12 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alp
 		return ctrl.Result{}, errors.New("Node is not capable to reboot itself")
 	}
 
-	if err = r.addNoExecuteTaint(node); err != nil {
-		return ctrl.Result{}, err
-	}
-
 	if !controllerutil.ContainsFinalizer(snr, SNRFinalizer) {
 		return r.addFinalizer(snr)
+	}
+
+	if err = r.addNoExecuteTaint(node); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	if !node.Spec.Unschedulable || !utils.TaintExists(node.Spec.Taints, NodeUnschedulableTaint) {
@@ -347,16 +347,16 @@ func (r *SelfNodeRemediationReconciler) remediateWithNodeDeletion(snr *v1alpha1.
 		return ctrl.Result{}, nil
 	}
 
-	if err = r.addNoExecuteTaint(node); err != nil {
-		return ctrl.Result{}, err
-	}
-
 	if !r.isNodeRebootCapable(node) {
 		return ctrl.Result{}, errors.New("Node is not capable to reboot itself")
 	}
 
 	if !controllerutil.ContainsFinalizer(snr, SNRFinalizer) {
 		return r.addFinalizer(snr)
+	}
+
+	if err = r.addNoExecuteTaint(node); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	if !node.Spec.Unschedulable || !utils.TaintExists(node.Spec.Taints, NodeUnschedulableTaint) {

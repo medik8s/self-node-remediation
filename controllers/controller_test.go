@@ -278,8 +278,6 @@ var _ = Describe("snr Controller", func() {
 				lastFoodTime = newTime
 				return false
 			}, 10*peerUpdateInterval, timeout).Should(BeTrue())
-
-			verifyNoExecuteTaintExist()
 		})
 	})
 })
