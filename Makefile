@@ -256,6 +256,19 @@ ifeq (,$(wildcard $(OPERATOR_SDK)))
 	}
 endif
 
+.PHONY: opm
+OPM = ./bin/opm
+opm: ## Download opm locally if necessary.
+ifeq (,$(wildcard $(OPM)))
+	@{ \
+	set -e ;\
+	mkdir -p $(dir $(OPM)) ;\
+	OS=linux && ARCH=amd64 && \
+	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/v1.23.0/$${OS}-$${ARCH}-opm ;\
+	chmod +x $(OPM) ;\
+	}
+endif
+
 # Set CATALOG_BASE_IMG to an existing catalog image tag to add $BUNDLE_IMG to that image.
 ifneq ($(origin CATALOG_BASE_IMG), undefined)
 FROM_INDEX_OPT := --from-index $(CATALOG_BASE_IMG)
