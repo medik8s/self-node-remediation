@@ -181,6 +181,11 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alp
 			}
 		}
 
+		// wait until NoSchedulable taint was removed
+		if utils.TaintExists(node.Spec.Taints, NodeUnschedulableTaint) {
+			return ctrl.Result{RequeueAfter: time.Second}, nil
+		}
+
 		if err := r.removeNoExecuteTaint(node); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -701,7 +706,10 @@ func (r *SelfNodeRemediationReconciler) addNoExecuteTaint(node *v1.Node) error {
 	}
 
 	patch := client.MergeFrom(node.DeepCopy())
-	node.Spec.Taints = append(node.Spec.Taints, *NodeNoExecuteTaint)
+	taint := *NodeNoExecuteTaint
+	now := metav1.Now()
+	taint.TimeAdded = &now
+	node.Spec.Taints = append(node.Spec.Taints, taint)
 	if err := r.Client.Patch(context.Background(), node, patch); err != nil {
 		r.logger.Error(err, "Failed to add taint on node", "node name", node.Name, "taint key", NodeNoExecuteTaint.Key, "taint effect", NodeNoExecuteTaint.Effect)
 		return err
