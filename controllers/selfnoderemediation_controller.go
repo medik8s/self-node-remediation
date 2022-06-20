@@ -724,20 +724,12 @@ func (r *SelfNodeRemediationReconciler) removeNoExecuteTaint(node *v1.Node) erro
 	}
 
 	patch := client.MergeFrom(node.DeepCopy())
-	var taintIndex int
-	taintFound := false
-	for index, taint := range node.Spec.Taints {
-		if taint.MatchTaint(NodeNoExecuteTaint) {
-			taintIndex = index
-			taintFound = true
-			break
-		}
-	}
-	if !taintFound {
+	if taints, deleted := utils.DeleteTaint(node.Spec.Taints, NodeNoExecuteTaint); !deleted {
 		r.logger.Info("Failed to remove taint from node, taint not found", "node name", node.Name, "taint key", NodeNoExecuteTaint.Key, "taint effect", NodeNoExecuteTaint.Effect)
 		return nil
+	} else {
+		node.Spec.Taints = taints
 	}
-	node.Spec.Taints = append(node.Spec.Taints[:taintIndex], node.Spec.Taints[taintIndex+1:]...)
 
 	if err := r.Client.Patch(context.Background(), node, patch); err != nil {
 		r.logger.Error(err, "Failed to remove taint from node,", "node name", node.Name, "taint key", NodeNoExecuteTaint.Key, "taint effect", NodeNoExecuteTaint.Effect)
