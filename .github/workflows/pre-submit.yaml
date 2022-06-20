@@ -1,5 +1,5 @@
-name: Go
-on:
+name: Pre Submit # workflow name
+on: # on events
   push:
     branches:
       - main
@@ -22,8 +22,11 @@ jobs:
       with:
         go-version: 1.18
 
-    - name: Build and test
-      run: make manifests generate docker-build
+    - name: Run checks and unit tests
+      run: make test
+
+    - name: Test container build
+      run: make container-build
 
     - name: TestMutations
       run: make test-mutation-ci

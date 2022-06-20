@@ -60,6 +60,9 @@ IMAGE_TAG_BASE ?= $(IMAGE_REGISTRY)/$(OPERATOR_NAME)
 # You can use it as an arg. (E.g make bundle-build BUNDLE_IMG=<some-registry>/<project-name-bundle>:<tag>)
 BUNDLE_IMG ?= $(IMAGE_TAG_BASE)-operator-bundle:$(IMAGE_TAG)
 
+# The image tag given to the resulting catalog image (e.g. make catalog-build CATALOG_IMG=example.com/operator-catalog:v0.2.0).
+CATALOG_IMG ?= $(IMAGE_TAG_BASE)-operator-catalog:$(IMAGE_TAG)
+
 # Image URL to use all building/pushing image targets
 export IMG ?= $(IMAGE_TAG_BASE)-operator:$(IMAGE_TAG)
 
@@ -132,9 +135,6 @@ test: envtest manifests generate fmt vet ## Run tests.
 
 test-mutation: verify-no-changes fetch-mutation ## Run mutation tests in manual mode.
 	echo -e "## Verifying diff ## \n##Mutations tests actually changes the code while running - this is a safeguard in order to be able to easily revert mutation tests changes (in case mutation tests have not completed properly)##"
-	./hack/test-mutation.sh
-
-test-mutation-ci: fetch-mutation ## Run mutation tests as part of auto build process.
 	./hack/test-mutation.sh
 
 ##@ Build
@@ -255,3 +255,32 @@ ifeq (,$(wildcard $(OPERATOR_SDK)))
 	chmod +x $(OPERATOR_SDK) ;\
 	}
 endif
+
+# Set CATALOG_BASE_IMG to an existing catalog image tag to add $BUNDLE_IMG to that image.
+ifneq ($(origin CATALOG_BASE_IMG), undefined)
+FROM_INDEX_OPT := --from-index $(CATALOG_BASE_IMG)
+endif
+# Build a catalog image by adding bundle images to an empty catalog using the operator package manager tool, 'opm'.
+# This recipe invokes 'opm' in 'semver' bundle add mode. For more information on add modes, see:
+# https://github.com/operator-framework/community-operators/blob/7f1438c/docs/packaging-operator.md#updating-your-existing-operator
+.PHONY: catalog-build
+catalog-build: opm ## Build a catalog image.
+	$(OPM) index add --container-tool docker --mode semver --tag $(CATALOG_IMG) --bundles $(BUNDLE_IMG) $(FROM_INDEX_OPT)
+
+.PHONY: catalog-push
+catalog-push: ## Push a catalog image.
+	$(MAKE) docker-push IMG=$(CATALOG_IMG)
+
+##@ Targets used by CI
+
+.PHONY: container-build
+container-build: ## Build containers
+	make docker-build bundle bundle-build
+
+.PHONY: container-push
+container-push: ## Push containers (NOTE: catalog can't be build before bundle was pushed)
+	make docker-push bundle-push catalog-build catalog-push
+
+.PHONY: test-mutation-ci
+test-mutation-ci: fetch-mutation ## Run mutation tests as part of auto build process.
+	./hack/test-mutation.sh 
