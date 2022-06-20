@@ -1,5 +1,5 @@
-name: Go
-on:
+name: Pre Submit # workflow name
+on: # on events
   push:
     branches:
       - main
@@ -13,17 +13,20 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:
         fetch-depth: 0
 
     - name: Set up Go
-      uses: actions/setup-go@v2
+      uses: actions/setup-go@v3
       with:
         go-version: 1.18
 
-    - name: Build and test
-      run: make manifests generate docker-build
+    - name: Run checks and unit tests
+      run: make test
+
+    - name: Test container build
+      run: make container-build
 
     - name: TestMutations
       run: make test-mutation-ci
