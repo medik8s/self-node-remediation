@@ -169,6 +169,7 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alp
 	}
 
 	if r.isFencingCompleted(snr) {
+		r.logger.Info("fencing completed, cleaning up")
 		if node.Spec.Unschedulable {
 			node.Spec.Unschedulable = false
 			if err := r.Client.Update(context.Background(), node); err != nil {
@@ -192,6 +193,8 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alp
 
 		return ctrl.Result{}, nil
 	}
+
+	r.logger.Info("fencing not completed yet, continuing remediation")
 
 	if !r.isNodeRebootCapable(node) {
 		//use err to trigger exponential backoff
@@ -470,6 +473,7 @@ func (r *SelfNodeRemediationReconciler) removeFinalizer(snr *v1alpha1.SelfNodeRe
 		r.logger.Error(err, "failed to remove finalizer from snr")
 		return err
 	}
+	r.logger.Info("finalizer removed")
 	return nil
 }
 
@@ -489,6 +493,7 @@ func (r *SelfNodeRemediationReconciler) addFinalizer(snr *v1alpha1.SelfNodeRemed
 		r.logger.Error(err, "failed to add finalizer to snr")
 		return ctrl.Result{}, err
 	}
+	r.logger.Info("finalizer added")
 	return ctrl.Result{Requeue: true}, nil
 }
 
@@ -701,6 +706,7 @@ func (r *SelfNodeRemediationReconciler) addNoExecuteTaint(node *v1.Node) error {
 		r.logger.Error(err, "Failed to add taint on node", "node name", node.Name, "taint key", NodeNoExecuteTaint.Key, "taint effect", NodeNoExecuteTaint.Effect)
 		return err
 	}
+	r.logger.Info("NoExecute taint added", "new taints", node.Spec.Taints)
 	return nil
 }
 
@@ -729,6 +735,6 @@ func (r *SelfNodeRemediationReconciler) removeNoExecuteTaint(node *v1.Node) erro
 		r.logger.Error(err, "Failed to remove taint from node,", "node name", node.Name, "taint key", NodeNoExecuteTaint.Key, "taint effect", NodeNoExecuteTaint.Effect)
 		return err
 	}
-	r.logger.Info("NoExecute taint removed")
+	r.logger.Info("NoExecute taint removed", "new taints", node.Spec.Taints)
 	return nil
 }
