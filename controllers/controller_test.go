@@ -199,10 +199,12 @@ var _ = Describe("snr Controller", func() {
 				node.Status.Conditions[0].Reason = "foo"
 				Expect(k8sClient.Client.Status().Update(context.Background(), node)).To(Succeed())
 
-				By("Verify that finalizer was removed and SNR can be deleted")
-				testNoFinalizer()
+				removeUnschedulableTaint(node)
 
 				verifyNoExecuteTaintRemoved()
+
+				By("Verify that finalizer was removed and SNR can be deleted")
+				testNoFinalizer()
 
 			})
 		})
@@ -240,10 +242,12 @@ var _ = Describe("snr Controller", func() {
 
 				verifyNodeIsSchedulable()
 
-				By("Verify that finalizer was removed and SNR can be deleted")
-				testNoFinalizer()
+				removeUnschedulableTaint(node)
 
 				verifyNoExecuteTaintRemoved()
+
+				By("Verify that finalizer was removed and SNR can be deleted")
+				testNoFinalizer()
 
 			})
 		})
@@ -278,8 +282,6 @@ var _ = Describe("snr Controller", func() {
 				lastFoodTime = newTime
 				return false
 			}, 10*peerUpdateInterval, timeout).Should(BeTrue())
-
-			verifyNoExecuteTaintExist()
 		})
 	})
 })
@@ -421,6 +423,14 @@ func verifyTimeHasBeenRebootedExists() {
 func addUnschedulableTaint(node *v1.Node) {
 	By("Add unschedulable taint to node to simulate node controller")
 	node.Spec.Taints = append(node.Spec.Taints, *controllers.NodeUnschedulableTaint)
+	ExpectWithOffset(1, k8sClient.Client.Update(context.TODO(), node)).To(Succeed())
+}
+
+func removeUnschedulableTaint(node *v1.Node) {
+	By("Removing unschedulable taint to node to simulate node controller")
+	Expect(k8sClient.Get(context.Background(), unhealthyNodeNamespacedName, node)).To(Succeed())
+	taints, _ := utils.DeleteTaint(node.Spec.Taints, controllers.NodeUnschedulableTaint)
+	node.Spec.Taints = taints
 	ExpectWithOffset(1, k8sClient.Client.Update(context.TODO(), node)).To(Succeed())
 }
 

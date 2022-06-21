@@ -169,6 +169,7 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alp
 	}
 
 	if r.isFencingCompleted(snr) {
+		r.logger.Info("fencing completed, cleaning up")
 		if node.Spec.Unschedulable {
 			node.Spec.Unschedulable = false
 			if err := r.Client.Update(context.Background(), node); err != nil {
@@ -178,6 +179,11 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alp
 				r.logger.Error(err, "failed to mark node as schedulable")
 				return ctrl.Result{}, err
 			}
+		}
+
+		// wait until NoSchedulable taint was removed
+		if utils.TaintExists(node.Spec.Taints, NodeUnschedulableTaint) {
+			return ctrl.Result{RequeueAfter: time.Second}, nil
 		}
 
 		if err := r.removeNoExecuteTaint(node); err != nil {
@@ -193,17 +199,19 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alp
 		return ctrl.Result{}, nil
 	}
 
+	r.logger.Info("fencing not completed yet, continuing remediation")
+
 	if !r.isNodeRebootCapable(node) {
 		//use err to trigger exponential backoff
 		return ctrl.Result{}, errors.New("Node is not capable to reboot itself")
 	}
 
-	if err = r.addNoExecuteTaint(node); err != nil {
-		return ctrl.Result{}, err
-	}
-
 	if !controllerutil.ContainsFinalizer(snr, SNRFinalizer) {
 		return r.addFinalizer(snr)
+	}
+
+	if err = r.addNoExecuteTaint(node); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	if !node.Spec.Unschedulable || !utils.TaintExists(node.Spec.Taints, NodeUnschedulableTaint) {
@@ -347,16 +355,16 @@ func (r *SelfNodeRemediationReconciler) remediateWithNodeDeletion(snr *v1alpha1.
 		return ctrl.Result{}, nil
 	}
 
-	if err = r.addNoExecuteTaint(node); err != nil {
-		return ctrl.Result{}, err
-	}
-
 	if !r.isNodeRebootCapable(node) {
 		return ctrl.Result{}, errors.New("Node is not capable to reboot itself")
 	}
 
 	if !controllerutil.ContainsFinalizer(snr, SNRFinalizer) {
 		return r.addFinalizer(snr)
+	}
+
+	if err = r.addNoExecuteTaint(node); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	if !node.Spec.Unschedulable || !utils.TaintExists(node.Spec.Taints, NodeUnschedulableTaint) {
@@ -470,6 +478,7 @@ func (r *SelfNodeRemediationReconciler) removeFinalizer(snr *v1alpha1.SelfNodeRe
 		r.logger.Error(err, "failed to remove finalizer from snr")
 		return err
 	}
+	r.logger.Info("finalizer removed")
 	return nil
 }
 
@@ -489,6 +498,7 @@ func (r *SelfNodeRemediationReconciler) addFinalizer(snr *v1alpha1.SelfNodeRemed
 		r.logger.Error(err, "failed to add finalizer to snr")
 		return ctrl.Result{}, err
 	}
+	r.logger.Info("finalizer added")
 	return ctrl.Result{Requeue: true}, nil
 }
 
@@ -696,11 +706,15 @@ func (r *SelfNodeRemediationReconciler) addNoExecuteTaint(node *v1.Node) error {
 	}
 
 	patch := client.MergeFrom(node.DeepCopy())
-	node.Spec.Taints = append(node.Spec.Taints, *NodeNoExecuteTaint)
+	taint := *NodeNoExecuteTaint
+	now := metav1.Now()
+	taint.TimeAdded = &now
+	node.Spec.Taints = append(node.Spec.Taints, taint)
 	if err := r.Client.Patch(context.Background(), node, patch); err != nil {
 		r.logger.Error(err, "Failed to add taint on node", "node name", node.Name, "taint key", NodeNoExecuteTaint.Key, "taint effect", NodeNoExecuteTaint.Effect)
 		return err
 	}
+	r.logger.Info("NoExecute taint added", "new taints", node.Spec.Taints)
 	return nil
 }
 
@@ -710,24 +724,17 @@ func (r *SelfNodeRemediationReconciler) removeNoExecuteTaint(node *v1.Node) erro
 	}
 
 	patch := client.MergeFrom(node.DeepCopy())
-	var taintIndex int
-	taintFound := false
-	for index, taint := range node.Spec.Taints {
-		if taint.MatchTaint(NodeNoExecuteTaint) {
-			taintIndex = index
-			taintFound = true
-			break
-		}
-	}
-	if !taintFound {
+	if taints, deleted := utils.DeleteTaint(node.Spec.Taints, NodeNoExecuteTaint); !deleted {
 		r.logger.Info("Failed to remove taint from node, taint not found", "node name", node.Name, "taint key", NodeNoExecuteTaint.Key, "taint effect", NodeNoExecuteTaint.Effect)
 		return nil
+	} else {
+		node.Spec.Taints = taints
 	}
-	node.Spec.Taints = append(node.Spec.Taints[:taintIndex], node.Spec.Taints[taintIndex+1:]...)
 
 	if err := r.Client.Patch(context.Background(), node, patch); err != nil {
 		r.logger.Error(err, "Failed to remove taint from node,", "node name", node.Name, "taint key", NodeNoExecuteTaint.Key, "taint effect", NodeNoExecuteTaint.Effect)
 		return err
 	}
+	r.logger.Info("NoExecute taint removed", "new taints", node.Spec.Taints)
 	return nil
 }

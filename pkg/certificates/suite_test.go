@@ -46,7 +46,7 @@ var _ = BeforeSuite(func() {
 
 	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:             scheme.Scheme,
-		MetricsBindAddress: ":8082",
+		MetricsBindAddress: "0",
 	})
 	Expect(err).ToNot(HaveOccurred())
 	var ctx context.Context
