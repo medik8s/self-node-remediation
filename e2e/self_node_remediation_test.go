@@ -115,6 +115,10 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				It("should delete pods and volume attachments", func() {
 					checkPodRecreated(node, oldPodCreationTime)
 					checkVaDeleted(va)
+					//Simulate NHC trying to delete SNR
+					deleteAndWait(snr)
+					snr = nil
+
 					checkNoExecuteTaintRemoved(node)
 				})
 			})

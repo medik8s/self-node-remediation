@@ -138,7 +138,7 @@ var _ = Describe("snr Controller", func() {
 	Context("Unhealthy node with api-server access", func() {
 		var beforeSNR time.Time
 		var remediationStrategy selfnoderemediationv1alpha1.RemediationStrategyType
-
+		var isDeleteSNR = true
 		JustBeforeEach(func() {
 			createSelfNodeRemediationPod()
 			updateIsRebootCapable("true")
@@ -150,7 +150,10 @@ var _ = Describe("snr Controller", func() {
 		})
 
 		AfterEach(func() {
-			deleteSNR(snr)
+			if isDeleteSNR {
+				deleteSNR(snr)
+			}
+			isDeleteSNR = true
 		})
 
 		Context("NodeDeletion strategy", func() {
@@ -230,15 +233,18 @@ var _ = Describe("snr Controller", func() {
 
 				verifyNodeBackup()
 
-				verifyFinalizerExists()
-
-				verifyNoExecuteTaintExist()
-
 				verifyNoWatchdogFood()
 
 				verifySelfNodeRemediationPodDoesntExist()
 
 				verifyVaDeleted(vaName)
+
+				verifyFinalizerExists()
+
+				verifyNoExecuteTaintExist()
+
+				deleteSNR(snr)
+				isDeleteSNR = false
 
 				verifyNodeIsSchedulable()
 
@@ -246,8 +252,7 @@ var _ = Describe("snr Controller", func() {
 
 				verifyNoExecuteTaintRemoved()
 
-				By("Verify that finalizer was removed and SNR can be deleted")
-				testNoFinalizer()
+				verifySNRDoesNotExists()
 
 			})
 		})
@@ -420,6 +425,16 @@ func verifyTimeHasBeenRebootedExists() {
 	}, 5*time.Second, 250*time.Millisecond).ShouldNot(BeZero())
 }
 
+func verifySNRDoesNotExists() {
+	By("Verify that SNR does not exit")
+	Eventually(func() bool {
+		snr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
+		snrNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: snrNamespace}
+		err := k8sClient.Get(context.Background(), snrNamespacedName, snr)
+		return apierrors.IsNotFound(err)
+	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
+}
+
 func addUnschedulableTaint(node *v1.Node) {
 	By("Add unschedulable taint to node to simulate node controller")
 	node.Spec.Taints = append(node.Spec.Taints, *controllers.NodeUnschedulableTaint)
@@ -428,10 +443,13 @@ func addUnschedulableTaint(node *v1.Node) {
 
 func removeUnschedulableTaint(node *v1.Node) {
 	By("Removing unschedulable taint to node to simulate node controller")
-	Expect(k8sClient.Get(context.Background(), unhealthyNodeNamespacedName, node)).To(Succeed())
-	taints, _ := utils.DeleteTaint(node.Spec.Taints, controllers.NodeUnschedulableTaint)
-	node.Spec.Taints = taints
-	ExpectWithOffset(1, k8sClient.Client.Update(context.TODO(), node)).To(Succeed())
+	Eventually(func() error {
+		Expect(k8sClient.Get(context.Background(), unhealthyNodeNamespacedName, node)).To(Succeed())
+		taints, _ := utils.DeleteTaint(node.Spec.Taints, controllers.NodeUnschedulableTaint)
+		node.Spec.Taints = taints
+		return k8sClient.Client.Update(context.TODO(), node)
+
+	}, 5*time.Second, 250*time.Millisecond).Should(Succeed())
 }
 
 func verifyNodeIsUnschedulable() *v1.Node {
