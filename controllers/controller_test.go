@@ -138,7 +138,7 @@ var _ = Describe("snr Controller", func() {
 	Context("Unhealthy node with api-server access", func() {
 		var beforeSNR time.Time
 		var remediationStrategy selfnoderemediationv1alpha1.RemediationStrategyType
-		var isDeleteSNR = true
+		var isSNRNeedsDeletion = true
 		JustBeforeEach(func() {
 			createSelfNodeRemediationPod()
 			updateIsRebootCapable("true")
@@ -150,10 +150,10 @@ var _ = Describe("snr Controller", func() {
 		})
 
 		AfterEach(func() {
-			if isDeleteSNR {
+			if isSNRNeedsDeletion {
 				deleteSNR(snr)
 			}
-			isDeleteSNR = true
+			isSNRNeedsDeletion = true
 		})
 
 		Context("NodeDeletion strategy", func() {
@@ -244,7 +244,7 @@ var _ = Describe("snr Controller", func() {
 				verifyNoExecuteTaintExist()
 
 				deleteSNR(snr)
-				isDeleteSNR = false
+				isSNRNeedsDeletion = false
 
 				verifyNodeIsSchedulable()
 
