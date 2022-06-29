@@ -189,17 +189,17 @@ var _ = Describe("snr Controller", func() {
 
 				By("Update node's last hearbeat time")
 				//we simulate kubelet coming up, this is required to remove the finalizer
-				node = &v1.Node{}
-				Expect(k8sClient.Get(context.Background(), unhealthyNodeNamespacedName, node)).To(Succeed())
-				node.Status.Conditions = make([]v1.NodeCondition, 1)
-				node.Status.Conditions[0].Status = v1.ConditionTrue
-				node.Status.Conditions[0].Type = v1.NodeReady
-				node.Status.Conditions[0].LastTransitionTime = metav1.Now()
-				node.Status.Conditions[0].LastHeartbeatTime = metav1.Now()
-				node.Status.Conditions[0].Reason = "foo"
-				Expect(k8sClient.Client.Status().Update(context.Background(), node)).To(Succeed())
+				updateNodeFunc := func(node *v1.Node) {
+					node.Status.Conditions = make([]v1.NodeCondition, 1)
+					node.Status.Conditions[0].Status = v1.ConditionTrue
+					node.Status.Conditions[0].Type = v1.NodeReady
+					node.Status.Conditions[0].LastTransitionTime = metav1.Now()
+					node.Status.Conditions[0].LastHeartbeatTime = metav1.Now()
+					node.Status.Conditions[0].Reason = "foo"
+				}
+				eventuallyUpdateNode(updateNodeFunc, true)
 
-				removeUnschedulableTaint(node)
+				removeUnschedulableTaint()
 
 				verifyNoExecuteTaintRemoved()
 
@@ -242,7 +242,7 @@ var _ = Describe("snr Controller", func() {
 
 				verifyNodeIsSchedulable()
 
-				removeUnschedulableTaint(node)
+				removeUnschedulableTaint()
 
 				verifyNoExecuteTaintRemoved()
 
@@ -426,12 +426,13 @@ func addUnschedulableTaint(node *v1.Node) {
 	ExpectWithOffset(1, k8sClient.Client.Update(context.TODO(), node)).To(Succeed())
 }
 
-func removeUnschedulableTaint(node *v1.Node) {
+func removeUnschedulableTaint() {
 	By("Removing unschedulable taint to node to simulate node controller")
-	Expect(k8sClient.Get(context.Background(), unhealthyNodeNamespacedName, node)).To(Succeed())
-	taints, _ := utils.DeleteTaint(node.Spec.Taints, controllers.NodeUnschedulableTaint)
-	node.Spec.Taints = taints
-	ExpectWithOffset(1, k8sClient.Client.Update(context.TODO(), node)).To(Succeed())
+	updateNodeFund := func(node *v1.Node) {
+		taints, _ := utils.DeleteTaint(node.Spec.Taints, controllers.NodeUnschedulableTaint)
+		node.Spec.Taints = taints
+	}
+	eventuallyUpdateNode(updateNodeFund, false)
 }
 
 func verifyNodeIsUnschedulable() *v1.Node {
@@ -549,4 +550,21 @@ func testNoFinalizer() {
 		//if no finalizer was set, it means we didn't start remediation process
 		return snr.Finalizers, err
 	}, 10*time.Second, 250*time.Millisecond).Should(BeEmpty())
+}
+
+func eventuallyUpdateNode(updateFunc func(*v1.Node), isStatusUpdate bool) {
+	By("Verify that node was updated successfully")
+
+	EventuallyWithOffset(1, func() error {
+		node := &v1.Node{}
+		if err := k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node); err != nil {
+			return err
+		}
+		updateFunc(node)
+		if isStatusUpdate {
+			return k8sClient.Client.Status().Update(context.TODO(), node)
+		}
+		return k8sClient.Client.Update(context.TODO(), node)
+	}, 5*time.Second, 250*time.Millisecond).Should(Succeed())
+
 }
