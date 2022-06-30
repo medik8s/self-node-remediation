@@ -26,8 +26,7 @@ COPY install/ install/
 # Build
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -a -o manager main.go
 
-# Use ubi-micro as minimal base image to package the manager binary - https://catalog.redhat.com/software/containers/ubi8/ubi-micro/5ff3f50a831939b08d1b832a
-FROM registry.access.redhat.com/ubi8/ubi-micro:latest
+FROM registry.access.redhat.com/ubi8/ubi:latest
 
 WORKDIR /
 COPY --from=builder /workspace/install/ install/
