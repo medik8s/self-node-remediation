@@ -138,7 +138,7 @@ var _ = Describe("snr Controller", func() {
 	Context("Unhealthy node with api-server access", func() {
 		var beforeSNR time.Time
 		var remediationStrategy selfnoderemediationv1alpha1.RemediationStrategyType
-
+		var isSNRNeedsDeletion = true
 		JustBeforeEach(func() {
 			createSelfNodeRemediationPod()
 			updateIsRebootCapable("true")
@@ -150,7 +150,10 @@ var _ = Describe("snr Controller", func() {
 		})
 
 		AfterEach(func() {
-			deleteSNR(snr)
+			if isSNRNeedsDeletion {
+				deleteSNR(snr)
+			}
+			isSNRNeedsDeletion = true
 		})
 
 		Context("NodeDeletion strategy", func() {
@@ -230,15 +233,18 @@ var _ = Describe("snr Controller", func() {
 
 				verifyNodeBackup()
 
-				verifyFinalizerExists()
-
-				verifyNoExecuteTaintExist()
-
 				verifyNoWatchdogFood()
 
 				verifySelfNodeRemediationPodDoesntExist()
 
 				verifyVaDeleted(vaName)
+
+				verifyFinalizerExists()
+
+				verifyNoExecuteTaintExist()
+
+				deleteSNR(snr)
+				isSNRNeedsDeletion = false
 
 				verifyNodeIsSchedulable()
 
@@ -246,8 +252,7 @@ var _ = Describe("snr Controller", func() {
 
 				verifyNoExecuteTaintRemoved()
 
-				By("Verify that finalizer was removed and SNR can be deleted")
-				testNoFinalizer()
+				verifySNRDoesNotExists()
 
 			})
 		})
@@ -418,6 +423,16 @@ func verifyTimeHasBeenRebootedExists() {
 		return snr.Status.TimeAssumedRebooted, err
 
 	}, 5*time.Second, 250*time.Millisecond).ShouldNot(BeZero())
+}
+
+func verifySNRDoesNotExists() {
+	By("Verify that SNR does not exit")
+	Eventually(func() bool {
+		snr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
+		snrNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: snrNamespace}
+		err := k8sClient.Get(context.Background(), snrNamespacedName, snr)
+		return apierrors.IsNotFound(err)
+	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
 }
 
 func addUnschedulableTaint(node *v1.Node) {

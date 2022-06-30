@@ -158,7 +158,7 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 }
 
 func (r *SelfNodeRemediationReconciler) isFencingCompleted(snr *v1alpha1.SelfNodeRemediation) bool {
-	return snr.Status.Phase != nil && *snr.Status.Phase == fencingCompletedPhase
+	return snr.Status.Phase != nil && *snr.Status.Phase == fencingCompletedPhase && snr.DeletionTimestamp != nil
 }
 
 func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
