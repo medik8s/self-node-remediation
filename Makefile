@@ -204,12 +204,15 @@ rm -rf $$TMP_DIR ;\
 }
 endef
 
+DEFAULT_ICON_BASE64 := $(shell base64 --wrap=0 ./config/assets/snr_icon_blue.png)
+export ICON_BASE64 ?= ${DEFAULT_ICON_BASE64}
 .PHONY: bundle
 bundle: manifests operator-sdk kustomize ## Generate bundle manifests and metadata, then validate generated files.
 	$(OPERATOR_SDK) generate kustomize manifests -q
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
 	sed -r -i "s|createdAt: \".*\"|createdAt: \"`date "+%Y-%m-%d %T" `\"|;" ./config/manifests/bases/$(OPERATOR_NAME).clusterserviceversion.yaml
 	sed -r -i "s|containerImage: .*|containerImage: ${IMG}|;" ./config/manifests/bases/$(OPERATOR_NAME).clusterserviceversion.yaml
+	sed -r -i "s|base64data:.*|base64data: ${ICON_BASE64}|;" ./config/manifests/bases/$(OPERATOR_NAME).clusterserviceversion.yaml
 	$(KUSTOMIZE) build config/manifests | envsubst | $(OPERATOR_SDK) generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
 	$(OPERATOR_SDK) bundle validate ./bundle
 
