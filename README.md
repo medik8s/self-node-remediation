@@ -1,4 +1,7 @@
 # Self Node Remediation - Automatic Kubernetes Node Remediation 
+The self-node-remediation (SNR) is an operator generated from the [operator-sdk](https://github.com/operator-framework/operator-sdk).
+SNR was *previously* developed under [PoisonPill](https://github.com/medik8s/poison-pill), and this repository is the up-to-date version.
+
 Existing baremetal remediation strategies utilize BMC credentials to power-cycle and/or reprovision the host.
 However there are also environments that either do not include BMCs, or there are policies
 in place that prevent them from being utilized.  Such environments would also benefit from
