@@ -15,13 +15,13 @@ var _ Watchdog = &synchronizedWatchdog{}
 
 // synchronizedWatchdog implements the Watchdog interface with synchronized calls of the implementation specific methods
 type synchronizedWatchdog struct {
-	impl         watchdogImpl
-	timeout      time.Duration
-	isStarted    bool
-	stop         context.CancelFunc
-	mutex        sync.Mutex
-	lastFoodTime time.Time
-	log          logr.Logger
+	impl                   watchdogImpl
+	timeout                time.Duration
+	isStarted, isRebooting bool
+	stop                   context.CancelFunc
+	mutex                  sync.Mutex
+	lastFoodTime           time.Time
+	log                    logr.Logger
 }
 
 func newSynced(log logr.Logger, impl watchdogImpl) *synchronizedWatchdog {
@@ -94,6 +94,7 @@ func (swd *synchronizedWatchdog) Stop() {
 	if swd.isStarted {
 		swd.stop()
 		swd.isStarted = false
+		swd.isRebooting = true
 	}
 }
 
@@ -107,4 +108,10 @@ func (swd *synchronizedWatchdog) LastFoodTime() time.Time {
 	swd.mutex.Lock()
 	defer swd.mutex.Unlock()
 	return swd.lastFoodTime
+}
+
+func (swd *synchronizedWatchdog) IsRebooting() bool {
+	swd.mutex.Lock()
+	defer swd.mutex.Unlock()
+	return swd.isRebooting
 }

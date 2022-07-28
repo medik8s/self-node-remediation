@@ -11,6 +11,8 @@ type Watchdog interface {
 	Start(ctx context.Context) error
 	// IsStarted return if the watchdog is running
 	IsStarted() bool
+	// IsRebooting return if the watchdog has already stopped feeding and currently about to reboot the node
+	IsRebooting() bool
 	// Stop stops feeding the watchdog, which results in a reboot of the node
 	Stop()
 	// GetTimeout returns the watchdog timeout when it reboots the node without feeding
