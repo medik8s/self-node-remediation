@@ -30,6 +30,12 @@ func NewWatchdogRebooter(wd watchdog.Watchdog, log logr.Logger) Rebooter {
 }
 
 func (r *WatchdogRebooter) Reboot() (ctrl.Result, error) {
+	if r.wd == nil {
+		r.log.Info("no watchdog is present on this host, trying software reboot")
+		//we couldn't init a watchdog so far but requested to be rebooted. we issue a software reboot
+		return r.softwareReboot()
+	}
+
 	if r.isWatchdogRebootStuck() {
 		return r.softwareReboot()
 	}
@@ -39,9 +45,8 @@ func (r *WatchdogRebooter) Reboot() (ctrl.Result, error) {
 		return ctrl.Result{RequeueAfter: time.Second * 10}, nil
 	}
 
-	if r.wd == nil || !r.wd.IsStarted() {
-		r.log.Info("no watchdog is present on this host, trying software reboot")
-		//we couldn't init a watchdog so far but requested to be rebooted. we issue a software reboot
+	if !r.wd.IsStarted() {
+		r.log.Info("watchdog failed to start, trying software reboot")
 		return r.softwareReboot()
 	}
 	// we stop feeding the watchdog for a reboot
