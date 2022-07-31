@@ -9,6 +9,8 @@ import (
 	"github.com/medik8s/self-node-remediation/pkg/watchdog"
 )
 
+const timeToAssumeRebootHasStarted = time.Second * 30
+
 type Rebooter interface {
 	// Reboot triggers a node reboot
 	Reboot() (ctrl.Result, error)
@@ -68,7 +70,6 @@ func (r *WatchdogRebooter) softwareReboot() (ctrl.Result, error) {
 }
 
 func (r *WatchdogRebooter) isWatchdogRebootStuck() bool {
-	timeToAssumeRebootHasStarted := time.Second * 30
 	lastFoodTime := r.wd.LastFoodTime()
 	var isStuck bool
 	now := time.Now()
