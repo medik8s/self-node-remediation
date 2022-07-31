@@ -59,6 +59,7 @@ func (r *WatchdogRebooter) Reboot() (ctrl.Result, error) {
 
 // softwareReboot performs software reboot by running systemctl reboot
 func (r *WatchdogRebooter) softwareReboot() (ctrl.Result, error) {
+	r.log.Info("about to try software reboot")
 	// hostPID: true and privileged:true required to run this
 	rebootCmd := exec.Command("/usr/bin/nsenter", "-m/proc/1/ns/mnt", "/bin/systemctl", "reboot", "--force", "--force")
 
@@ -71,10 +72,10 @@ func (r *WatchdogRebooter) softwareReboot() (ctrl.Result, error) {
 
 func (r *WatchdogRebooter) isWatchdogRebootStuck() bool {
 	lastFoodTime := r.wd.LastFoodTime()
+	timeElapsedSinceLastFeed := time.Now().Sub(lastFoodTime)
 	var isStuck bool
-	now := time.Now()
-	if isStuck = now.After(lastFoodTime.Add(timeToAssumeRebootHasStarted)); isStuck {
-		r.log.Info("watchdog reboot is stuck, about to try software reboot")
+	if isStuck = timeElapsedSinceLastFeed > timeToAssumeRebootHasStarted; isStuck {
+		r.log.Info("watchdog reboot is stuck, too long has passed since last feed time", "time passed since last feed", timeElapsedSinceLastFeed)
 	}
 
 	return isStuck
