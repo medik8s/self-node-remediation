@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -26,16 +27,17 @@ var (
 	initError = errors.New(initErrorText)
 )
 
-type manager struct {
+//Manager contains logic and info needed to fence and remediate master nodes
+type Manager struct {
 	currentNodeRole     role
 	nodeNameRoleMapping map[string]role
 	client              client.Client
 	log                 logr.Logger
 }
 
-func newManager(nodeName string, myClient client.Client, log logr.Logger) (*manager, error) {
-
-	managerLog := log.WithName("master manager")
+//NewManager inits a new Manager return nil if init fails
+func NewManager(nodeName string, myClient client.Client) (*Manager, error) {
+	managerLog := ctrl.Log.WithName("master").WithName("Manager")
 	nodesList := &corev1.NodeList{}
 	if err := myClient.List(context.TODO(), nodesList, &client.ListOptions{}); err != nil {
 		managerLog.Error(err, "could not retrieve nodes")
@@ -66,7 +68,7 @@ func newManager(nodeName string, myClient client.Client, log logr.Logger) (*mana
 		managerLog.Error(initError, "could not find role for current node", "node name", nodeName)
 		return nil, initError
 	}
-	return &manager{
+	return &Manager{
 		currentNodeRole:     nodeNameRoleMapping[nodeName],
 		nodeNameRoleMapping: nodeNameRoleMapping,
 		client:              myClient,
@@ -78,7 +80,7 @@ func wrapWithInitError(err error) error {
 	return fmt.Errorf(initErrorText+" [%w]", err)
 }
 
-func (manager *manager) printDebugData() {
+func (manager *Manager) printDebugData() {
 	manager.log.Info("[DEBUG] current node role is:", "role", manager.currentNodeRole)
 	manager.log.Info("[DEBUG] node name -> role mapping: ", "mapping", manager.nodeNameRoleMapping)
 }

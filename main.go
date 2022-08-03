@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"flag"
+	"github.com/medik8s/self-node-remediation/pkg/master"
 	"os"
 	"strconv"
 	"time"
@@ -283,6 +284,11 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	setupLog.Info("Time to assume that unhealthy node has been rebooted", "time", timeToAssumeNodeRebooted)
 
 	restoreNodeAfter := 90 * time.Second
+	var masterManager *master.Manager
+	if masterManager, err = master.NewManager(myNodeName, mgr.GetClient()); err != nil {
+		//TODO mshitrit do we want terminate or just give notice ?
+		setupLog.Error(err, "failed to create master manager, masters nodes will not be fenced or remediated")
+	}
 	pprReconciler := &controllers.SelfNodeRemediationReconciler{
 		Client:                       mgr.GetClient(),
 		Log:                          ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
@@ -291,6 +297,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
 		MyNodeName:                   myNodeName,
 		RestoreNodeAfter:             restoreNodeAfter,
+		MasterManager:                masterManager,
 	}
 
 	if err = pprReconciler.SetupWithManager(mgr); err != nil {
