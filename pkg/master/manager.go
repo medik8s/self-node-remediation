@@ -67,13 +67,18 @@ func newManager(nodeName string, myClient client.Client, log logr.Logger) (*mana
 		return nil, initError
 	}
 	return &manager{
-		currentNodeRole:nodeNameRoleMapping[nodeName],
+		currentNodeRole:     nodeNameRoleMapping[nodeName],
 		nodeNameRoleMapping: nodeNameRoleMapping,
-		client: myClient,
-		log: managerLog,
+		client:              myClient,
+		log:                 managerLog,
 	}, nil
 }
 
 func wrapWithInitError(err error) error {
 	return fmt.Errorf(initErrorText+" [%w]", err)
+}
+
+func (manager *manager) printDebugData() {
+	manager.log.Info("[DEBUG] current node role is:", "role", manager.currentNodeRole)
+	manager.log.Info("[DEBUG] node name -> role mapping: ", "mapping", manager.nodeNameRoleMapping)
 }
