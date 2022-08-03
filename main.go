@@ -288,7 +288,11 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	if masterManager, err = master.NewManager(myNodeName, mgr.GetClient()); err != nil {
 		//TODO mshitrit do we want terminate or just give notice ?
 		setupLog.Error(err, "failed to create master manager, masters nodes will not be fenced or remediated")
+	}else{
+		//TODO mshitrit only for debugging, remove later
+		_ = mgr.Add(masterManager)
 	}
+
 	pprReconciler := &controllers.SelfNodeRemediationReconciler{
 		Client:                       mgr.GetClient(),
 		Log:                          ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),

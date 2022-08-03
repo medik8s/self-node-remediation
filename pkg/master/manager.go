@@ -80,7 +80,9 @@ func wrapWithInitError(err error) error {
 	return fmt.Errorf(initErrorText+" [%w]", err)
 }
 
-func (manager *Manager) printDebugData() {
+//TODO mshitrit remove later, only for debug
+func (manager *Manager) Start(ctx context.Context) error {
 	manager.log.Info("[DEBUG] current node role is:", "role", manager.currentNodeRole)
 	manager.log.Info("[DEBUG] node name -> role mapping: ", "mapping", manager.nodeNameRoleMapping)
+	return nil
 }
