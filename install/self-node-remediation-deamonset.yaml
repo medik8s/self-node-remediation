@@ -88,3 +88,6 @@ spec:
           operator: "Equal"
           value: "self-node-remediation"
           effect: "NoExecute"
+        - key: "node-role.kubernetes.io/master"
+          operator: "Equal"
+          effect: "NoSchedule"
