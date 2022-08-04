@@ -29,60 +29,69 @@ var (
 
 //Manager contains logic and info needed to fence and remediate master nodes
 type Manager struct {
-	currentNodeRole     role
+	nodeName            string
+	nodeRole            role
 	nodeNameRoleMapping map[string]role
 	client              client.Client
 	log                 logr.Logger
 }
 
 //NewManager inits a new Manager return nil if init fails
-func NewManager(nodeName string, myClient client.Client) (*Manager, error) {
-	managerLog := ctrl.Log.WithName("master").WithName("Manager")
-	nodesList := &corev1.NodeList{}
-	if err := myClient.List(context.TODO(), nodesList, &client.ListOptions{}); err != nil {
-		managerLog.Error(err, "could not retrieve nodes")
-		return nil, wrapWithInitError(err)
-	}
-
-	nodeNameRoleMapping := map[string]role{}
-	for _, node := range nodesList.Items {
-		isNodeRoleFound := false
-		for labelKey := range node.Labels {
-			if labelKey == masterLabelKey {
-				nodeNameRoleMapping[node.Name] = master
-				isNodeRoleFound = true
-				break
-			} else if labelKey == workerLabelKey {
-				nodeNameRoleMapping[node.Name] = worker
-				isNodeRoleFound = true
-				break
-			}
-		}
-		if !isNodeRoleFound {
-			managerLog.Error(initError, "could not find role for node", "node name", node.Name)
-			return nil, initError
-		}
-	}
-
-	if _, isFound := nodeNameRoleMapping[nodeName]; !isFound {
-		managerLog.Error(initError, "could not find role for current node", "node name", nodeName)
-		return nil, initError
-	}
+func NewManager(nodeName string, myClient client.Client) *Manager {
 	return &Manager{
-		currentNodeRole:     nodeNameRoleMapping[nodeName],
-		nodeNameRoleMapping: nodeNameRoleMapping,
+		nodeName:            nodeName,
+		nodeNameRoleMapping: map[string]role{},
 		client:              myClient,
-		log:                 managerLog,
-	}, nil
+		log:                 ctrl.Log.WithName("master").WithName("Manager"),
+	}
 }
 
 func wrapWithInitError(err error) error {
 	return fmt.Errorf(initErrorText+" [%w]", err)
 }
 
-//TODO mshitrit remove later, only for debug
 func (manager *Manager) Start(ctx context.Context) error {
-	manager.log.Info("[DEBUG] current node role is:", "role", manager.currentNodeRole)
+	if err := manager.initializeManager(); err != nil {
+		return err
+	}
+	//TODO mshitrit remove later, only for debug
+	manager.log.Info("[DEBUG] current node role is:", "role", manager.nodeRole)
 	manager.log.Info("[DEBUG] node name -> role mapping: ", "mapping", manager.nodeNameRoleMapping)
 	return nil
+}
+
+func (manager *Manager) initializeManager() error {
+	nodesList := &corev1.NodeList{}
+	if err := manager.client.List(context.TODO(), nodesList, &client.ListOptions{}); err != nil {
+		manager.log.Error(err, "could not retrieve nodes")
+		return wrapWithInitError(err)
+	}
+
+	for _, node := range nodesList.Items {
+		isNodeRoleFound := false
+		for labelKey := range node.Labels {
+			if labelKey == masterLabelKey {
+				manager.nodeNameRoleMapping[node.Name] = master
+				isNodeRoleFound = true
+				break
+			} else if labelKey == workerLabelKey {
+				manager.nodeNameRoleMapping[node.Name] = worker
+				isNodeRoleFound = true
+				break
+			}
+		}
+		if !isNodeRoleFound {
+			manager.log.Error(initError, "could not find role for node", "node name", node.Name)
+			return initError
+		}
+	}
+
+	if _, isFound := manager.nodeNameRoleMapping[manager.nodeName]; !isFound {
+		manager.log.Error(initError, "could not find role for current node", "node name", manager.nodeName)
+		return initError
+	} else {
+		manager.nodeRole = manager.nodeNameRoleMapping[manager.nodeName]
+		return nil
+	}
+
 }

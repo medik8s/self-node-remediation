@@ -284,16 +284,9 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	setupLog.Info("Time to assume that unhealthy node has been rebooted", "time", timeToAssumeNodeRebooted)
 
 	restoreNodeAfter := 90 * time.Second
-	var masterManager *master.Manager
-	if masterManager, err = master.NewManager(myNodeName, mgr.GetClient()); err != nil {
-		//TODO mshitrit do we want terminate or just give notice ?
-		setupLog.Error(err, "failed to create master manager, masters nodes will not be fenced or remediated")
-	}else{
-		//TODO mshitrit only for debugging, remove later
-		_ = mgr.Add(masterManager)
-	}
 
-	pprReconciler := &controllers.SelfNodeRemediationReconciler{
+	masterManager := master.NewManager(myNodeName, mgr.GetClient())
+	snrReconciler := &controllers.SelfNodeRemediationReconciler{
 		Client:                       mgr.GetClient(),
 		Log:                          ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
 		Scheme:                       mgr.GetScheme(),
@@ -304,14 +297,14 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		MasterManager:                masterManager,
 	}
 
-	if err = pprReconciler.SetupWithManager(mgr); err != nil {
+	if err = snrReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SelfNodeRemediation")
 		os.Exit(1)
 	}
 
 	setupLog.Info("init grpc server")
 	// TODO make port configurable?
-	server, err := peerhealth.NewServer(pprReconciler, mgr.GetConfig(), ctrl.Log.WithName("peerhealth").WithName("server"), peerHealthDefaultPort, certReader)
+	server, err := peerhealth.NewServer(snrReconciler, mgr.GetConfig(), ctrl.Log.WithName("peerhealth").WithName("server"), peerHealthDefaultPort, certReader)
 	if err != nil {
 		setupLog.Error(err, "failed to init grpc server")
 		os.Exit(1)
@@ -320,6 +313,13 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		setupLog.Error(err, "failed to add grpc server to the manager")
 		os.Exit(1)
 	}
+
+	if err = mgr.Add(masterManager); err != nil {
+		setupLog.Error(err, "failed to add master remediation manager to setup manager, master nodes will not be fenced or remediated !")
+		//TODO mshitrit do we want terminate or just give notice, or in other words should SNR work if it can't remediate masters ?
+		//os.Exit(1)
+	}
+
 }
 
 // newTemplatesIfNotExist creates new SelfNodeRemediationTemplate objects
