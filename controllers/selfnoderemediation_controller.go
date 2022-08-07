@@ -18,7 +18,6 @@ package controllers
 
 import (
 	"context"
-	"github.com/medik8s/self-node-remediation/pkg/master"
 	"sync"
 	"time"
 
@@ -103,7 +102,6 @@ type SelfNodeRemediationReconciler struct {
 	//40s of grace period for the node to reappear before it deletes the pods.
 	//see here: https://github.com/kubernetes/kubernetes/blob/7a0638da76cb9843def65708b661d2c6aa58ed5a/pkg/controller/podgc/gc_controller.go#L43-L47
 	RestoreNodeAfter time.Duration
-	MasterManager    *master.Manager
 }
 
 // SetupWithManager sets up the controller with the Manager.

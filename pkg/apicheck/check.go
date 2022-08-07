@@ -26,11 +26,11 @@ import (
 
 type ApiConnectivityCheck struct {
 	client.Reader
-	config      *ApiConnectivityCheckConfig
-	errorCount  int
-	clientCreds credentials.TransportCredentials
+	config        *ApiConnectivityCheckConfig
+	errorCount    int
+	clientCreds   credentials.TransportCredentials
 	masterManager *master.Manager
-	mutex sync.Mutex
+	mutex         sync.Mutex
 }
 
 type ApiConnectivityCheckConfig struct {
@@ -50,8 +50,8 @@ type ApiConnectivityCheckConfig struct {
 
 func New(config *ApiConnectivityCheckConfig, masterManager *master.Manager) *ApiConnectivityCheck {
 	return &ApiConnectivityCheck{
-		config: config,
-		mutex:  sync.Mutex{},
+		config:        config,
+		mutex:         sync.Mutex{},
 		masterManager: masterManager,
 	}
 }
@@ -109,7 +109,15 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 // HandleError keeps track of the number of errors reported, and when a certain amount of error occur within a certain
 // time, ask peers if this node is healthy. Returns if the node is considered to be healthy or not.
 func (c *ApiConnectivityCheck) handleError() bool {
+	if c.masterManager == nil || !c.masterManager.IsMaster() {
+		return c.handleWorkerNodeError()
+	} else {
+		return c.handleMasterNodeError()
+	}
 
+}
+
+func (c *ApiConnectivityCheck) handleWorkerNodeError() bool {
 	c.errorCount++
 	if c.errorCount < c.config.MaxErrorsThreshold {
 		c.config.Log.Info("Ignoring api-server error, error count below threshold", "current count", c.errorCount, "threshold", c.config.MaxErrorsThreshold)
@@ -287,4 +295,9 @@ func (c *ApiConnectivityCheck) sumPeersResponses(nodesBatchCount int, responsesC
 	}
 
 	return healthyResponses, unhealthyResponses, apiErrorsResponses, noResponse
+}
+
+func (c *ApiConnectivityCheck) handleMasterNodeError() bool {
+	//TODO mshitrit implement
+	return c.handleWorkerNodeError()
 }

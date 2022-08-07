@@ -46,10 +46,6 @@ func NewManager(nodeName string, myClient client.Client) *Manager {
 	}
 }
 
-func wrapWithInitError(err error) error {
-	return fmt.Errorf(initErrorText+" [%w]", err)
-}
-
 func (manager *Manager) Start(ctx context.Context) error {
 	if err := manager.initializeManager(); err != nil {
 		return err
@@ -58,6 +54,14 @@ func (manager *Manager) Start(ctx context.Context) error {
 	manager.log.Info("[DEBUG] current node role is:", "role", manager.nodeRole)
 	manager.log.Info("[DEBUG] node name -> role mapping: ", "mapping", manager.nodeNameRoleMapping)
 	return nil
+}
+
+func (manager *Manager) IsMaster() bool {
+	return manager.nodeRole == master
+}
+
+func wrapWithInitError(err error) error {
+	return fmt.Errorf(initErrorText+" [%w]", err)
 }
 
 func (manager *Manager) initializeManager() error {

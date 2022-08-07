@@ -301,7 +301,6 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
 		MyNodeName:                   myNodeName,
 		RestoreNodeAfter:             restoreNodeAfter,
-		MasterManager:                masterManager,
 	}
 
 	if err = snrReconciler.SetupWithManager(mgr); err != nil {
