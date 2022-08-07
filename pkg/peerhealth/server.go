@@ -132,6 +132,7 @@ func (s Server) IsHealthy(ctx context.Context, request *HealthRequest) (*HealthR
 		if _, err := s.getNode(ctx, nodeName); err != nil {
 			// TODO do we need to deal with isNotFound, and if so, how?
 			s.log.Info("no SNR seen yet, and API server issue, returning API error", "api error", err)
+			//TODO mshitrit add node role to the response ?
 			return toResponse(selfNodeRemediationApis.ApiError)
 		}
 		s.log.Info("no SNR seen yet, node is healthy")
