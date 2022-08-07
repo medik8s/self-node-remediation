@@ -9,10 +9,8 @@ import (
 type Watchdog interface {
 	// Start should be called by the manager and block on the given context
 	Start(ctx context.Context) error
-	// IsStarted return if the watchdog is running
-	IsStarted() bool
-	// IsRebooting return if the watchdog has already stopped feeding and currently about to reboot the node
-	IsRebooting() bool
+	// Status shows current watchdog status
+	Status() watchdogStatus
 	// Stop stops feeding the watchdog, which results in a reboot of the node
 	Stop()
 	// GetTimeout returns the watchdog timeout when it reboots the node without feeding
