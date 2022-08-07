@@ -257,7 +257,15 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		PeerHealthPort:     peerHealthDefaultPort,
 	}
 
-	apiChecker := apicheck.New(apiConnectivityCheckConfig)
+	masterManager := master.NewManager(myNodeName, mgr.GetClient())
+
+	if err = mgr.Add(masterManager); err != nil {
+		setupLog.Error(err, "failed to add master remediation manager to setup manager, master nodes will not be fenced or remediated !")
+		//TODO mshitrit do we want terminate or just give notice, or in other words should SNR work if it can't remediate masters ?
+		//os.Exit(1)
+	}
+
+	apiChecker := apicheck.New(apiConnectivityCheckConfig, masterManager)
 	if err = mgr.Add(apiChecker); err != nil {
 		setupLog.Error(err, "failed to add api-check to the manager")
 		os.Exit(1)
@@ -285,7 +293,6 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 
 	restoreNodeAfter := 90 * time.Second
 
-	masterManager := master.NewManager(myNodeName, mgr.GetClient())
 	snrReconciler := &controllers.SelfNodeRemediationReconciler{
 		Client:                       mgr.GetClient(),
 		Log:                          ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
@@ -312,12 +319,6 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	if err = mgr.Add(server); err != nil {
 		setupLog.Error(err, "failed to add grpc server to the manager")
 		os.Exit(1)
-	}
-
-	if err = mgr.Add(masterManager); err != nil {
-		setupLog.Error(err, "failed to add master remediation manager to setup manager, master nodes will not be fenced or remediated !")
-		//TODO mshitrit do we want terminate or just give notice, or in other words should SNR work if it can't remediate masters ?
-		//os.Exit(1)
 	}
 
 }

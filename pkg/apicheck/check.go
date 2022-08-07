@@ -3,6 +3,7 @@ package apicheck
 import (
 	"context"
 	"fmt"
+	"github.com/medik8s/self-node-remediation/pkg/master"
 	"net/http"
 	"sync"
 	"time"
@@ -28,7 +29,8 @@ type ApiConnectivityCheck struct {
 	config      *ApiConnectivityCheckConfig
 	errorCount  int
 	clientCreds credentials.TransportCredentials
-	mutex       sync.Mutex
+	masterManager *master.Manager
+	mutex sync.Mutex
 }
 
 type ApiConnectivityCheckConfig struct {
@@ -46,10 +48,11 @@ type ApiConnectivityCheckConfig struct {
 	PeerHealthPort     int
 }
 
-func New(config *ApiConnectivityCheckConfig) *ApiConnectivityCheck {
+func New(config *ApiConnectivityCheckConfig, masterManager *master.Manager) *ApiConnectivityCheck {
 	return &ApiConnectivityCheck{
 		config: config,
 		mutex:  sync.Mutex{},
+		masterManager: masterManager,
 	}
 }
 
@@ -79,6 +82,7 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 		}
 		if failure != "" {
 			c.config.Log.Error(fmt.Errorf(failure), "failed to check api server")
+			//TODO mshitrit this should change for masters
 			if isHealthy := c.handleError(); !isHealthy {
 				// we have a problem on this node
 				c.config.Log.Error(err, "we are unhealthy, triggering a reboot")
