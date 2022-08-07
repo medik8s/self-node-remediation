@@ -98,6 +98,8 @@ func (p *Peers) updatePeers(ctx context.Context) {
 		p.log.Error(err, "failed to update peer list")
 		return
 	}
+	//TODO mshitrit remove
+	p.log.Info("[DEBUG] node peers found", "mode name", p.myNodeName, "number of peers", len(nodes.Items))
 	nodesCount := len(nodes.Items)
 	addresses := make([][]v1.NodeAddress, nodesCount)
 	for i, node := range nodes.Items {
