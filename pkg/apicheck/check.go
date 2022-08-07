@@ -82,7 +82,7 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 			if isHealthy := c.handleError(); !isHealthy {
 				// we have a problem on this node
 				c.config.Log.Error(err, "we are unhealthy, triggering a reboot")
-				if _, err := c.config.Rebooter.Reboot(); err != nil {
+				if err := c.config.Rebooter.Reboot(); err != nil {
 					c.config.Log.Error(err, "failed to trigger reboot")
 				}
 			} else {

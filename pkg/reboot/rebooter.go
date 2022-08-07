@@ -1,19 +1,19 @@
 package reboot
 
 import (
+	"errors"
 	"os/exec"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/medik8s/self-node-remediation/pkg/watchdog"
 )
 
-const timeToAssumeRebootHasStarted = time.Second * 30
+const TimeToAssumeRebootHasStarted = time.Second * 30
 
 type Rebooter interface {
 	// Reboot triggers a node reboot
-	Reboot() (ctrl.Result, error)
+	Reboot() error
 }
 
 var _ Rebooter = &WatchdogRebooter{}
@@ -31,7 +31,7 @@ func NewWatchdogRebooter(wd watchdog.Watchdog, log logr.Logger) Rebooter {
 	}
 }
 
-func (r *WatchdogRebooter) Reboot() (ctrl.Result, error) {
+func (r *WatchdogRebooter) Reboot() error {
 	if r.wd == nil {
 		r.log.Info("no watchdog is present on this host, trying software reboot")
 		//we couldn't init a watchdog so far but requested to be rebooted. we issue a software reboot
@@ -42,23 +42,27 @@ func (r *WatchdogRebooter) Reboot() (ctrl.Result, error) {
 		return r.softwareReboot()
 	}
 	//Watch dog is rebooting, wait to make sure watchdog is rebooting properly otherwise intervene with software reboot
-	if r.wd.IsRebooting() {
-		r.log.Info("watchdog is waiting for reboot to commence, waiting for 10 seconds")
-		return ctrl.Result{RequeueAfter: time.Second * 10}, nil
-	}
-
-	if !r.wd.IsStarted() {
+	switch r.wd.Status() {
+	case watchdog.Triggered:
+		r.log.Info("watchdog is triggered, waiting for watchdog reboot to commence")
+		return nil
+	case watchdog.Disarmed:
 		r.log.Info("watchdog failed to start, trying software reboot")
 		return r.softwareReboot()
+	case watchdog.Armed:
+		// we stop feeding the watchdog for a reboot
+		r.wd.Stop()
+		r.log.Info("watchdog feeding has stopped, waiting for reboot to commence")
+		return nil
+	default:
+		err := errors.New("unexpected watchdog status")
+		r.log.Error(err, err.Error(), "watchDog status", r.wd.Status())
+		return err
 	}
-	// we stop feeding the watchdog for a reboot
-	r.wd.Stop()
-	r.log.Info("watchdog feeding has stopped, waiting for reboot to commence")
-	return ctrl.Result{RequeueAfter: time.Second * 10}, nil
 }
 
 // softwareReboot performs software reboot by running systemctl reboot
-func (r *WatchdogRebooter) softwareReboot() (ctrl.Result, error) {
+func (r *WatchdogRebooter) softwareReboot() error {
 	r.log.Info("about to try software reboot")
 	// hostPID: true and privileged:true required to run this
 	rebootCmd := exec.Command("/usr/bin/nsenter", "-m/proc/1/ns/mnt", "/bin/systemctl", "reboot", "--force", "--force")
@@ -67,14 +71,14 @@ func (r *WatchdogRebooter) softwareReboot() (ctrl.Result, error) {
 		r.log.Error(err, "failed to run reboot command")
 		// TODO retry because of this?
 	}
-	return ctrl.Result{}, nil
+	return nil
 }
 
 func (r *WatchdogRebooter) isWatchdogRebootStuck() bool {
 	lastFoodTime := r.wd.LastFoodTime()
 	timeElapsedSinceLastFeed := time.Now().Sub(lastFoodTime)
 	var isStuck bool
-	if isStuck = timeElapsedSinceLastFeed > timeToAssumeRebootHasStarted; isStuck {
+	if isStuck = timeElapsedSinceLastFeed > TimeToAssumeRebootHasStarted; isStuck {
 		r.log.Info("watchdog reboot is stuck, too long has passed since last feed time", "time passed since last feed", timeElapsedSinceLastFeed)
 	}
 

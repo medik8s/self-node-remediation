@@ -13,28 +13,37 @@ import (
 
 var _ Watchdog = &synchronizedWatchdog{}
 
+const (
+	Disarmed watchdogStatus = iota
+	Armed
+	Triggered
+)
+
+type watchdogStatus uint8
+
 // synchronizedWatchdog implements the Watchdog interface with synchronized calls of the implementation specific methods
 type synchronizedWatchdog struct {
-	impl                   watchdogImpl
-	timeout                time.Duration
-	isStarted, isRebooting bool
-	stop                   context.CancelFunc
-	mutex                  sync.Mutex
-	lastFoodTime           time.Time
-	log                    logr.Logger
+	impl         watchdogImpl
+	timeout      time.Duration
+	status       watchdogStatus
+	stop         context.CancelFunc
+	mutex        sync.Mutex
+	lastFoodTime time.Time
+	log          logr.Logger
 }
 
 func newSynced(log logr.Logger, impl watchdogImpl) *synchronizedWatchdog {
 	return &synchronizedWatchdog{
-		impl: impl,
-		log:  log,
+		impl:   impl,
+		log:    log,
+		status: Disarmed,
 	}
 }
 
 func (swd *synchronizedWatchdog) Start(ctx context.Context) error {
 	swd.mutex.Lock()
 	defer swd.mutex.Unlock()
-	if swd.isStarted {
+	if swd.status != Disarmed {
 		return errors.New("watchdog was started more than once. This is likely to be caused by being added to a manager multiple times")
 	}
 	timeout, err := swd.impl.start()
@@ -43,7 +52,7 @@ func (swd *synchronizedWatchdog) Start(ctx context.Context) error {
 		return nil
 	}
 	swd.timeout = *timeout
-	swd.isStarted = true
+	swd.status = Armed
 	swd.log.Info("watchdog started")
 	swd.mutex.Unlock()
 
@@ -54,7 +63,7 @@ func (swd *synchronizedWatchdog) Start(ctx context.Context) error {
 		swd.mutex.Lock()
 		defer swd.mutex.Unlock()
 		// prevent feeding of a disarmed watchdog in case the context isn't cancelled yet
-		if !swd.isStarted {
+		if swd.status != Armed {
 			return
 		}
 		if err := swd.impl.feed(); err != nil {
@@ -68,33 +77,26 @@ func (swd *synchronizedWatchdog) Start(ctx context.Context) error {
 
 	// pod is being stopped, disarm!
 	swd.mutex.Lock()
-	if swd.isStarted {
+	if swd.status == Armed {
 		if err := swd.impl.disarm(); err != nil {
 			swd.log.Error(err, "failed to disarm watchdog!")
 		} else {
 			swd.log.Info("disarmed watchdog")
 			// we can stop feeding after disarm
 			swd.stop()
-			swd.isStarted = false
+			swd.status = Disarmed
 		}
 	}
 
 	return nil
 }
 
-func (swd *synchronizedWatchdog) IsStarted() bool {
-	swd.mutex.Lock()
-	defer swd.mutex.Unlock()
-	return swd.isStarted
-}
-
 func (swd *synchronizedWatchdog) Stop() {
 	swd.mutex.Lock()
 	defer swd.mutex.Unlock()
-	if swd.isStarted {
+	if swd.status == Armed {
 		swd.stop()
-		swd.isStarted = false
-		swd.isRebooting = true
+		swd.status = Triggered
 	}
 }
 
@@ -110,8 +112,8 @@ func (swd *synchronizedWatchdog) LastFoodTime() time.Time {
 	return swd.lastFoodTime
 }
 
-func (swd *synchronizedWatchdog) IsRebooting() bool {
+func (swd *synchronizedWatchdog) Status() watchdogStatus {
 	swd.mutex.Lock()
 	defer swd.mutex.Unlock()
-	return swd.isRebooting
+	return swd.status
 }

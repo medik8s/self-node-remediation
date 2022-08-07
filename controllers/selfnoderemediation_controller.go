@@ -419,7 +419,7 @@ func (r *SelfNodeRemediationReconciler) rebootIfNeeded(snr *v1alpha1.SelfNodeRem
 		return ctrl.Result{}, nil
 	}
 
-	return r.Rebooter.Reboot()
+	return ctrl.Result{RequeueAfter: reboot.TimeToAssumeRebootHasStarted}, r.Rebooter.Reboot()
 }
 
 // wasNodeRebooted returns true if the node assumed to been rebooted.
