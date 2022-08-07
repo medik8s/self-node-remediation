@@ -30,6 +30,7 @@ type Peers struct {
 	mutex              sync.Mutex
 	apiServerTimeout   time.Duration
 	peersAddresses     [][]v1.NodeAddress
+	peersNames         []string
 }
 
 func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Reader, log logr.Logger, apiServerTimeout time.Duration) *Peers {
@@ -94,18 +95,23 @@ func (p *Peers) updatePeers(ctx context.Context) {
 		if errors.IsNotFound(err) {
 			// we are the only node at the moment... reset peerList
 			p.peersAddresses = [][]v1.NodeAddress{}
+			p.peersNames = []string{}
 		}
 		p.log.Error(err, "failed to update peer list")
 		return
 	}
 	//TODO mshitrit remove
 	p.log.Info("[DEBUG] node peers found", "mode name", p.myNodeName, "number of peers", len(nodes.Items))
+
 	nodesCount := len(nodes.Items)
 	addresses := make([][]v1.NodeAddress, nodesCount)
+	peerNames := make([]string, nodesCount)
 	for i, node := range nodes.Items {
 		addresses[i] = node.Status.Addresses
+		peerNames[i] = node.Name
 	}
 	p.peersAddresses = addresses
+	p.peersNames = peerNames
 }
 
 func (p *Peers) GetPeersAddresses() [][]v1.NodeAddress {
