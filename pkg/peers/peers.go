@@ -37,7 +37,6 @@ type Peers struct {
 	mutex                                      sync.Mutex
 	apiServerTimeout                           time.Duration
 	workerPeersAddresses, masterPeersAddresses [][]v1.NodeAddress
-	peersNames                                 []string
 }
 
 func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Reader, log logr.Logger, apiServerTimeout time.Duration) *Peers {
@@ -74,11 +73,12 @@ func (p *Peers) Start(ctx context.Context) error {
 		return err
 	} else {
 		p.workerPeerSelector = createSelector(hostname, Worker)
-		p.masterPeerSelector = createSelector(hostname, Worker)
+		p.masterPeerSelector = createSelector(hostname, Master)
 	}
 
 	go wait.UntilWithContext(ctx, func(ctx context.Context) {
-		p.updatePeers(ctx)
+		p.updateWorkerPeers(ctx)
+		p.updateMasterPeers(ctx)
 	}, p.peerUpdateInterval)
 
 	p.log.Info("peers started")
@@ -87,7 +87,21 @@ func (p *Peers) Start(ctx context.Context) error {
 	return nil
 }
 
-func (p *Peers) updatePeers(ctx context.Context) {
+func (p *Peers) updateWorkerPeers(ctx context.Context) {
+	p.log.Info("[DEBUG] Updating Worker Peers")
+	setterFunc := func(addresses [][]v1.NodeAddress) { p.workerPeersAddresses = addresses }
+	selectorGetter := func() labels.Selector { return p.workerPeerSelector }
+	p.updatePeers(ctx, selectorGetter, setterFunc)
+}
+
+func (p *Peers) updateMasterPeers(ctx context.Context) {
+	p.log.Info("[DEBUG] Updating Master Peers")
+	setterFunc := func(addresses [][]v1.NodeAddress) { p.masterPeersAddresses = addresses }
+	selectorGetter := func() labels.Selector { return p.masterPeerSelector }
+	p.updatePeers(ctx, selectorGetter, setterFunc)
+}
+
+func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selector, setAddresses func(addresses [][]v1.NodeAddress)) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
@@ -96,27 +110,23 @@ func (p *Peers) updatePeers(ctx context.Context) {
 
 	nodes := v1.NodeList{}
 	// get some nodes, but not ourself
-	if err := p.List(readerCtx, &nodes, client.MatchingLabelsSelector{Selector: p.workerPeerSelector}); err != nil {
+	if err := p.List(readerCtx, &nodes, client.MatchingLabelsSelector{Selector: getSelector()}); err != nil {
 		if errors.IsNotFound(err) {
 			// we are the only node at the moment... reset peerList
 			p.workerPeersAddresses = [][]v1.NodeAddress{}
-			p.peersNames = []string{}
 		}
 		p.log.Error(err, "failed to update peer list")
 		return
 	}
 	//TODO mshitrit remove
-	p.log.Info("[DEBUG] node peers found", "mode name", p.myNodeName, "number of peers", len(nodes.Items))
+	p.debugLogPeers(nodes)
 
 	nodesCount := len(nodes.Items)
 	addresses := make([][]v1.NodeAddress, nodesCount)
-	peerNames := make([]string, nodesCount)
 	for i, node := range nodes.Items {
 		addresses[i] = node.Status.Addresses
-		peerNames[i] = node.Name
 	}
-	p.workerPeersAddresses = addresses
-	p.peersNames = peerNames
+	setAddresses(addresses)
 }
 
 func (p *Peers) GetPeersAddresses() [][]v1.NodeAddress {
@@ -151,4 +161,10 @@ func createSelector(hostNameToExclude string, nodeRole Role) labels.Selector {
 	return selector
 }
 
+func (p *Peers) debugLogPeers(nodes v1.NodeList) {
+	p.log.Info("[DEBUG] node peers found", "node name", p.myNodeName, "number of peers", len(nodes.Items))
+	for _, node := range nodes.Items {
+		p.log.Info("[DEBUG] node peer name", "peer name", node.Name)
+	}
 
+}
