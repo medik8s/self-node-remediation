@@ -24,25 +24,26 @@ const (
 
 type Peers struct {
 	client.Reader
-	log                logr.Logger
-	peerSelector       labels.Selector
-	peerUpdateInterval time.Duration
-	myNodeName         string
-	mutex              sync.Mutex
-	apiServerTimeout   time.Duration
-	peersAddresses     [][]v1.NodeAddress
-	peersNames         []string
+	log                                        logr.Logger
+	workerPeerSelector, masterPeerSelector     labels.Selector
+	peerUpdateInterval                         time.Duration
+	myNodeName                                 string
+	mutex                                      sync.Mutex
+	apiServerTimeout                           time.Duration
+	workerPeersAddresses, masterPeersAddresses [][]v1.NodeAddress
+	peersNames                                 []string
 }
 
 func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Reader, log logr.Logger, apiServerTimeout time.Duration) *Peers {
 	return &Peers{
-		Reader:             reader,
-		log:                log,
-		peerUpdateInterval: peerUpdateInterval,
-		myNodeName:         myNodeName,
-		mutex:              sync.Mutex{},
-		apiServerTimeout:   apiServerTimeout,
-		peersAddresses:     [][]v1.NodeAddress{},
+		Reader:               reader,
+		log:                  log,
+		peerUpdateInterval:   peerUpdateInterval,
+		myNodeName:           myNodeName,
+		mutex:                sync.Mutex{},
+		apiServerTimeout:     apiServerTimeout,
+		workerPeersAddresses: [][]v1.NodeAddress{},
+		masterPeersAddresses: [][]v1.NodeAddress{},
 	}
 }
 
@@ -66,11 +67,8 @@ func (p *Peers) Start(ctx context.Context) error {
 		p.log.Error(err, "failed to get own hostname")
 		return err
 	} else {
-		reqNotMe, _ := labels.NewRequirement(hostnameLabelName, selection.NotEquals, []string{hostname})
-		reqWorkers, _ := labels.NewRequirement(WorkerLabelName, selection.Exists, []string{})
-		selector := labels.NewSelector()
-		selector = selector.Add(*reqNotMe, *reqWorkers)
-		p.peerSelector = selector
+		p.workerPeerSelector = createSelector(hostname, true)
+		p.masterPeerSelector = createSelector(hostname, false)
 	}
 
 	go wait.UntilWithContext(ctx, func(ctx context.Context) {
@@ -83,6 +81,8 @@ func (p *Peers) Start(ctx context.Context) error {
 	return nil
 }
 
+
+
 func (p *Peers) updatePeers(ctx context.Context) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
@@ -92,10 +92,10 @@ func (p *Peers) updatePeers(ctx context.Context) {
 
 	nodes := v1.NodeList{}
 	// get some nodes, but not ourself
-	if err := p.List(readerCtx, &nodes, client.MatchingLabelsSelector{Selector: p.peerSelector}); err != nil {
+	if err := p.List(readerCtx, &nodes, client.MatchingLabelsSelector{Selector: p.workerPeerSelector}); err != nil {
 		if errors.IsNotFound(err) {
 			// we are the only node at the moment... reset peerList
-			p.peersAddresses = [][]v1.NodeAddress{}
+			p.workerPeersAddresses = [][]v1.NodeAddress{}
 			p.peersNames = []string{}
 		}
 		p.log.Error(err, "failed to update peer list")
@@ -111,7 +111,7 @@ func (p *Peers) updatePeers(ctx context.Context) {
 		addresses[i] = node.Status.Addresses
 		peerNames[i] = node.Name
 	}
-	p.peersAddresses = addresses
+	p.workerPeersAddresses = addresses
 	p.peersNames = peerNames
 }
 
@@ -121,11 +121,26 @@ func (p *Peers) GetPeersAddresses() [][]v1.NodeAddress {
 
 	//we don't want the caller to be able to change the addresses
 	//so we create a deep copy and return it
-	addressesCopy := make([][]v1.NodeAddress, len(p.peersAddresses))
-	for i := range p.peersAddresses {
-		addressesCopy[i] = make([]v1.NodeAddress, len(p.peersAddresses[i]))
-		copy(addressesCopy, p.peersAddresses)
+	addressesCopy := make([][]v1.NodeAddress, len(p.workerPeersAddresses))
+	for i := range p.workerPeersAddresses {
+		addressesCopy[i] = make([]v1.NodeAddress, len(p.workerPeersAddresses[i]))
+		copy(addressesCopy, p.workerPeersAddresses)
 	}
 
 	return addressesCopy
+}
+
+func createSelector(hostNameToExclude string, isWorkerSelector bool) labels.Selector {
+	var nodeTypeLabel string
+	if isWorkerSelector{
+		nodeTypeLabel = WorkerLabelName
+	}else{
+		nodeTypeLabel = MasterLabelName
+	}
+
+	reqNotMe, _ := labels.NewRequirement(hostnameLabelName, selection.NotEquals, []string{hostNameToExclude})
+	reqWorkers, _ := labels.NewRequirement(nodeTypeLabel, selection.Exists, []string{})
+	selector := labels.NewSelector()
+	selector = selector.Add(*reqNotMe, *reqWorkers)
+	return selector
 }
