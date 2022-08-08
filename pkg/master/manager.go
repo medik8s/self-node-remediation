@@ -11,13 +11,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-type role int8
-
-const (
-	worker role = iota
-	master
-)
-
 const (
 	initErrorText = "error initializing master handler"
 )
@@ -29,8 +22,8 @@ var (
 //Manager contains logic and info needed to fence and remediate master nodes
 type Manager struct {
 	nodeName            string
-	nodeRole            role
-	nodeNameRoleMapping map[string]role
+	nodeRole            peers.Role
+	nodeNameRoleMapping map[string]peers.Role
 	client              client.Client
 	log                 logr.Logger
 }
@@ -39,7 +32,7 @@ type Manager struct {
 func NewManager(nodeName string, myClient client.Client) *Manager {
 	return &Manager{
 		nodeName:            nodeName,
-		nodeNameRoleMapping: map[string]role{},
+		nodeNameRoleMapping: map[string]peers.Role{},
 		client:              myClient,
 		log:                 ctrl.Log.WithName("master").WithName("Manager"),
 	}
@@ -56,7 +49,7 @@ func (manager *Manager) Start(ctx context.Context) error {
 }
 
 func (manager *Manager) IsMaster() bool {
-	return manager.nodeRole == master
+	return manager.nodeRole == peers.Master
 }
 
 func wrapWithInitError(err error) error {
@@ -74,11 +67,11 @@ func (manager *Manager) initializeManager() error {
 		isNodeRoleFound := false
 		for labelKey := range node.Labels {
 			if labelKey == peers.MasterLabelName {
-				manager.nodeNameRoleMapping[node.Name] = master
+				manager.nodeNameRoleMapping[node.Name] = peers.Master
 				isNodeRoleFound = true
 				break
 			} else if labelKey == peers.WorkerLabelName {
-				manager.nodeNameRoleMapping[node.Name] = worker
+				manager.nodeNameRoleMapping[node.Name] = peers.Worker
 				isNodeRoleFound = true
 				break
 			}

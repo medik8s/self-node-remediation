@@ -16,6 +16,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+type Role int8
+
+const (
+	Worker Role = iota
+	Master
+)
 const (
 	hostnameLabelName = "kubernetes.io/hostname"
 	WorkerLabelName   = "node-role.kubernetes.io/worker"
@@ -67,8 +73,8 @@ func (p *Peers) Start(ctx context.Context) error {
 		p.log.Error(err, "failed to get own hostname")
 		return err
 	} else {
-		p.workerPeerSelector = createSelector(hostname, true)
-		p.masterPeerSelector = createSelector(hostname, false)
+		p.workerPeerSelector = createSelector(hostname, Worker)
+		p.masterPeerSelector = createSelector(hostname, Worker)
 	}
 
 	go wait.UntilWithContext(ctx, func(ctx context.Context) {
@@ -80,8 +86,6 @@ func (p *Peers) Start(ctx context.Context) error {
 	<-ctx.Done()
 	return nil
 }
-
-
 
 func (p *Peers) updatePeers(ctx context.Context) {
 	p.mutex.Lock()
@@ -130,12 +134,14 @@ func (p *Peers) GetPeersAddresses() [][]v1.NodeAddress {
 	return addressesCopy
 }
 
-func createSelector(hostNameToExclude string, isWorkerSelector bool) labels.Selector {
+func createSelector(hostNameToExclude string, nodeRole Role) labels.Selector {
 	var nodeTypeLabel string
-	if isWorkerSelector{
-		nodeTypeLabel = WorkerLabelName
-	}else{
+
+	switch nodeRole {
+	case Master:
 		nodeTypeLabel = MasterLabelName
+	default:
+		nodeTypeLabel = WorkerLabelName
 	}
 
 	reqNotMe, _ := labels.NewRequirement(hostnameLabelName, selection.NotEquals, []string{hostNameToExclude})
@@ -144,3 +150,5 @@ func createSelector(hostNameToExclude string, isWorkerSelector bool) labels.Sele
 	selector = selector.Add(*reqNotMe, *reqWorkers)
 	return selector
 }
+
+
