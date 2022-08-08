@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/go-logr/logr"
+	"github.com/medik8s/self-node-remediation/pkg/peers"
 	corev1 "k8s.io/api/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -18,9 +19,7 @@ const (
 )
 
 const (
-	masterLabelKey = "node-role.kubernetes.io/master"
-	workerLabelKey = "node-role.kubernetes.io/worker"
-	initErrorText  = "error initializing master handler"
+	initErrorText = "error initializing master handler"
 )
 
 var (
@@ -74,11 +73,11 @@ func (manager *Manager) initializeManager() error {
 	for _, node := range nodesList.Items {
 		isNodeRoleFound := false
 		for labelKey := range node.Labels {
-			if labelKey == masterLabelKey {
+			if labelKey == peers.MasterLabelName {
 				manager.nodeNameRoleMapping[node.Name] = master
 				isNodeRoleFound = true
 				break
-			} else if labelKey == workerLabelKey {
+			} else if labelKey == peers.WorkerLabelName {
 				manager.nodeNameRoleMapping[node.Name] = worker
 				isNodeRoleFound = true
 				break

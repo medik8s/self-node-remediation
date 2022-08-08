@@ -18,7 +18,8 @@ import (
 
 const (
 	hostnameLabelName = "kubernetes.io/hostname"
-	workerLabelName   = "node-role.kubernetes.io/worker"
+	WorkerLabelName   = "node-role.kubernetes.io/worker"
+	MasterLabelName   = "node-role.kubernetes.io/master"
 )
 
 type Peers struct {
@@ -66,7 +67,7 @@ func (p *Peers) Start(ctx context.Context) error {
 		return err
 	} else {
 		reqNotMe, _ := labels.NewRequirement(hostnameLabelName, selection.NotEquals, []string{hostname})
-		reqWorkers, _ := labels.NewRequirement(workerLabelName, selection.Exists, []string{})
+		reqWorkers, _ := labels.NewRequirement(WorkerLabelName, selection.Exists, []string{})
 		selector := labels.NewSelector()
 		selector = selector.Add(*reqNotMe, *reqWorkers)
 		p.peerSelector = selector
