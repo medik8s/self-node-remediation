@@ -82,8 +82,7 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 		}
 		if failure != "" {
 			c.config.Log.Error(fmt.Errorf(failure), "failed to check api server")
-			//TODO mshitrit this should change for masters
-			if isHealthy := c.handleError(); !isHealthy {
+			if isHealthy := c.isConsideredHealthy(); !isHealthy {
 				// we have a problem on this node
 				c.config.Log.Error(err, "we are unhealthy, triggering a reboot")
 				if err := c.config.Rebooter.Reboot(); err != nil {
@@ -106,18 +105,18 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 	return nil
 }
 
-// HandleError keeps track of the number of errors reported, and when a certain amount of error occur within a certain
+// isConsideredHealthy keeps track of the number of errors reported, and when a certain amount of error occur within a certain
 // time, ask peers if this node is healthy. Returns if the node is considered to be healthy or not.
-func (c *ApiConnectivityCheck) handleError() bool {
+func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
 	if c.masterManager == nil || !c.masterManager.IsMaster() {
-		return c.handleWorkerNodeError()
+		return c.isConsideredHealthyByWorkerPeers()
 	} else {
 		return c.handleMasterNodeError()
 	}
 
 }
 
-func (c *ApiConnectivityCheck) handleWorkerNodeError() bool {
+func (c *ApiConnectivityCheck) isConsideredHealthyByWorkerPeers() bool {
 	c.errorCount++
 	if c.errorCount < c.config.MaxErrorsThreshold {
 		c.config.Log.Info("Ignoring api-server error, error count below threshold", "current count", c.errorCount, "threshold", c.config.MaxErrorsThreshold)
@@ -299,5 +298,5 @@ func (c *ApiConnectivityCheck) sumPeersResponses(nodesBatchCount int, responsesC
 
 func (c *ApiConnectivityCheck) handleMasterNodeError() bool {
 	//TODO mshitrit implement
-	return c.handleWorkerNodeError()
+	return c.isConsideredHealthyByWorkerPeers()
 }
