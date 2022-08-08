@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/go-logr/logr"
+	"github.com/medik8s/self-node-remediation/pkg/apicheck"
 	"github.com/medik8s/self-node-remediation/pkg/peers"
 	corev1 "k8s.io/api/core/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -16,7 +17,8 @@ const (
 )
 
 var (
-	initError = errors.New(initErrorText)
+	initError    = errors.New(initErrorText)
+	ProcessError = errors.New("an error occurred during master remediation process")
 )
 
 //Manager contains logic and info needed to fence and remediate master nodes
@@ -50,6 +52,44 @@ func (manager *Manager) Start(ctx context.Context) error {
 
 func (manager *Manager) IsMaster() bool {
 	return manager.nodeRole == peers.Master
+}
+
+func (manager *Manager) IsMasterHealthy(workerPeerResponse apicheck.PeerResponse) bool {
+	//TODO mshitrit implement
+	switch workerPeerResponse.PeerResponseReason {
+	//reported unhealthy by worker peers
+	case apicheck.UnHealthyBecauseCRFound:
+		return false
+	case apicheck.UnHealthyBecauseNodeIsIsolated:
+		//TODO mshitrit implement
+		return false
+	//reported healthy by worker peers
+	case apicheck.HealthyBecauseClusterHasTooManyErrors, apicheck.HealthyBecauseCRNotFound:
+		return true
+	//master node has connection to most workers, we assume it's not isolated (or at least that the master node that does not have worker peers quorum will reboot)
+	case apicheck.HealthyBecauseMostPeersCantAccessAPIServer:
+		//TODO mshitrit error is ignored
+		isHealthy, _ := manager.IsThereKnownMasterHealthIssues()
+		return isHealthy
+	case apicheck.HealthyBecauseNoPeersWereFound:
+		if isHealthy, _ := manager.IsThereKnownMasterHealthIssues(); !isHealthy {
+			return false
+		}
+		//TODO mshitrit implement in case can't connect other masters return false
+		return false
+
+	default:
+		//TODO mshitrit consider returning the error ?
+		manager.log.Error(ProcessError, "node is considered unhealthy by worker peers for an unknown reason", "reason", workerPeerResponse.PeerResponseReason, "node name", manager.nodeName)
+		return false
+	}
+
+	return workerPeerResponse.IsHealthy
+}
+
+func (manager *Manager) IsThereKnownMasterHealthIssues() (bool, error) {
+	//TODO mshitrit implement
+	return true, nil
 }
 
 func wrapWithInitError(err error) error {
