@@ -48,6 +48,22 @@ type ApiConnectivityCheckConfig struct {
 	PeerHealthPort     int
 }
 
+type peerResponse struct {
+	isHealthy          bool
+	peerResponseReason peerResponseReason
+}
+type peerResponseReason string
+
+const (
+	healthyBecauseCRNotFound                   peerResponseReason = "CR Not found, node is considered healthy"
+	healthyBecauseClusterHasTooManyErrors      peerResponseReason = "Cluster has too many errors, node is considered healthy"
+	healthyBecauseNoPeersWereFound             peerResponseReason = "No Peers where found, node is considered healthy"
+	healthyBecauseMostPeersCantAccessAPIServer peerResponseReason = "Most peers couldn't access API server, node is considered healthy"
+
+	unHealthyBecauseCRFound        peerResponseReason = "CR found, node is considered unhealthy"
+	unHealthyBecauseNodeIsIsolated peerResponseReason = "Node is isolated, node is considered unhealthy"
+)
+
 func New(config *ApiConnectivityCheckConfig, masterManager *master.Manager) *ApiConnectivityCheck {
 	return &ApiConnectivityCheck{
 		config:        config,
@@ -108,19 +124,21 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 // isConsideredHealthy keeps track of the number of errors reported, and when a certain amount of error occur within a certain
 // time, ask peers if this node is healthy. Returns if the node is considered to be healthy or not.
 func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
-	if c.masterManager == nil || !c.masterManager.IsMaster() {
-		return c.isConsideredHealthyByWorkerPeers()
+	workerPeersResponse := c.GetWorkerPeersResponse()
+	isWorkerNode := c.masterManager == nil || !c.masterManager.IsMaster()
+	if isWorkerNode {
+		return workerPeersResponse.isHealthy
 	} else {
-		return c.handleMasterNodeError()
+		return c.isConsideredHealthyByMasterPeers(workerPeersResponse)
 	}
 
 }
 
-func (c *ApiConnectivityCheck) isConsideredHealthyByWorkerPeers() bool {
+func (c *ApiConnectivityCheck) GetWorkerPeersResponse() peerResponse {
 	c.errorCount++
 	if c.errorCount < c.config.MaxErrorsThreshold {
 		c.config.Log.Info("Ignoring api-server error, error count below threshold", "current count", c.errorCount, "threshold", c.config.MaxErrorsThreshold)
-		return true
+		return peerResponse{true, healthyBecauseClusterHasTooManyErrors}
 	}
 
 	c.config.Log.Info("Error count exceeds threshold, trying to ask other nodes if I'm healthy")
@@ -128,7 +146,7 @@ func (c *ApiConnectivityCheck) isConsideredHealthyByWorkerPeers() bool {
 	if nodesToAsk == nil || len(nodesToAsk) == 0 {
 		c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, nothing we can do, so consider the node being healthy")
 		//todo maybe we need to check if this happens too much and reboot
-		return true
+		return peerResponse{true, healthyBecauseNoPeersWereFound}
 	}
 
 	apiErrorsResponsesSum := 0
@@ -164,12 +182,12 @@ func (c *ApiConnectivityCheck) isConsideredHealthyByWorkerPeers() bool {
 		if healthyResponses > 0 {
 			c.config.Log.Info("Peer told me I'm healthy.")
 			c.errorCount = 0
-			return true
+			return peerResponse{true, healthyBecauseCRNotFound}
 		}
 
 		if unhealthyResponses > 0 {
 			c.config.Log.Info("Peer told me I'm unhealthy!")
-			return false
+			return peerResponse{false, unHealthyBecauseCRFound}
 		}
 
 		if apiErrorsResponses > 0 {
@@ -178,7 +196,7 @@ func (c *ApiConnectivityCheck) isConsideredHealthyByWorkerPeers() bool {
 			if apiErrorsResponsesSum > nrAllNodes/2 { //already reached more than 50% of the nodes and all of them returned api error
 				//assuming this is a control plane failure as others can't access api-server as well
 				c.config.Log.Info("More than 50% of the nodes couldn't access the api-server, assuming this is a control plane failure")
-				return true
+				return peerResponse{true, healthyBecauseMostPeersCantAccessAPIServer}
 			}
 		}
 
@@ -186,7 +204,8 @@ func (c *ApiConnectivityCheck) isConsideredHealthyByWorkerPeers() bool {
 
 	//we asked all peers
 	c.config.Log.Error(fmt.Errorf("failed health check"), "Failed to get health status peers. Assuming unhealthy")
-	return false
+	return peerResponse{false, unHealthyBecauseNodeIsIsolated}
+
 }
 
 func (c *ApiConnectivityCheck) popNodes(nodes *[][]v1.NodeAddress, count int) []string {
@@ -296,7 +315,7 @@ func (c *ApiConnectivityCheck) sumPeersResponses(nodesBatchCount int, responsesC
 	return healthyResponses, unhealthyResponses, apiErrorsResponses, noResponse
 }
 
-func (c *ApiConnectivityCheck) handleMasterNodeError() bool {
+func (c *ApiConnectivityCheck) isConsideredHealthyByMasterPeers(workerPeerResponse peerResponse) bool {
 	//TODO mshitrit implement
-	return c.isConsideredHealthyByWorkerPeers()
+	return workerPeerResponse.isHealthy
 }
