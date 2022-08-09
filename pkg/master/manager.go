@@ -53,28 +53,26 @@ func (manager *Manager) IsMaster() bool {
 	return manager.nodeRole == peers.Master
 }
 
-func (manager *Manager) IsMasterHealthy(workerPeerResponse peers.Response) bool {
+func (manager *Manager) IsMasterHealthy(workerPeerResponse peers.Response, isOtherMastersCanBeReached bool) bool {
 	switch workerPeerResponse.Reason {
 	//reported unhealthy by worker peers
 	case peers.UnHealthyBecauseCRFound:
 		return false
 	case peers.UnHealthyBecauseNodeIsIsolated:
-		//TODO mshitrit implement
-		return false
+		return isOtherMastersCanBeReached
 	//reported healthy by worker peers
 	case peers.HealthyBecauseErrorsThresholdNotReached, peers.HealthyBecauseCRNotFound:
 		return true
 	//master node has connection to most workers, we assume it's not isolated (or at least that the master node that does not have worker peers quorum will reboot)
 	case peers.HealthyBecauseMostPeersCantAccessAPIServer:
 		//TODO mshitrit error is ignored
-		isHealthy, _ := manager.IsNoMasterHealthIssuesFound()
+		isHealthy, _ := manager.isDiagnosticsPassed()
 		return isHealthy
 	case peers.HealthyBecauseNoPeersWereFound:
-		if isHealthy, _ := manager.IsNoMasterHealthIssuesFound(); !isHealthy {
+		if isHealthy, _ := manager.isDiagnosticsPassed(); !isHealthy {
 			return false
 		}
-		//TODO mshitrit implement in case can't connect other masters return false
-		return false
+		return isOtherMastersCanBeReached
 
 	default:
 		manager.log.Error(processError, "node is considered unhealthy by worker peers for an unknown reason", "reason", workerPeerResponse.Reason, "node name", manager.nodeName)
@@ -83,8 +81,8 @@ func (manager *Manager) IsMasterHealthy(workerPeerResponse peers.Response) bool 
 
 }
 
-func (manager *Manager) IsNoMasterHealthIssuesFound() (bool, error) {
-	//TODO mshitrit implement
+func (manager *Manager) isDiagnosticsPassed() (bool, error) {
+	//TODO mshitrit implement check external communication, kubelet service etc
 	return true, nil
 }
 

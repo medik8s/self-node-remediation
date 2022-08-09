@@ -113,7 +113,8 @@ func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
 	if isWorkerNode {
 		return workerPeersResponse.IsHealthy
 	} else {
-		return c.masterManager.IsMasterHealthy(workerPeersResponse)
+
+		return c.masterManager.IsMasterHealthy(workerPeersResponse, c.isOtherMastersCanBeReached())
 	}
 
 }
@@ -192,7 +193,7 @@ func (c *ApiConnectivityCheck) GetWorkerPeersResponse() peers.Response {
 
 }
 
-func (c *ApiConnectivityCheck) IsOtherMastersCanBeReached() bool {
+func (c *ApiConnectivityCheck) isOtherMastersCanBeReached() bool {
 
 	nodesToAsk := c.config.Peers.GetPeersAddresses(peers.Master)
 	numOfMasterPeers := len(nodesToAsk)
@@ -212,7 +213,7 @@ func (c *ApiConnectivityCheck) IsOtherMastersCanBeReached() bool {
 	//We are not expecting API Server connectivity at this stage, however an API Error is an indication to communication with the peer (peer is communicating with current node that it was unable to reach the API server)
 	_, _, apiErrorsResponses, _ := c.sumPeersResponses(nrAddresses, responsesChan)
 
-	return  apiErrorsResponses > 0
+	return apiErrorsResponses > 0
 }
 
 func (c *ApiConnectivityCheck) popNodes(nodes *[][]v1.NodeAddress, count int) []string {
