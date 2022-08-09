@@ -135,9 +135,9 @@ func (p *Peers) GetPeersAddresses(role Role) [][]v1.NodeAddress {
 	defer p.mutex.Unlock()
 
 	var addresses [][]v1.NodeAddress
-	if role == Worker{
+	if role == Worker {
 		addresses = p.workerPeersAddresses
-	}else{
+	} else {
 		addresses = p.masterPeersAddresses
 	}
 	//we don't want the caller to be able to change the addresses
