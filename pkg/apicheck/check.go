@@ -192,10 +192,27 @@ func (c *ApiConnectivityCheck) GetWorkerPeersResponse() peers.Response {
 
 }
 
-func (c *ApiConnectivityCheck) GetMasterPeersResponse() peers.Response {
+func (c *ApiConnectivityCheck) IsOtherMastersCanBeReached() bool {
 
-	//TODO mshitrit implement
-	return peers.Response{}
+	nodesToAsk := c.config.Peers.GetPeersAddresses(peers.Master)
+	numOfMasterPeers := len(nodesToAsk)
+	if nodesToAsk == nil || numOfMasterPeers == 0 {
+		c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, other masters can't be reached")
+		return false
+	}
+
+	chosenNodesAddresses := c.popNodes(&nodesToAsk, numOfMasterPeers)
+	nrAddresses := len(chosenNodesAddresses)
+	responsesChan := make(chan selfNodeRemediation.HealthCheckResponseCode, nrAddresses)
+	for i := 0; numOfMasterPeers > 0; i++ {
+		for _, address := range chosenNodesAddresses {
+			go c.getHealthStatusFromPeer(address, responsesChan)
+		}
+	}
+	//We are not expecting API Server connectivity at this stage, however an API Error is an indication to communication with the peer (peer is communicating with current node that it was unable to reach the API server)
+	_, _, apiErrorsResponses, _ := c.sumPeersResponses(nrAddresses, responsesChan)
+
+	return  apiErrorsResponses > 0
 }
 
 func (c *ApiConnectivityCheck) popNodes(nodes *[][]v1.NodeAddress, count int) []string {
