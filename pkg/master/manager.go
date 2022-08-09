@@ -7,6 +7,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/medik8s/self-node-remediation/pkg/peers"
 	corev1 "k8s.io/api/core/v1"
+	"math/rand"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -83,7 +84,8 @@ func (manager *Manager) IsMasterHealthy(workerPeerResponse peers.Response, isOth
 
 func (manager *Manager) isDiagnosticsPassed() (bool, error) {
 	//TODO mshitrit implement check external communication, kubelet service etc
-	return true, nil
+	randomBool := rand.Intn(2) == 0
+	return randomBool, nil
 }
 
 func wrapWithInitError(err error) error {
