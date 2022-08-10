@@ -8,8 +8,10 @@ import (
 	"github.com/medik8s/self-node-remediation/pkg/peers"
 	corev1 "k8s.io/api/core/v1"
 	"math/rand"
+	"net"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"time"
 )
 
 const (
@@ -23,9 +25,11 @@ var (
 
 //Manager contains logic and info needed to fence and remediate master nodes
 type Manager struct {
-	nodeName            string
-	nodeRole            peers.Role
+	nodeName string
+	nodeRole peers.Role
+	//TODO mshitrit remove if not used
 	nodeNameRoleMapping map[string]peers.Role
+	isHasInternetAccess bool
 	client              client.Client
 	log                 logr.Logger
 }
@@ -36,6 +40,7 @@ func NewManager(nodeName string, myClient client.Client) *Manager {
 		nodeName:            nodeName,
 		nodeNameRoleMapping: map[string]peers.Role{},
 		client:              myClient,
+		isHasInternetAccess: false,
 		log:                 ctrl.Log.WithName("master").WithName("Manager"),
 	}
 }
@@ -84,6 +89,10 @@ func (manager *Manager) IsMasterHealthy(workerPeerResponse peers.Response, isOth
 
 func (manager *Manager) isDiagnosticsPassed() (bool, error) {
 	//TODO mshitrit implement check external communication, kubelet service etc
+	if isLostInternetConnection := manager.isHasInternetAccess && !isHasInternetAccess(); isLostInternetConnection {
+		return false, nil
+	}
+
 	randomBool := rand.Intn(2) == 0
 	return randomBool, nil
 }
@@ -123,7 +132,16 @@ func (manager *Manager) initializeManager() error {
 		return initError
 	} else {
 		manager.nodeRole = manager.nodeNameRoleMapping[manager.nodeName]
+		manager.isHasInternetAccess = isHasInternetAccess()
 		return nil
 	}
 
+}
+
+func isHasInternetAccess() bool {
+	con, err := net.DialTimeout("tcp", "google.com:80", 5*time.Second)
+	defer func(con net.Conn) {
+		_ = con.Close()
+	}(con)
+	return err == nil
 }
