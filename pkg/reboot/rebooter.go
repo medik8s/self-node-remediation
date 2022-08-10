@@ -38,13 +38,13 @@ func (r *WatchdogRebooter) Reboot() error {
 		return r.softwareReboot()
 	}
 
-	if r.isWatchdogRebootStuck() {
-		return r.softwareReboot()
-	}
 	//Watch dog is rebooting, wait to make sure watchdog is rebooting properly otherwise intervene with software reboot
 	switch r.wd.Status() {
 	case watchdog.Triggered:
 		r.log.Info("watchdog is triggered, waiting for watchdog reboot to commence")
+		if r.isWatchdogRebootStuck() {
+			return r.softwareReboot()
+		}
 		return nil
 	case watchdog.Disarmed:
 		r.log.Info("watchdog failed to start, trying software reboot")
