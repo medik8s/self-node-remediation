@@ -133,6 +133,7 @@ func (manager *Manager) initializeManager() error {
 	} else {
 		manager.nodeRole = manager.nodeNameRoleMapping[manager.nodeName]
 		manager.isHasInternetAccess = isHasInternetAccess()
+		manager.log.Info("[DEBUG] internet connection status is:", "status", manager.isHasInternetAccess)
 		return nil
 	}
 
