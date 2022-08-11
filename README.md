@@ -1,4 +1,8 @@
 # Self Node Remediation - Automatic Kubernetes Node Remediation 
+<p align="center">
+<img width="200" src="config/assets/snr_icon_blue.png">
+</p>
+
 Existing baremetal remediation strategies utilize BMC credentials to power-cycle and/or reprovision the host.
 However there are also environments that either do not include BMCs, or there are policies
 in place that prevent them from being utilized.  Such environments would also benefit from
