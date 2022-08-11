@@ -5,8 +5,8 @@ go 1.18
 require (
 	github.com/Masterminds/sprig v2.22.0+incompatible
 	github.com/go-logr/logr v0.4.0
-	github.com/onsi/ginkgo v1.16.4
-	github.com/onsi/gomega v1.14.0
+	github.com/onsi/ginkgo v1.16.5
+	github.com/onsi/gomega v1.18.1
 	github.com/openshift/machine-api-operator v0.2.1-0.20210104142355-8e6ae0acdfcf
 	github.com/openshift/machine-config-operator v0.0.1-0.20201023110058-6c8bd9b2915c
 	github.com/pkg/errors v0.9.1
