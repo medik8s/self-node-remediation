@@ -478,6 +478,7 @@ func checkPPLogs(node *v1.Node, expected []string) {
 	for _, exp := range expected {
 		matchers = append(matchers, ContainSubstring(exp))
 	}
+	logger.Info("[DEBUG] matchers appended")
 
 	EventuallyWithOffset(1, func() string {
 		var err error
@@ -486,6 +487,7 @@ func checkPPLogs(node *v1.Node, expected []string) {
 			logger.Error(err, "failed to get logs, might retry")
 			return ""
 		}
+		logger.Info("[DEBUG] logs fetched")
 		return logs
 	}, 6*time.Minute, 10*time.Second).Should(And(matchers...), "logs don't contain expected strings")
 }
