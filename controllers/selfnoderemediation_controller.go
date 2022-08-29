@@ -257,6 +257,8 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alp
 		return ctrl.Result{}, err
 	}
 
+	r.logger.Info("starting to delete node resources", "node name", node.Name)
+
 	pod := &v1.Pod{}
 	for _, ns := range namespaces.Items {
 		deleteOptions.Namespace = ns.Name
@@ -284,6 +286,8 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alp
 			}
 		}
 	}
+
+	r.logger.Info("done deleting node resources", "node name", node.Name)
 
 	fencingCompleted := fencingCompletedPhase
 	snr.Status.Phase = &fencingCompleted
@@ -415,7 +419,7 @@ func (r *SelfNodeRemediationReconciler) rebootIfNeeded(snr *v1alpha1.SelfNodeRem
 		return ctrl.Result{}, nil
 	}
 
-	return ctrl.Result{}, r.Rebooter.Reboot()
+	return ctrl.Result{RequeueAfter: reboot.TimeToAssumeRebootHasStarted}, r.Rebooter.Reboot()
 }
 
 // wasNodeRebooted returns true if the node assumed to been rebooted.
