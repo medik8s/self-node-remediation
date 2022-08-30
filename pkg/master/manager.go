@@ -11,7 +11,6 @@ import (
 	"net"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sync"
 	"time"
 )
 
@@ -20,10 +19,8 @@ const (
 )
 
 var (
-	initError             = errors.New(initErrorText)
-	processError          = errors.New("an error occurred during master remediation process")
-	controlPlaneLabelLock sync.Mutex
-	UsedControlPlaneLabel string
+	initError    = errors.New(initErrorText)
+	processError = errors.New("an error occurred during master remediation process")
 )
 
 //Manager contains logic and info needed to fence and remediate master nodes
@@ -118,8 +115,8 @@ func (manager *Manager) initializeManager() error {
 			manager.nodeNameRoleMapping[node.Name] = peers.Worker
 			isNodeRoleFound = true
 		} else {
-			SetControlPlaneLabelType(&node)
-			if _, isMaster := node.Labels[GetUsedControlPlaneLabel()]; isMaster {
+			peers.SetControlPlaneLabelType(&node)
+			if _, isMaster := node.Labels[peers.GetUsedControlPlaneLabel()]; isMaster {
 				manager.nodeNameRoleMapping[node.Name] = peers.Master
 				isNodeRoleFound = true
 			}
@@ -149,34 +146,4 @@ func isHasInternetAccess() bool {
 		_ = con.Close()
 	}(con)
 	return err == nil
-}
-
-//TODO mshitrit remove this logger
-var debugLog = ctrl.Log.WithName("master").WithName("Debug")
-
-func SetControlPlaneLabelType(node *corev1.Node) {
-	controlPlaneLabelLock.Lock()
-	defer controlPlaneLabelLock.Unlock()
-	if len(UsedControlPlaneLabel) != 0 {
-		return
-	}
-	if _, isMasterLabel := node.Labels[peers.MasterLabelName]; isMasterLabel {
-		debugLog.Info("[DEBUG] setting master label", "label key", peers.MasterLabelName)
-		UsedControlPlaneLabel = peers.MasterLabelName
-	} else if _, isControlPlaneLabel := node.Labels[peers.ControlPlaneLabelName]; isControlPlaneLabel {
-		debugLog.Info("[DEBUG] setting master label", "label key", peers.ControlPlaneLabelName)
-		UsedControlPlaneLabel = peers.ControlPlaneLabelName
-	}
-	debugLog.Info("[DEBUG] setting master label done")
-}
-
-func GetUsedControlPlaneLabel() string {
-	controlPlaneLabelLock.Lock()
-	defer controlPlaneLabelLock.Unlock()
-	if len(UsedControlPlaneLabel) == 0 {
-		debugLog.Info("[DEBUG] getting master label default value")
-		return peers.MasterLabelName
-	}
-	debugLog.Info("[DEBUG] getting master label set value")
-	return UsedControlPlaneLabel
 }

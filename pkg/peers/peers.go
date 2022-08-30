@@ -3,7 +3,7 @@ package peers
 import (
 	"context"
 	"fmt"
-	"github.com/medik8s/self-node-remediation/pkg/master"
+	"sigs.k8s.io/controller-runtime"
 	"sync"
 	"time"
 
@@ -22,6 +22,11 @@ const (
 	WorkerLabelName       = "node-role.kubernetes.io/worker"
 	MasterLabelName       = "node-role.kubernetes.io/master"
 	ControlPlaneLabelName = "node-role.kubernetes.io/control-plane" //replacing master label since k8s 1.25
+)
+
+var (
+	controlPlaneLabelLock sync.Mutex
+	UsedControlPlaneLabel string
 )
 
 type Role int8
@@ -70,7 +75,7 @@ func (p *Peers) Start(ctx context.Context) error {
 		p.log.Error(err, "failed to get own node")
 		return err
 	}
-	master.SetControlPlaneLabelType(myNode)
+	SetControlPlaneLabelType(myNode)
 	if hostname, ok := myNode.Labels[hostnameLabelName]; !ok {
 		err := fmt.Errorf("%s label not set on own node", hostnameLabelName)
 		p.log.Error(err, "failed to get own hostname")
@@ -159,7 +164,7 @@ func createSelector(hostNameToExclude string, nodeRole Role) labels.Selector {
 
 	switch nodeRole {
 	case Master:
-		nodeTypeLabel = master.GetUsedControlPlaneLabel()
+		nodeTypeLabel = GetUsedControlPlaneLabel()
 	default:
 		nodeTypeLabel = WorkerLabelName
 	}
@@ -178,3 +183,33 @@ func (p *Peers) debugLogPeers(nodes v1.NodeList) {
 	}
 
 }
+
+func SetControlPlaneLabelType(node *v1.Node) {
+	controlPlaneLabelLock.Lock()
+	defer controlPlaneLabelLock.Unlock()
+	if len(UsedControlPlaneLabel) != 0 {
+		return
+	}
+	if _, isMasterLabel := node.Labels[MasterLabelName]; isMasterLabel {
+		debugLog.Info("[DEBUG] setting master label", "label key", MasterLabelName)
+		UsedControlPlaneLabel = MasterLabelName
+	} else if _, isControlPlaneLabel := node.Labels[ControlPlaneLabelName]; isControlPlaneLabel {
+		debugLog.Info("[DEBUG] setting master label", "label key", ControlPlaneLabelName)
+		UsedControlPlaneLabel = ControlPlaneLabelName
+	}
+	debugLog.Info("[DEBUG] setting master label done")
+}
+
+func GetUsedControlPlaneLabel() string {
+	controlPlaneLabelLock.Lock()
+	defer controlPlaneLabelLock.Unlock()
+	if len(UsedControlPlaneLabel) == 0 {
+		debugLog.Info("[DEBUG] getting master label default value")
+		return MasterLabelName
+	}
+	debugLog.Info("[DEBUG] getting master label set value")
+	return UsedControlPlaneLabel
+}
+
+//TODO mshitrit remove this logger
+var debugLog = controllerruntime.Log.WithName("master").WithName("Debug")
