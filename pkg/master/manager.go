@@ -151,6 +151,9 @@ func isHasInternetAccess() bool {
 	return err == nil
 }
 
+//TODO mshitrit remove this logger
+var debugLog = ctrl.Log.WithName("master").WithName("Debug")
+
 func SetControlPlaneLabelType(node *corev1.Node) {
 	controlPlaneLabelLock.Lock()
 	defer controlPlaneLabelLock.Unlock()
@@ -158,17 +161,22 @@ func SetControlPlaneLabelType(node *corev1.Node) {
 		return
 	}
 	if _, isMasterLabel := node.Labels[peers.MasterLabelName]; isMasterLabel {
+		debugLog.Info("[DEBUG] setting master label", "label key", peers.MasterLabelName)
 		UsedControlPlaneLabel = peers.MasterLabelName
 	} else if _, isControlPlaneLabel := node.Labels[peers.ControlPlaneLabelName]; isControlPlaneLabel {
+		debugLog.Info("[DEBUG] setting master label", "label key", peers.ControlPlaneLabelName)
 		UsedControlPlaneLabel = peers.ControlPlaneLabelName
 	}
+	debugLog.Info("[DEBUG] setting master label done")
 }
 
 func GetUsedControlPlaneLabel() string {
 	controlPlaneLabelLock.Lock()
 	defer controlPlaneLabelLock.Unlock()
 	if len(UsedControlPlaneLabel) == 0 {
+		debugLog.Info("[DEBUG] getting master label default value")
 		return peers.MasterLabelName
 	}
+	debugLog.Info("[DEBUG] getting master label set value")
 	return UsedControlPlaneLabel
 }
