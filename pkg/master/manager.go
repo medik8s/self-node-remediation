@@ -11,6 +11,7 @@ import (
 	"net"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sync"
 	"time"
 )
 
@@ -19,8 +20,10 @@ const (
 )
 
 var (
-	initError    = errors.New(initErrorText)
-	processError = errors.New("an error occurred during master remediation process")
+	initError             = errors.New(initErrorText)
+	processError          = errors.New("an error occurred during master remediation process")
+	controlPlaneLabelLock sync.Mutex
+	UsedControlPlaneLabel string
 )
 
 //Manager contains logic and info needed to fence and remediate master nodes
@@ -109,18 +112,19 @@ func (manager *Manager) initializeManager() error {
 	}
 
 	for _, node := range nodesList.Items {
+
 		isNodeRoleFound := false
-		for labelKey := range node.Labels {
-			if labelKey == peers.MasterLabelName {
+		if _, isWorker := node.Labels[peers.WorkerLabelName]; isWorker {
+			manager.nodeNameRoleMapping[node.Name] = peers.Worker
+			isNodeRoleFound = true
+		} else {
+			SetControlPlaneLabelType(&node)
+			if _, isMaster := node.Labels[GetUsedControlPlaneLabel()]; isMaster {
 				manager.nodeNameRoleMapping[node.Name] = peers.Master
 				isNodeRoleFound = true
-				break
-			} else if labelKey == peers.WorkerLabelName {
-				manager.nodeNameRoleMapping[node.Name] = peers.Worker
-				isNodeRoleFound = true
-				break
 			}
 		}
+
 		if !isNodeRoleFound {
 			manager.log.Error(initError, "could not find role for node", "node name", node.Name)
 			return initError
@@ -145,4 +149,26 @@ func isHasInternetAccess() bool {
 		_ = con.Close()
 	}(con)
 	return err == nil
+}
+
+func SetControlPlaneLabelType(node *corev1.Node) {
+	controlPlaneLabelLock.Lock()
+	defer controlPlaneLabelLock.Unlock()
+	if len(UsedControlPlaneLabel) != 0 {
+		return
+	}
+	if _, isMasterLabel := node.Labels[peers.MasterLabelName]; isMasterLabel {
+		UsedControlPlaneLabel = peers.MasterLabelName
+	} else if _, isControlPlaneLabel := node.Labels[peers.ControlPlaneLabelName]; isControlPlaneLabel {
+		UsedControlPlaneLabel = peers.ControlPlaneLabelName
+	}
+}
+
+func GetUsedControlPlaneLabel() string {
+	controlPlaneLabelLock.Lock()
+	defer controlPlaneLabelLock.Unlock()
+	if len(UsedControlPlaneLabel) == 0 {
+		return peers.MasterLabelName
+	}
+	return UsedControlPlaneLabel
 }

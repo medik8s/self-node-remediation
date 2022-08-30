@@ -3,6 +3,7 @@ package peers
 import (
 	"context"
 	"fmt"
+	"github.com/medik8s/self-node-remediation/pkg/master"
 	"sync"
 	"time"
 
@@ -17,9 +18,10 @@ import (
 )
 
 const (
-	hostnameLabelName = "kubernetes.io/hostname"
-	WorkerLabelName   = "node-role.kubernetes.io/worker"
-	MasterLabelName   = "node-role.kubernetes.io/master"
+	hostnameLabelName     = "kubernetes.io/hostname"
+	WorkerLabelName       = "node-role.kubernetes.io/worker"
+	MasterLabelName       = "node-role.kubernetes.io/master"
+	ControlPlaneLabelName = "node-role.kubernetes.io/control-plane" //replacing master label since k8s 1.25
 )
 
 type Role int8
@@ -68,6 +70,7 @@ func (p *Peers) Start(ctx context.Context) error {
 		p.log.Error(err, "failed to get own node")
 		return err
 	}
+	master.SetControlPlaneLabelType(myNode)
 	if hostname, ok := myNode.Labels[hostnameLabelName]; !ok {
 		err := fmt.Errorf("%s label not set on own node", hostnameLabelName)
 		p.log.Error(err, "failed to get own hostname")
@@ -156,15 +159,15 @@ func createSelector(hostNameToExclude string, nodeRole Role) labels.Selector {
 
 	switch nodeRole {
 	case Master:
-		nodeTypeLabel = MasterLabelName
+		nodeTypeLabel = master.GetUsedControlPlaneLabel()
 	default:
 		nodeTypeLabel = WorkerLabelName
 	}
 
 	reqNotMe, _ := labels.NewRequirement(hostnameLabelName, selection.NotEquals, []string{hostNameToExclude})
-	reqWorkers, _ := labels.NewRequirement(nodeTypeLabel, selection.Exists, []string{})
+	reqPeers, _ := labels.NewRequirement(nodeTypeLabel, selection.Exists, []string{})
 	selector := labels.NewSelector()
-	selector = selector.Add(*reqNotMe, *reqWorkers)
+	selector = selector.Add(*reqNotMe, *reqPeers)
 	return selector
 }
 
