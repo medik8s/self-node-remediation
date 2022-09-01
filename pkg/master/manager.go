@@ -15,7 +15,8 @@ import (
 )
 
 const (
-	initErrorText = "error initializing master handler"
+	initErrorText         = "error initializing master handler"
+	expectedKubeletStatus = "active(running)"
 )
 
 var (
@@ -52,6 +53,8 @@ func (manager *Manager) Start(ctx context.Context) error {
 	//TODO mshitrit remove later, only for debug
 	manager.log.Info("[DEBUG] current node role is:", "role", manager.nodeRole)
 	manager.log.Info("[DEBUG] node name -> role mapping: ", "mapping", manager.nodeNameRoleMapping)
+	_ = manager.isKubeletServiceRunning()
+
 	return nil
 }
 
@@ -90,6 +93,8 @@ func (manager *Manager) IsMasterHealthy(workerPeerResponse peers.Response, isOth
 func (manager *Manager) isDiagnosticsPassed() (bool, error) {
 	//TODO mshitrit implement check external communication, kubelet service etc
 	if isLostInternetConnection := manager.isHasInternetAccess && !isHasInternetAccess(); isLostInternetConnection {
+		return false, nil
+	} else if !manager.isKubeletServiceRunning() {
 		return false, nil
 	}
 
@@ -146,4 +151,16 @@ func isHasInternetAccess() bool {
 		_ = con.Close()
 	}(con)
 	return err == nil
+}
+
+func (manager *Manager) isKubeletServiceRunning() bool {
+
+	podList := &corev1.PodList{}
+	if err := manager.client.List(context.TODO(), podList, &client.ListOptions{}); err != nil {
+		manager.log.Error(err, "could not retrieve pods, kubelet service likely not working")
+		return false
+	} else {
+		manager.log.Info("[DEBUG] kubelet status check some pods were fetched", "#of pods", len(podList.Items))
+		return len(podList.Items) >= 1
+	}
 }
