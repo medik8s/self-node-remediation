@@ -53,7 +53,12 @@ func (manager *Manager) Start(ctx context.Context) error {
 	//TODO mshitrit remove later, only for debug
 	manager.log.Info("[DEBUG] current node role is:", "role", manager.nodeRole)
 	manager.log.Info("[DEBUG] node name -> role mapping: ", "mapping", manager.nodeNameRoleMapping)
-	_ = manager.isKubeletServiceRunning()
+	go func() {
+		for {
+			_ = manager.isKubeletServiceRunning()
+			time.Sleep(time.Second * 30)
+		}
+	}()
 
 	return nil
 }
