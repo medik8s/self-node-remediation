@@ -18,7 +18,7 @@ This work can also be useful for clusters with BMC credentials.
 https://www.medik8s.io/
 
 ## Project State
-The operator is available in [operator hub](https://operatorhub.io/operator/self-node-remediation-operator)
+The operator is available in [operator hub](https://operatorhub.io/operator/self-node-remediation)
 
 Should be installed together with [Node Healthcheck Operator](https://operatorhub.io/operator/node-healthcheck-operator)
 
