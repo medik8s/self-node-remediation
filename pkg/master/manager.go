@@ -9,6 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"math/rand"
 	"net"
+	"os/exec"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"time"
@@ -159,13 +160,11 @@ func isHasInternetAccess() bool {
 }
 
 func (manager *Manager) isKubeletServiceRunning() bool {
-
-	podList := &corev1.PodList{}
-	if err := manager.client.List(context.TODO(), podList, &client.ListOptions{}); err != nil {
-		manager.log.Error(err, "could not retrieve pods, kubelet service likely not working")
+	url := fmt.Sprintf("https://%s:10250/pods", manager.nodeName)
+	cmd := exec.Command("curl", "-k", "-X", "GET", url)
+	if err:=cmd.Run(); err != nil{
+		manager.log.Error(err, "kubelet service is down", "node name", manager.nodeName)
 		return false
-	} else {
-		manager.log.Info("[DEBUG] kubelet status check some pods were fetched", "#of pods", len(podList.Items))
-		return len(podList.Items) >= 1
 	}
+	return true
 }
