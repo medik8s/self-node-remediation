@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/go-logr/logr"
 	"github.com/medik8s/self-node-remediation/pkg/peers"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	corev1 "k8s.io/api/core/v1"
 	"math/rand"
 	"net"
@@ -57,6 +58,7 @@ func (manager *Manager) Start(ctx context.Context) error {
 	go func() {
 		for {
 			_ = manager.isKubeletServiceRunning()
+			_ = manager.isEtcdRunning()
 			time.Sleep(time.Second * 30)
 		}
 	}()
@@ -162,9 +164,23 @@ func isHasInternetAccess() bool {
 func (manager *Manager) isKubeletServiceRunning() bool {
 	url := fmt.Sprintf("https://%s:10250/pods", manager.nodeName)
 	cmd := exec.Command("curl", "-k", "-X", "GET", url)
-	if err:=cmd.Run(); err != nil{
+	if err := cmd.Run(); err != nil {
 		manager.log.Error(err, "kubelet service is down", "node name", manager.nodeName)
 		return false
 	}
+	return true
+}
+
+func (manager *Manager) isEtcdRunning() bool {
+	cli, err := clientv3.New(clientv3.Config{
+		Endpoints:   []string{fmt.Sprintf("%s:2379", manager.nodeName)},
+		DialTimeout: 5 * time.Second,
+	})
+	if err != nil {
+		manager.log.Info("[DEBUG] etcd is tested and down", "error", err)
+		return false
+	}
+	defer cli.Close()
+	manager.log.Info("[DEBUG] etcd is tested and running")
 	return true
 }
