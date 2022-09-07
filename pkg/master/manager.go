@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sync"
 	"time"
 )
 
@@ -57,9 +58,9 @@ func (manager *Manager) Start(ctx context.Context) error {
 	manager.log.Info("[DEBUG] node name -> role mapping: ", "mapping", manager.nodeNameRoleMapping)
 	go func() {
 		for {
-			_ = manager.isKubeletServiceRunning()
 			_ = manager.isEtcdRunning()
-			time.Sleep(time.Second * 30)
+			//_ = manager.isKubeletServiceRunning()
+			time.Sleep(time.Second * 5)
 		}
 	}()
 
@@ -172,15 +173,69 @@ func (manager *Manager) isKubeletServiceRunning() bool {
 }
 
 func (manager *Manager) isEtcdRunning() bool {
+	defer func() {
+		// recover from panic if one occurred. Set err to nil otherwise.
+		if r := recover(); r != nil {
+			manager.log.Info("[DEBUG] etcd isEtcdRunning has panicked", "panic", r)
+		} else {
+			manager.log.Info("[DEBUG] etcd isEtcdRunning finished successfully")
+		}
+	}()
+	manager.log.Info("[DEBUG] etcd isEtcdRunning started")
+	ep1 := fmt.Sprintf("%s:2379", manager.nodeName)
+
 	cli, err := clientv3.New(clientv3.Config{
-		Endpoints:   []string{fmt.Sprintf("%s:2379", manager.nodeName)},
-		DialTimeout: 5 * time.Second,
+		Endpoints: []string{ep1, "192.168.111.20:2379", "192.168.111.21:2379", "192.168.111.22:2379",
+			"192.168.111.20:9979", "192.168.111.21:9979", "192.168.111.22:9979"},
+		DialTimeout: 20 * time.Second,
 	})
+	manager.log.Info("[DEBUG] etcd isEtcdRunning client created successfully", "isSuccessfully", err == nil)
 	if err != nil {
 		manager.log.Info("[DEBUG] etcd is tested and down", "error", err)
 		return false
 	}
+
 	defer cli.Close()
-	manager.log.Info("[DEBUG] etcd is tested and running")
+
+	var wg sync.WaitGroup
+	wg.Add(4)
+	go func() {
+		defer wg.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+		manager.log.Info("[DEBUG] etcd isEtcdRunning about to check status")
+		status, err := cli.Status(ctx, "192.168.111.20:2379")
+		cancel()
+		manager.log.Info("[DEBUG] etcd health results", "error", err, "status", status)
+	}()
+
+	timeout := time.Second * 60
+	go func() {
+		defer wg.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		manager.log.Info("[DEBUG] etcd isEtcdRunning about to get Role List")
+		res, err := cli.RoleList(ctx)
+		cancel()
+		manager.log.Info("[DEBUG] etcd role list", "error", err, "result", res)
+	}()
+
+	go func() {
+		defer wg.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		manager.log.Info("[DEBUG] etcd isEtcdRunning about to get User List")
+		res, err := cli.UserList(ctx)
+		cancel()
+		manager.log.Info("[DEBUG] etcd user list", "error", err, "result", res)
+	}()
+
+	go func() {
+		defer wg.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		manager.log.Info("[DEBUG] etcd isEtcdRunning about to get member List")
+		res, err := cli.MemberList(ctx)
+		cancel()
+		manager.log.Info("[DEBUG] etcd member list", "error", err, "result", res)
+	}()
+	wg.Wait()
+	//manager.log.Info("[DEBUG] etcd is tested and running")
 	return true
 }
