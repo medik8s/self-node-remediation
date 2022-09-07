@@ -6,20 +6,19 @@ import (
 	"fmt"
 	"github.com/go-logr/logr"
 	"github.com/medik8s/self-node-remediation/pkg/peers"
-	clientv3 "go.etcd.io/etcd/client/v3"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"math/rand"
 	"net"
 	"os/exec"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sync"
 	"time"
 )
 
 const (
-	initErrorText         = "error initializing master handler"
-	expectedKubeletStatus = "active(running)"
+	initErrorText     = "error initializing master handler"
+	etcdContainerName = "etcd"
 )
 
 var (
@@ -36,6 +35,8 @@ type Manager struct {
 	isHasInternetAccess bool
 	client              client.Client
 	log                 logr.Logger
+	exec                podCommandExecuter
+	etcdPod             corev1.Pod
 }
 
 //NewManager inits a new Manager return nil if init fails
@@ -46,6 +47,7 @@ func NewManager(nodeName string, myClient client.Client) *Manager {
 		client:              myClient,
 		isHasInternetAccess: false,
 		log:                 ctrl.Log.WithName("master").WithName("Manager"),
+		exec:                &basePodCommandExecuter{ctrl.Log.WithName("master").WithName("PodCommandExecuter")},
 	}
 }
 
@@ -153,6 +155,32 @@ func (manager *Manager) initializeManager() error {
 	}
 
 }
+func (manager *Manager) fetchEtcdPod() corev1.Pod {
+	podsList := &corev1.PodList{}
+	labelSelector := metav1.LabelSelector{MatchLabels: map[string]string{"etcd": "true"}}
+	selector, _ := metav1.LabelSelectorAsSelector(&labelSelector)
+	listOptions := client.ListOptions{
+		LabelSelector: selector,
+	}
+	if err := manager.client.List(context.TODO(), podsList, &listOptions); err != nil {
+		manager.log.Info("[DEBUG] etcd pod isn't found, couldn't fetch any pods")
+		return manager.etcdPod
+	}
+	isFound := false
+	for _, pod := range podsList.Items {
+		if pod.Name == fmt.Sprintf("etcd-%s", manager.nodeName) {
+			manager.etcdPod = pod
+			manager.log.Info("[DEBUG] etcd pod found")
+			isFound = true
+			break
+		}
+	}
+	if !isFound {
+		manager.log.Info("[DEBUG] etcd pod isn't found", "#pods fetched", len(podsList.Items))
+	}
+
+	return manager.etcdPod
+}
 
 func isHasInternetAccess() bool {
 	con, err := net.DialTimeout("tcp", "google.com:80", 5*time.Second)
@@ -173,69 +201,8 @@ func (manager *Manager) isKubeletServiceRunning() bool {
 }
 
 func (manager *Manager) isEtcdRunning() bool {
-	defer func() {
-		// recover from panic if one occurred. Set err to nil otherwise.
-		if r := recover(); r != nil {
-			manager.log.Info("[DEBUG] etcd isEtcdRunning has panicked", "panic", r)
-		} else {
-			manager.log.Info("[DEBUG] etcd isEtcdRunning finished successfully")
-		}
-	}()
-	manager.log.Info("[DEBUG] etcd isEtcdRunning started")
-	ep1 := fmt.Sprintf("%s:2379", manager.nodeName)
-
-	cli, err := clientv3.New(clientv3.Config{
-		Endpoints: []string{ep1, "192.168.111.20:2379", "192.168.111.21:2379", "192.168.111.22:2379",
-			"192.168.111.20:9979", "192.168.111.21:9979", "192.168.111.22:9979"},
-		DialTimeout: 20 * time.Second,
-	})
-	manager.log.Info("[DEBUG] etcd isEtcdRunning client created successfully", "isSuccessfully", err == nil)
-	if err != nil {
-		manager.log.Info("[DEBUG] etcd is tested and down", "error", err)
-		return false
-	}
-
-	defer cli.Close()
-
-	var wg sync.WaitGroup
-	wg.Add(4)
-	go func() {
-		defer wg.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-		manager.log.Info("[DEBUG] etcd isEtcdRunning about to check status")
-		status, err := cli.Status(ctx, "192.168.111.20:2379")
-		cancel()
-		manager.log.Info("[DEBUG] etcd health results", "error", err, "status", status)
-	}()
-
-	timeout := time.Second * 60
-	go func() {
-		defer wg.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		manager.log.Info("[DEBUG] etcd isEtcdRunning about to get Role List")
-		res, err := cli.RoleList(ctx)
-		cancel()
-		manager.log.Info("[DEBUG] etcd role list", "error", err, "result", res)
-	}()
-
-	go func() {
-		defer wg.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		manager.log.Info("[DEBUG] etcd isEtcdRunning about to get User List")
-		res, err := cli.UserList(ctx)
-		cancel()
-		manager.log.Info("[DEBUG] etcd user list", "error", err, "result", res)
-	}()
-
-	go func() {
-		defer wg.Done()
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		manager.log.Info("[DEBUG] etcd isEtcdRunning about to get member List")
-		res, err := cli.MemberList(ctx)
-		cancel()
-		manager.log.Info("[DEBUG] etcd member list", "error", err, "result", res)
-	}()
-	wg.Wait()
-	//manager.log.Info("[DEBUG] etcd is tested and running")
+	etcdPod := manager.fetchEtcdPod()
+	stdout, stderr, err := manager.exec.execCmdOnPod([]string{"etcdctl", "version"}, &etcdPod, etcdContainerName)
+	manager.log.Info("[DEBUG] isEtcdRunning results", "stdout", stdout, "stderr", stderr, "err", err)
 	return true
 }
