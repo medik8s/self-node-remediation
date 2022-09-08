@@ -8,7 +8,6 @@ import (
 	"github.com/medik8s/self-node-remediation/pkg/peers"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"math/rand"
 	"net"
 	"os/exec"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -20,6 +19,8 @@ import (
 const (
 	initErrorText     = "error initializing master handler"
 	etcdContainerName = "etcd"
+	kubeletPort       = "10250"
+	etcdPort          = "2379"
 )
 
 var (
@@ -37,7 +38,7 @@ type Manager struct {
 	log                 logr.Logger
 	exec                podCommandExecuter
 	etcdPod             corev1.Pod
-	node                corev1.Node
+	nodeInternalIP      string
 }
 
 //NewManager inits a new Manager return nil if init fails
@@ -57,14 +58,6 @@ func (manager *Manager) Start(ctx context.Context) error {
 	}
 	//TODO mshitrit remove later, only for debug
 	manager.log.Info("[DEBUG] current node role is:", "role", manager.nodeRole)
-	go func() {
-		for {
-			_ = manager.isEtcdRunning()
-			//_ = manager.isKubeletServiceRunning()
-			time.Sleep(time.Second * 5)
-		}
-	}()
-
 	return nil
 }
 
@@ -101,15 +94,14 @@ func (manager *Manager) IsMasterHealthy(workerPeerResponse peers.Response, isOth
 }
 
 func (manager *Manager) isDiagnosticsPassed() (bool, error) {
-	//TODO mshitrit implement check external communication, kubelet service etc
 	if isLostInternetConnection := manager.isHasInternetAccess && !isHasInternetAccess(); isLostInternetConnection {
 		return false, nil
 	} else if !manager.isKubeletServiceRunning() {
 		return false, nil
+	} else if !manager.isEtcdRunning() {
+		return false, nil
 	}
-
-	randomBool := rand.Intn(2) == 0
-	return randomBool, nil
+	return true, nil
 }
 
 func wrapWithInitError(err error) error {
@@ -122,18 +114,32 @@ func (manager *Manager) initializeManager() error {
 		manager.log.Error(err, "could not retrieve nodes")
 		return wrapWithInitError(err)
 	}
+	var node corev1.Node
 	for _, n := range nodesList.Items {
 		if n.Name == manager.nodeName {
 			manager.setNodeRole(n)
-			manager.node = n
+			node = n
 			break
 		}
 	}
 
-	if &manager.node == nil {
+	if &node == nil {
 		manager.log.Error(initError, "could not find node")
 		return initError
 	}
+
+	for _, address := range node.Status.Addresses {
+		if address.Type == corev1.NodeInternalIP {
+			manager.nodeInternalIP = address.Address
+			break
+		}
+	}
+
+	if len(manager.nodeInternalIP) == 0 {
+		manager.log.Error(initError, "could not find node's internal IP", "node name", node.Name)
+		return initError
+	}
+
 	return nil
 }
 
@@ -184,7 +190,7 @@ func isHasInternetAccess() bool {
 }
 
 func (manager *Manager) isKubeletServiceRunning() bool {
-	url := fmt.Sprintf("https://%s:10250/pods", manager.nodeName)
+	url := fmt.Sprintf("https://%s:%s/pods", manager.nodeName, kubeletPort)
 	cmd := exec.Command("curl", "-k", "-X", "GET", url)
 	if err := cmd.Run(); err != nil {
 		manager.log.Error(err, "kubelet service is down", "node name", manager.nodeName)
@@ -195,10 +201,11 @@ func (manager *Manager) isKubeletServiceRunning() bool {
 
 func (manager *Manager) isEtcdRunning() bool {
 	etcdPod := manager.fetchEtcdPod()
-	stdout, stderr, err := manager.exec.execCmdOnPod([]string{"ETCDCTL_ENDPOINTS=", "etcdctl", "endpoint", "health"}, &etcdPod, etcdContainerName)
 
-	if err == nil && len(stderr) == 0 {
-		isHealthy := strings.Contains(stdout, "is healthy")
+	stdout, stderr, err := manager.exec.execCmdOnPod([]string{"etcdctl", "endpoint", "health"}, &etcdPod, etcdContainerName)
+
+	if len(stdout) > 0 {
+		isHealthy := strings.Contains(stdout, fmt.Sprintf("%s:%s is healthy", manager.nodeInternalIP, etcdPort))
 		manager.log.Info("[DEBUG] isEtcdRunning results", "isHealthy", isHealthy, "stdout", stdout, "stderr", stderr, "err", err)
 		return isHealthy
 	} else {
