@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"strings"
 	"time"
 )
 
@@ -31,19 +32,18 @@ type Manager struct {
 	nodeName string
 	nodeRole peers.Role
 	//TODO mshitrit remove if not used
-	nodeNameRoleMapping map[string]peers.Role
 	isHasInternetAccess bool
 	client              client.Client
 	log                 logr.Logger
 	exec                podCommandExecuter
 	etcdPod             corev1.Pod
+	node                corev1.Node
 }
 
 //NewManager inits a new Manager return nil if init fails
 func NewManager(nodeName string, myClient client.Client) *Manager {
 	return &Manager{
 		nodeName:            nodeName,
-		nodeNameRoleMapping: map[string]peers.Role{},
 		client:              myClient,
 		isHasInternetAccess: false,
 		log:                 ctrl.Log.WithName("master").WithName("Manager"),
@@ -57,7 +57,6 @@ func (manager *Manager) Start(ctx context.Context) error {
 	}
 	//TODO mshitrit remove later, only for debug
 	manager.log.Info("[DEBUG] current node role is:", "role", manager.nodeRole)
-	manager.log.Info("[DEBUG] node name -> role mapping: ", "mapping", manager.nodeNameRoleMapping)
 	go func() {
 		for {
 			_ = manager.isEtcdRunning()
@@ -123,38 +122,32 @@ func (manager *Manager) initializeManager() error {
 		manager.log.Error(err, "could not retrieve nodes")
 		return wrapWithInitError(err)
 	}
-
-	for _, node := range nodesList.Items {
-
-		isNodeRoleFound := false
-		if _, isWorker := node.Labels[peers.WorkerLabelName]; isWorker {
-			manager.nodeNameRoleMapping[node.Name] = peers.Worker
-			isNodeRoleFound = true
-		} else {
-			peers.SetControlPlaneLabelType(&node)
-			if _, isMaster := node.Labels[peers.GetUsedControlPlaneLabel()]; isMaster {
-				manager.nodeNameRoleMapping[node.Name] = peers.Master
-				isNodeRoleFound = true
-			}
-		}
-
-		if !isNodeRoleFound {
-			manager.log.Error(initError, "could not find role for node", "node name", node.Name)
-			return initError
+	for _, n := range nodesList.Items {
+		if n.Name == manager.nodeName {
+			manager.setNodeRole(n)
+			manager.node = n
+			break
 		}
 	}
 
-	if _, isFound := manager.nodeNameRoleMapping[manager.nodeName]; !isFound {
-		manager.log.Error(initError, "could not find role for current node", "node name", manager.nodeName)
+	if &manager.node == nil {
+		manager.log.Error(initError, "could not find node")
 		return initError
-	} else {
-		manager.nodeRole = manager.nodeNameRoleMapping[manager.nodeName]
-		manager.isHasInternetAccess = isHasInternetAccess()
-		manager.log.Info("[DEBUG] internet connection status is:", "status", manager.isHasInternetAccess)
-		return nil
 	}
-
+	return nil
 }
+
+func (manager *Manager) setNodeRole(node corev1.Node) {
+	if _, isWorker := node.Labels[peers.WorkerLabelName]; isWorker {
+		manager.nodeRole = peers.Worker
+	} else {
+		peers.SetControlPlaneLabelType(&node)
+		if _, isMaster := node.Labels[peers.GetUsedControlPlaneLabel()]; isMaster {
+			manager.nodeRole = peers.Master
+		}
+	}
+}
+
 func (manager *Manager) fetchEtcdPod() corev1.Pod {
 	podsList := &corev1.PodList{}
 	labelSelector := metav1.LabelSelector{MatchLabels: map[string]string{"etcd": "true"}}
@@ -202,7 +195,14 @@ func (manager *Manager) isKubeletServiceRunning() bool {
 
 func (manager *Manager) isEtcdRunning() bool {
 	etcdPod := manager.fetchEtcdPod()
-	stdout, stderr, err := manager.exec.execCmdOnPod([]string{"etcdctl", "version"}, &etcdPod, etcdContainerName)
-	manager.log.Info("[DEBUG] isEtcdRunning results", "stdout", stdout, "stderr", stderr, "err", err)
-	return true
+	stdout, stderr, err := manager.exec.execCmdOnPod([]string{"ETCDCTL_ENDPOINTS=", "etcdctl", "endpoint", "health"}, &etcdPod, etcdContainerName)
+
+	if err == nil && len(stderr) == 0 {
+		isHealthy := strings.Contains(stdout, "is healthy")
+		manager.log.Info("[DEBUG] isEtcdRunning results", "isHealthy", isHealthy, "stdout", stdout, "stderr", stderr, "err", err)
+		return isHealthy
+	} else {
+		manager.log.Info("[DEBUG] isEtcdRunning results", "isHealthy", false, "stdout", stdout, "stderr", stderr, "err", err)
+		return false
+	}
 }
