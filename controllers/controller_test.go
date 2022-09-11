@@ -71,16 +71,6 @@ var _ = Describe("snr Controller", func() {
 			deleteSNR(snr)
 		})
 
-		Context("NodeDeletion strategy", func() {
-			BeforeEach(func() {
-				remediationStrategy = selfnoderemediationv1alpha1.NodeDeletionRemediationStrategy
-			})
-
-			It("snr should not have finalizers", func() {
-				testNoFinalizer()
-			})
-		})
-
 		Context("ResourceDeletion strategy", func() {
 			BeforeEach(func() {
 				remediationStrategy = selfnoderemediationv1alpha1.ResourceDeletionRemediationStrategy
@@ -93,56 +83,12 @@ var _ = Describe("snr Controller", func() {
 
 	})
 
-	Context("Unhealthy node with self-node-remediation pod but unable to reboot", func() {
-		//if the unhealthy node doesn't have watchdog and it's is-reboot-capable annotation is not true
-		//we don't want to delete the node, since it will never
-		//be in a safe state (i.e. rebooted)
-
-		Context("simulate daemonset pods assigned to nodes", func() {
-			//since we don't have a scheduler in test, we need to do its work and create pp pod for that node
-
-			BeforeEach(func() {
-				createSelfNodeRemediationPod()
-				createSNR(selfnoderemediationv1alpha1.NodeDeletionRemediationStrategy)
-			})
-
-			AfterEach(func() {
-				deleteSelfNodeRemediationPod()
-				deleteSNR(snr)
-			})
-
-			Context("node doesn't have is-reboot-capable annotation", func() {
-				BeforeEach(func() {
-					//remove the annotation, if exists
-					deleteIsRebootCapableAnnotation()
-				})
-
-				It("snr should not have finalizers when is-reboot-capable annotation doesn't exist", func() {
-					testNoFinalizer()
-				})
-			})
-
-			Context("node's is-reboot-capable annotation is false", func() {
-				BeforeEach(func() {
-					rebootCapableAnnotationValue := "false"
-					updateIsRebootCapable(rebootCapableAnnotationValue)
-				})
-
-				It("snr should not have finalizers when is-reboot-capable annotation is false", func() {
-					testNoFinalizer()
-				})
-			})
-		})
-	})
-
 	Context("Unhealthy node with api-server access", func() {
-		var beforeSNR time.Time
 		var remediationStrategy selfnoderemediationv1alpha1.RemediationStrategyType
 		var isSNRNeedsDeletion = true
 		JustBeforeEach(func() {
 			createSelfNodeRemediationPod()
 			updateIsRebootCapable("true")
-			beforeSNR = time.Now().Add(-time.Second)
 			createSNR(remediationStrategy)
 
 			By("make sure self node remediation exists with correct label")
@@ -154,62 +100,6 @@ var _ = Describe("snr Controller", func() {
 				deleteSNR(snr)
 			}
 			isSNRNeedsDeletion = true
-		})
-
-		Context("NodeDeletion strategy", func() {
-			BeforeEach(func() {
-				remediationStrategy = selfnoderemediationv1alpha1.NodeDeletionRemediationStrategy
-			})
-
-			AfterEach(func() {
-				deleteSelfNodeRemediationPod()
-			})
-
-			It("Remediation flow", func() {
-				node := verifyNodeIsUnschedulable()
-
-				addUnschedulableTaint(node)
-
-				verifyTimeHasBeenRebootedExists()
-
-				verifyNodeBackup()
-
-				verifyFinalizerExists()
-
-				verifyNoExecuteTaintExist()
-
-				verifyNoWatchdogFood()
-
-				verifyNodeDeletedAndRestored(beforeSNR)
-
-				verifyNodeIsSchedulable()
-
-				By("Verify that finalizer exists until node updates status")
-				Consistently(func() error {
-					verifyFinalizerExists()
-					return nil
-				}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
-
-				By("Update node's last hearbeat time")
-				//we simulate kubelet coming up, this is required to remove the finalizer
-				updateNodeFunc := func(node *v1.Node) {
-					node.Status.Conditions = make([]v1.NodeCondition, 1)
-					node.Status.Conditions[0].Status = v1.ConditionTrue
-					node.Status.Conditions[0].Type = v1.NodeReady
-					node.Status.Conditions[0].LastTransitionTime = metav1.Now()
-					node.Status.Conditions[0].LastHeartbeatTime = metav1.Now()
-					node.Status.Conditions[0].Reason = "foo"
-				}
-				eventuallyUpdateNode(updateNodeFunc, true)
-
-				removeUnschedulableTaint()
-
-				verifyNoExecuteTaintRemoved()
-
-				By("Verify that finalizer was removed and SNR can be deleted")
-				testNoFinalizer()
-
-			})
 		})
 
 		Context("ResourceDeletion strategy", func() {
@@ -258,37 +148,6 @@ var _ = Describe("snr Controller", func() {
 		})
 	})
 
-	Context("Unhealthy node without api-server access", func() {
-
-		// this is not a controller test anymore... it's testing peers. But keep it here for now...
-
-		BeforeEach(func() {
-			By("Simulate api-server failure")
-			k8sClient.ShouldSimulateFailure = true
-			createSNR(selfnoderemediationv1alpha1.NodeDeletionRemediationStrategy)
-		})
-
-		AfterEach(func() {
-			deleteSNR(snr)
-		})
-
-		It("Verify that watchdog is not receiving food after some time", func() {
-			lastFoodTime := dummyDog.LastFoodTime()
-			timeout := dummyDog.GetTimeout()
-			Eventually(func() bool {
-				newTime := dummyDog.LastFoodTime()
-				// ensure the timeout passed
-				timeoutPassed := time.Now().After(lastFoodTime.Add(3 * timeout))
-				// ensure wd wasn't feeded
-				missedFeed := newTime.Before(lastFoodTime.Add(timeout))
-				if timeoutPassed && missedFeed {
-					return true
-				}
-				lastFoodTime = newTime
-				return false
-			}, 10*peerUpdateInterval, timeout).Should(BeTrue())
-		})
-	})
 })
 
 func createVolumeAttachment(vaName string) {
@@ -344,15 +203,6 @@ func verifyNodeIsSchedulable() {
 		err := k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)
 		return node.Spec.Unschedulable, err
 	}, 95*time.Second, 250*time.Millisecond).Should(BeFalse())
-}
-
-func verifyNodeDeletedAndRestored(beforeSNR time.Time) {
-	By("Verify that node has been deleted and restored")
-	node := &v1.Node{}
-	Eventually(func() (time.Time, error) {
-		err := k8sClient.Reader.Get(context.TODO(), unhealthyNodeNamespacedName, node)
-		return node.CreationTimestamp.Time, err
-	}, 10*time.Second, 200*time.Millisecond).Should(BeTemporally(">", beforeSNR))
 }
 
 func verifyNoWatchdogFood() {
@@ -498,24 +348,6 @@ func createSelfNodeRemediationPod() {
 	ExpectWithOffset(1, k8sClient.Client.Create(context.Background(), pod)).To(Succeed())
 }
 
-func deleteSelfNodeRemediationPod() {
-	pod := &v1.Pod{}
-	pod.Name = "self-node-remediation"
-	pod.Namespace = namespace
-	podKey := client.ObjectKey{
-		Namespace: namespace,
-		Name:      pod.Name,
-	}
-
-	var grace client.GracePeriodSeconds = 0
-	ExpectWithOffset(1, k8sClient.Client.Delete(context.Background(), pod, grace)).To(Succeed())
-
-	EventuallyWithOffset(1, func() bool {
-		err := k8sClient.Client.Get(context.Background(), podKey, pod)
-		return apierrors.IsNotFound(err)
-	}, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
-}
-
 func updateIsRebootCapable(rebootCapableAnnotationValue string) {
 	unhealthyNodeKey := types.NamespacedName{
 		Name: unhealthyNodeName,
@@ -531,20 +363,6 @@ func updateIsRebootCapable(rebootCapableAnnotationValue string) {
 	}
 
 	ExpectWithOffset(1, k8sClient.Client.Patch(context.Background(), node, patch)).To(Succeed())
-}
-
-func deleteIsRebootCapableAnnotation() {
-	unhealthyNodeKey := types.NamespacedName{
-		Name: unhealthyNodeName,
-	}
-	unhealthyNode := &v1.Node{}
-	ExpectWithOffset(1, k8sClient.Client.Get(context.Background(), unhealthyNodeKey, unhealthyNode)).To(Succeed())
-	patch := client.MergeFrom(unhealthyNode.DeepCopy())
-	if unhealthyNode.Annotations != nil {
-		delete(unhealthyNode.Annotations, utils.IsRebootCapableAnnotation)
-	}
-
-	ExpectWithOffset(1, k8sClient.Client.Patch(context.Background(), unhealthyNode, patch)).To(Succeed())
 }
 
 //testNoFinalizer checks that snr doesn't have finalizer
