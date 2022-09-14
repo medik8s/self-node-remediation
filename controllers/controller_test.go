@@ -83,6 +83,48 @@ var _ = Describe("snr Controller", func() {
 
 	})
 
+	Context("Unhealthy node with self-node-remediation pod but unable to reboot", func() {
+		//if the unhealthy node doesn't have watchdog and it's is-reboot-capable annotation is not true
+		//we don't want to delete the node, since it will never
+		//be in a safe state (i.e. rebooted)
+
+		Context("simulate daemonset pods assigned to nodes", func() {
+			//since we don't have a scheduler in test, we need to do its work and create pp pod for that node
+
+			BeforeEach(func() {
+				createSelfNodeRemediationPod()
+				createSNR(selfnoderemediationv1alpha1.ResourceDeletionRemediationStrategy)
+			})
+
+			AfterEach(func() {
+				deleteSelfNodeRemediationPod()
+				deleteSNR(snr)
+			})
+
+			Context("node doesn't have is-reboot-capable annotation", func() {
+				BeforeEach(func() {
+					//remove the annotation, if exists
+					deleteIsRebootCapableAnnotation()
+				})
+
+				It("snr should not have finalizers when is-reboot-capable annotation doesn't exist", func() {
+					testNoFinalizer()
+				})
+			})
+
+			Context("node's is-reboot-capable annotation is false", func() {
+				BeforeEach(func() {
+					rebootCapableAnnotationValue := "false"
+					updateIsRebootCapable(rebootCapableAnnotationValue)
+				})
+
+				It("snr should not have finalizers when is-reboot-capable annotation is false", func() {
+					testNoFinalizer()
+				})
+			})
+		})
+	})
+
 	Context("Unhealthy node with api-server access", func() {
 		var remediationStrategy selfnoderemediationv1alpha1.RemediationStrategyType
 		var isSNRNeedsDeletion = true
@@ -148,6 +190,37 @@ var _ = Describe("snr Controller", func() {
 		})
 	})
 
+	Context("Unhealthy node without api-server access", func() {
+
+		// this is not a controller test anymore... it's testing peers. But keep it here for now...
+
+		BeforeEach(func() {
+			By("Simulate api-server failure")
+			k8sClient.ShouldSimulateFailure = true
+			createSNR(selfnoderemediationv1alpha1.ResourceDeletionRemediationStrategy)
+		})
+
+		AfterEach(func() {
+			deleteSNR(snr)
+		})
+
+		It("Verify that watchdog is not receiving food after some time", func() {
+			lastFoodTime := dummyDog.LastFoodTime()
+			timeout := dummyDog.GetTimeout()
+			Eventually(func() bool {
+				newTime := dummyDog.LastFoodTime()
+				// ensure the timeout passed
+				timeoutPassed := time.Now().After(lastFoodTime.Add(3 * timeout))
+				// ensure wd wasn't feeded
+				missedFeed := newTime.Before(lastFoodTime.Add(timeout))
+				if timeoutPassed && missedFeed {
+					return true
+				}
+				lastFoodTime = newTime
+				return false
+			}, 10*peerUpdateInterval, timeout).Should(BeTrue())
+		})
+	})
 })
 
 func createVolumeAttachment(vaName string) {
@@ -348,6 +421,24 @@ func createSelfNodeRemediationPod() {
 	ExpectWithOffset(1, k8sClient.Client.Create(context.Background(), pod)).To(Succeed())
 }
 
+func deleteSelfNodeRemediationPod() {
+	pod := &v1.Pod{}
+	pod.Name = "self-node-remediation"
+	pod.Namespace = namespace
+	podKey := client.ObjectKey{
+		Namespace: namespace,
+		Name:      pod.Name,
+	}
+
+	var grace client.GracePeriodSeconds = 0
+	ExpectWithOffset(1, k8sClient.Client.Delete(context.Background(), pod, grace)).To(Succeed())
+
+	EventuallyWithOffset(1, func() bool {
+		err := k8sClient.Client.Get(context.Background(), podKey, pod)
+		return apierrors.IsNotFound(err)
+	}, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
+}
+
 func updateIsRebootCapable(rebootCapableAnnotationValue string) {
 	unhealthyNodeKey := types.NamespacedName{
 		Name: unhealthyNodeName,
@@ -363,6 +454,20 @@ func updateIsRebootCapable(rebootCapableAnnotationValue string) {
 	}
 
 	ExpectWithOffset(1, k8sClient.Client.Patch(context.Background(), node, patch)).To(Succeed())
+}
+
+func deleteIsRebootCapableAnnotation() {
+	unhealthyNodeKey := types.NamespacedName{
+		Name: unhealthyNodeName,
+	}
+	unhealthyNode := &v1.Node{}
+	ExpectWithOffset(1, k8sClient.Client.Get(context.Background(), unhealthyNodeKey, unhealthyNode)).To(Succeed())
+	patch := client.MergeFrom(unhealthyNode.DeepCopy())
+	if unhealthyNode.Annotations != nil {
+		delete(unhealthyNode.Annotations, utils.IsRebootCapableAnnotation)
+	}
+
+	ExpectWithOffset(1, k8sClient.Client.Patch(context.Background(), unhealthyNode, patch)).To(Succeed())
 }
 
 //testNoFinalizer checks that snr doesn't have finalizer

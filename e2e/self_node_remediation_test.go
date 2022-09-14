@@ -155,6 +155,47 @@ var _ = Describe("Self Node Remediation E2E", func() {
 			})
 		})
 
+		Context("Unhealthy node (with SNR)", func() {
+
+			// no api connectivity
+			// b) unhealthy
+			//    - kill connectivity on one node
+			//    - create SNR
+			//    - verify node does reboot and and is deleted / re-created
+
+			var snr *v1alpha1.SelfNodeRemediation
+			var va *storagev1.VolumeAttachment
+			var oldPodCreationTime time.Time
+
+			BeforeEach(func() {
+				killApiConnection(node, apiIPs, false)
+				snr = createSNR(node, v1alpha1.ResourceDeletionRemediationStrategy)
+				oldPodCreationTime = findPPPod(node).CreationTimestamp.Time
+				va = createVolumeAttachment(node)
+			})
+
+			AfterEach(func() {
+				if snr != nil {
+					deleteAndWait(snr)
+				}
+			})
+
+			It("should reboot and delete node resources", func() {
+				// order matters
+				// - because node check works while api is disconnected from node, reboot check not
+				// - because the 2nd check has a small timeout only
+
+				checkReboot(node, oldBootTime)
+				checkPodRecreated(node, oldPodCreationTime)
+				checkVaDeleted(va)
+
+				// we can't check logs of unhealthy node anymore, check peer logs
+				peer := &workers.Items[1]
+				checkPPLogs(peer, []string{node.GetName(), "node is unhealthy"})
+			})
+
+		})
+
 		Context("All nodes (no API connection for all)", func() {
 
 			// no api connectivity
@@ -311,6 +352,21 @@ func checkNoExecuteTaintRemoved(node *v1.Node) {
 		}
 		return nil
 	}, 1*time.Minute, 10*time.Second).Should(Succeed())
+}
+
+func checkReboot(node *v1.Node, oldBootTime *time.Time) {
+	By("checking reboot")
+	logger.Info("boot time", "old", oldBootTime)
+	// Note: short timeout only because this check runs after node re-create check,
+	// where already multiple minute were spent
+	EventuallyWithOffset(1, func() time.Time {
+		newBootTime, err := getBootTime(node)
+		if err != nil {
+			return time.Time{}
+		}
+		logger.Info("boot time", "new", newBootTime)
+		return *newBootTime
+	}, 2*time.Minute, 10*time.Second).Should(BeTemporally(">", *oldBootTime))
 }
 
 func killApiConnection(node *v1.Node, apiIPs []string, withReconnect bool) {
