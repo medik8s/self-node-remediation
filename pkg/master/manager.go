@@ -66,41 +66,56 @@ func (manager *Manager) IsMaster() bool {
 }
 
 func (manager *Manager) IsMasterHealthy(workerPeerResponse peers.Response, isOtherMastersCanBeReached bool) bool {
+	manager.log.Info("[DEBUG] 3 - IsMasterHealthy starting ... ")
+
 	switch workerPeerResponse.Reason {
 	//reported unhealthy by worker peers
 	case peers.UnHealthyBecauseCRFound:
+		manager.log.Info("[DEBUG] 3.1 - IsMasterHealthy done", "return value", false)
 		return false
 	case peers.UnHealthyBecauseNodeIsIsolated:
+		manager.log.Info("[DEBUG] 3.2 - IsMasterHealthy done", "return value", isOtherMastersCanBeReached)
 		return isOtherMastersCanBeReached
 	//reported healthy by worker peers
 	case peers.HealthyBecauseErrorsThresholdNotReached, peers.HealthyBecauseCRNotFound:
+		manager.log.Info("[DEBUG] 3.3 - IsMasterHealthy done", "return value", true)
 		return true
 	//master node has connection to most workers, we assume it's not isolated (or at least that the master node that does not have worker peers quorum will reboot)
 	case peers.HealthyBecauseMostPeersCantAccessAPIServer:
 		//TODO mshitrit error is ignored
 		isHealthy, _ := manager.isDiagnosticsPassed()
+		manager.log.Info("[DEBUG] 3.4 - IsMasterHealthy done", "return value", isHealthy)
 		return isHealthy
 	case peers.HealthyBecauseNoPeersWereFound:
 		if isHealthy, _ := manager.isDiagnosticsPassed(); !isHealthy {
+			manager.log.Info("[DEBUG] 3.5 - IsMasterHealthy done", "return value", false)
 			return false
 		}
+		manager.log.Info("[DEBUG] 3.6 - IsMasterHealthy done", "return value", isOtherMastersCanBeReached)
 		return isOtherMastersCanBeReached
 
 	default:
 		manager.log.Error(processError, "node is considered unhealthy by worker peers for an unknown reason", "reason", workerPeerResponse.Reason, "node name", manager.nodeName)
+		manager.log.Info("[DEBUG] 3.7 - IsMasterHealthy done", "return value", false)
 		return false
 	}
 
 }
 
 func (manager *Manager) isDiagnosticsPassed() (bool, error) {
+	manager.log.Info("[DEBUG] 4 - isDiagnosticsPassed starting")
+
 	if isLostInternetConnection := manager.isHasInternetAccess && !isHasInternetAccess(); isLostInternetConnection {
+		manager.log.Info("[DEBUG] 4.1 - isDiagnosticsPassed done", "return value", false)
 		return false, nil
 	} else if !manager.isKubeletServiceRunning() {
+		manager.log.Info("[DEBUG] 4.2 - isDiagnosticsPassed done", "return value", false)
 		return false, nil
 	} else if !manager.isEtcdRunning() {
+		manager.log.Info("[DEBUG] 4.3 - isDiagnosticsPassed done", "return value", false)
 		return false, nil
 	}
+	manager.log.Info("[DEBUG] 4.4 - isDiagnosticsPassed done", "return value", true)
 	return true, nil
 }
 
@@ -182,24 +197,34 @@ func (manager *Manager) fetchEtcdPod() corev1.Pod {
 }
 
 func isHasInternetAccess() bool {
+	fmt.Println("[DEBUG] 5 - isHasInternetAccess starting")
 	con, err := net.DialTimeout("tcp", "google.com:80", 5*time.Second)
 	defer func(con net.Conn) {
 		_ = con.Close()
 	}(con)
+	fmt.Println("[DEBUG] 5.1 - isHasInternetAccess done", "return value", err == nil)
+
 	return err == nil
 }
 
 func (manager *Manager) isKubeletServiceRunning() bool {
+
+	manager.log.Info("[DEBUG] 6 - isKubeletServiceRunning starting")
 	url := fmt.Sprintf("https://%s:%s/pods", manager.nodeName, kubeletPort)
 	cmd := exec.Command("curl", "-k", "-X", "GET", url)
 	if err := cmd.Run(); err != nil {
 		manager.log.Error(err, "kubelet service is down", "node name", manager.nodeName)
+		manager.log.Info("[DEBUG] 6.1 - isKubeletServiceRunning done", "return value", false)
+
 		return false
 	}
+	manager.log.Info("[DEBUG] 6.2 - isKubeletServiceRunning done", "return value", true)
+
 	return true
 }
 
 func (manager *Manager) isEtcdRunning() bool {
+	manager.log.Info("[DEBUG] 7 - isEtcdRunning starting")
 	etcdPod := manager.fetchEtcdPod()
 
 	stdout, stderr, err := manager.exec.execCmdOnPod([]string{"etcdctl", "endpoint", "health"}, &etcdPod, etcdContainerName)
@@ -207,9 +232,11 @@ func (manager *Manager) isEtcdRunning() bool {
 	if len(stdout) > 0 {
 		isHealthy := strings.Contains(stdout, fmt.Sprintf("%s:%s is healthy", manager.nodeInternalIP, etcdPort))
 		manager.log.Info("[DEBUG] isEtcdRunning results", "isHealthy", isHealthy, "stdout", stdout, "stderr", stderr, "err", err)
+		manager.log.Info("[DEBUG] 7.1 - isEtcdRunning done", "return value", isHealthy)
 		return isHealthy
 	} else {
 		manager.log.Info("[DEBUG] isEtcdRunning results", "isHealthy", false, "stdout", stdout, "stderr", stderr, "err", err)
+		manager.log.Info("[DEBUG] 7.2 - isEtcdRunning done", "return value", false)
 		return false
 	}
 }

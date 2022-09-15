@@ -80,6 +80,7 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 				failure = fmt.Sprintf("api server readyz endpoint status code: %v", statusCode)
 			}
 		}
+		c.config.Log.Info("[DEBUG] 0 - Check Start ", "failure val", failure)
 		if failure != "" {
 			c.config.Log.Error(fmt.Errorf(failure), "failed to check api server")
 			if isHealthy := c.isConsideredHealthy(); !isHealthy {
@@ -113,7 +114,7 @@ func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
 	if isWorkerNode {
 		return workerPeersResponse.IsHealthy
 	} else {
-
+		c.config.Log.Info("[DEBUG] 1 - isConsideredHealthy ", "workerPeersResponse", workerPeersResponse)
 		return c.masterManager.IsMasterHealthy(workerPeersResponse, c.isOtherMastersCanBeReached())
 	}
 
@@ -122,14 +123,16 @@ func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
 func (c *ApiConnectivityCheck) GetWorkerPeersResponse() peers.Response {
 	c.errorCount++
 	if c.errorCount < c.config.MaxErrorsThreshold {
-		c.config.Log.Info("Ignoring api-server error, error count below threshold", "current count", c.errorCount, "threshold", c.config.MaxErrorsThreshold)
+		//TODO mshitrit uncomment
+		//c.config.Log.Info("Ignoring api-server error, error count below threshold", "current count", c.errorCount, "threshold", c.config.MaxErrorsThreshold)
 		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseErrorsThresholdNotReached}
 	}
 
 	c.config.Log.Info("Error count exceeds threshold, trying to ask other nodes if I'm healthy")
 	nodesToAsk := c.config.Peers.GetPeersAddresses(peers.Worker)
 	if nodesToAsk == nil || len(nodesToAsk) == 0 {
-		c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, nothing we can do, so consider the node being healthy")
+		//TODO mshitrit uncomment
+		//c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, nothing we can do, so consider the node being healthy")
 		//todo maybe we need to check if this happens too much and reboot
 		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseNoPeersWereFound}
 	}
@@ -159,10 +162,10 @@ func (c *ApiConnectivityCheck) GetWorkerPeersResponse() peers.Response {
 		responsesChan := make(chan selfNodeRemediation.HealthCheckResponseCode, nrAddresses)
 
 		for _, address := range chosenNodesAddresses {
-			go c.getHealthStatusFromPeer(address, responsesChan)
+			go c.getHealthStatusFromPeer(address, responsesChan, false)
 		}
 
-		healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.sumPeersResponses(nrAddresses, responsesChan)
+		healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.sumPeersResponses(nrAddresses, responsesChan, false)
 
 		if healthyResponses > 0 {
 			c.config.Log.Info("Peer told me I'm healthy.")
@@ -194,25 +197,35 @@ func (c *ApiConnectivityCheck) GetWorkerPeersResponse() peers.Response {
 }
 
 func (c *ApiConnectivityCheck) isOtherMastersCanBeReached() bool {
+	c.config.Log.Info("[DEBUG] 2 - isOtherMastersCanBeReached starting... ")
 
 	nodesToAsk := c.config.Peers.GetPeersAddresses(peers.Master)
 	numOfMasterPeers := len(nodesToAsk)
 	if nodesToAsk == nil || numOfMasterPeers == 0 {
-		c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, other masters can't be reached")
+		//TODO mshitrit uncomment
+		//c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, other masters can't be reached")
+
+		c.config.Log.Info("[DEBUG] 2.2 - isOtherMastersCanBeReached return false ")
 		return false
 	}
-
+	c.config.Log.Info("[DEBUG] 2.3 - isOtherMastersCanBeReached about to pop nodes")
 	chosenNodesAddresses := c.popNodes(&nodesToAsk, numOfMasterPeers)
+
 	nrAddresses := len(chosenNodesAddresses)
 	responsesChan := make(chan selfNodeRemediation.HealthCheckResponseCode, nrAddresses)
 	for i := 0; numOfMasterPeers > 0; i++ {
+		c.config.Log.Info("[DEBUG] 2.4 - isOtherMastersCanBeReached", "index", i, "numOfMasterPeers", numOfMasterPeers)
 		for _, address := range chosenNodesAddresses {
-			go c.getHealthStatusFromPeer(address, responsesChan)
+			c.config.Log.Info("[DEBUG] 2.5 - isOtherMastersCanBeReached about to get peer health status ASYNC", "peer address", address, "index", i, "total chosenNodesAddresses", len(chosenNodesAddresses))
+			go c.getHealthStatusFromPeer(address, responsesChan, true)
 		}
 	}
 	//We are not expecting API Server connectivity at this stage, however an API Error is an indication to communication with the peer (peer is communicating with current node that it was unable to reach the API server)
-	_, _, apiErrorsResponses, _ := c.sumPeersResponses(nrAddresses, responsesChan)
+	c.config.Log.Info("[DEBUG] 2.6 - isOtherMastersCanBeReached about to sumPeersResponses ")
 
+	_, _, apiErrorsResponses, _ := c.sumPeersResponses(nrAddresses, responsesChan, true)
+
+	c.config.Log.Info("[DEBUG] 2.7 - isOtherMastersCanBeReached return", "value", apiErrorsResponses > 0)
 	return apiErrorsResponses > 0
 }
 
@@ -243,22 +256,41 @@ func (c *ApiConnectivityCheck) popNodes(nodes *[][]v1.NodeAddress, count int) []
 }
 
 //getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer into the given channel
-func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, results chan<- selfNodeRemediation.HealthCheckResponseCode) {
+func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, results chan<- selfNodeRemediation.HealthCheckResponseCode, isMaster bool) {
 
 	logger := c.config.Log.WithValues("IP", endpointIp)
-	logger.Info("getting health status from peer")
+	//TODO mshirit uncomment
+	//logger.Info("getting health status from peer")
+	//TODO mshitrit remove isMaster flag
+	if isMaster {
+		logger.Info("[DEBUG] 2.5.1 - getHealthStatusFromPeer masters starting")
+	}
 
 	if err := c.initClientCreds(); err != nil {
 		logger.Error(err, "failed to init client credentials")
 		results <- selfNodeRemediation.RequestFailed
+		if isMaster {
+			logger.Info("[DEBUG] 2.5.2 - getHealthStatusFromPeer masters RequestFailed", "error", err)
+		}
 		return
 	}
 
+	if isMaster {
+		logger.Info("[DEBUG] 2.5.3 - getHealthStatusFromPeer masters about to create client")
+	}
 	// TODO does this work with IPv6?
 	phClient, err := peerhealth.NewClient(fmt.Sprintf("%v:%v", endpointIp, c.config.PeerHealthPort), c.config.PeerDialTimeout, c.config.Log.WithName("peerhealth client"), c.clientCreds)
+
+	if isMaster {
+		logger.Info("[DEBUG] 2.5.4 - getHealthStatusFromPeer client  created", "error", err)
+	}
 	if err != nil {
-		logger.Error(err, "failed to init grpc client")
+		//TODO mshitrit uncomment
+		//logger.Error(err, "failed to init grpc client")
 		results <- selfNodeRemediation.RequestFailed
+		if isMaster {
+			logger.Info("[DEBUG] 2.5.5 - getHealthStatusFromPeer masters RequestFailed", "error", err)
+		}
 		return
 	}
 	defer phClient.Close()
@@ -272,12 +304,18 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, result
 	if err != nil {
 		logger.Error(err, "failed to read health response from peer")
 		results <- selfNodeRemediation.RequestFailed
+		if isMaster {
+			logger.Info("[DEBUG] 2.5.6 - getHealthStatusFromPeer masters RequestFailed", "error", err)
+		}
 		return
 	}
 
 	logger.Info("got response from peer", "status", resp.Status)
 
 	results <- selfNodeRemediation.HealthCheckResponseCode(resp.Status)
+	if isMaster {
+		logger.Info("[DEBUG] 2.5.7 - getHealthStatusFromPeer masters done", "status", resp.Status)
+	}
 	return
 }
 
@@ -294,31 +332,54 @@ func (c *ApiConnectivityCheck) initClientCreds() error {
 	return nil
 }
 
-func (c *ApiConnectivityCheck) sumPeersResponses(nodesBatchCount int, responsesChan chan selfNodeRemediation.HealthCheckResponseCode) (int, int, int, int) {
+func (c *ApiConnectivityCheck) sumPeersResponses(nodesBatchCount int, responsesChan chan selfNodeRemediation.HealthCheckResponseCode, isMaster bool) (int, int, int, int) {
 	healthyResponses := 0
 	unhealthyResponses := 0
 	apiErrorsResponses := 0
 	noResponse := 0
-
+	//TODO mshitrit remove isMaster flag
+	if isMaster {
+		c.config.Log.Info("[DEBUG] 2.6.1 - sumPeersResponses masters starting")
+	}
 	for i := 0; i < nodesBatchCount; i++ {
+		if isMaster {
+			c.config.Log.Info("[DEBUG] 2.6.2 - sumPeersResponses masters summing ", "index", i, "total", nodesBatchCount)
+		}
 		response := <-responsesChan
 		switch response {
 		case selfNodeRemediation.Unhealthy:
 			unhealthyResponses++
+			if isMaster {
+				c.config.Log.Info("[DEBUG] 2.6.3 - sumPeersResponses masters summing - Unhealthy")
+			}
 			break
 		case selfNodeRemediation.Healthy:
 			healthyResponses++
+			if isMaster {
+				c.config.Log.Info("[DEBUG] 2.6.4 - sumPeersResponses masters summing - Healthy")
+			}
 			break
 		case selfNodeRemediation.ApiError:
 			apiErrorsResponses++
+			if isMaster {
+				c.config.Log.Info("[DEBUG] 2.6.5 - sumPeersResponses masters summing - ApiError")
+			}
 			break
 		case selfNodeRemediation.RequestFailed:
 			noResponse++
+			if isMaster {
+				c.config.Log.Info("[DEBUG] 2.6.6 - sumPeersResponses masters summing - RequestFailed")
+			}
 		default:
+			if isMaster {
+				c.config.Log.Info("[DEBUG] 2.6.7 - sumPeersResponses masters summing - unexpected")
+			}
 			c.config.Log.Error(fmt.Errorf("unexpected response"),
 				"Received unexpected value from peer while trying to retrieve health status", "value", response)
 		}
 	}
-
+	if isMaster {
+		c.config.Log.Info("[DEBUG] 2.6.8 - sumPeersResponses masters done", "healthyResponses", healthyResponses, "unhealthyResponses", unhealthyResponses, "apiErrorsResponses", apiErrorsResponses, "noResponse", noResponse)
+	}
 	return healthyResponses, unhealthyResponses, apiErrorsResponses, noResponse
 }

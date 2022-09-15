@@ -146,6 +146,7 @@ func (p *Peers) GetPeersAddresses(role Role) [][]v1.NodeAddress {
 	if role == Worker {
 		addresses = p.workerPeersAddresses
 	} else {
+		p.log.Info("[DEBUG] 2.1.1 - GetPeersAddresses For masters starting ", "addresses", p.masterPeersAddresses)
 		addresses = p.masterPeersAddresses
 	}
 	//we don't want the caller to be able to change the addresses
@@ -154,6 +155,9 @@ func (p *Peers) GetPeersAddresses(role Role) [][]v1.NodeAddress {
 	for i := range addressesCopy {
 		addressesCopy[i] = make([]v1.NodeAddress, len(addresses[i]))
 		copy(addressesCopy, addresses)
+	}
+	if role == Master {
+		p.log.Info("[DEBUG] 2.1.2 - GetPeersAddresses For masters done ", "addresses", addressesCopy)
 	}
 
 	return addressesCopy

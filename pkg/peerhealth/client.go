@@ -33,7 +33,8 @@ func NewClient(serverAddr string, peerDialTimeout time.Duration, log logr.Logger
 
 	conn, err := grpc.DialContext(ctx, serverAddr, opts...)
 	if err != nil {
-		log.Error(err, "failed to dial")
+		//TODO mshitrit uncomment
+		//log.Error(err, "failed to dial")
 		return nil, err
 	}
 	return &Client{
