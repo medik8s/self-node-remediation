@@ -151,7 +151,7 @@ func (p *Peers) GetPeersAddresses(role Role) [][]v1.NodeAddress {
 	//we don't want the caller to be able to change the addresses
 	//so we create a deep copy and return it
 	addressesCopy := make([][]v1.NodeAddress, len(addresses))
-	for i := range p.workerPeersAddresses {
+	for i := range addressesCopy {
 		addressesCopy[i] = make([]v1.NodeAddress, len(addresses[i]))
 		copy(addressesCopy, addresses)
 	}
