@@ -111,10 +111,12 @@ func (manager *Manager) isDiagnosticsPassed() (bool, error) {
 	} else if !manager.isKubeletServiceRunning() {
 		manager.log.Info("[DEBUG] 4.2 - isDiagnosticsPassed done", "return value", false)
 		return false, nil
-	} else if !manager.isEtcdRunning() {
+	}
+	manager.log.Info("[DEBUG] 4.3 - isDiagnosticsPassed etcd diagnostic is disabled !")
+	/*else if !manager.isEtcdRunning() {
 		manager.log.Info("[DEBUG] 4.3 - isDiagnosticsPassed done", "return value", false)
 		return false, nil
-	}
+	}*/
 	manager.log.Info("[DEBUG] 4.4 - isDiagnosticsPassed done", "return value", true)
 	return true, nil
 }
