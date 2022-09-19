@@ -121,6 +121,8 @@ func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
 }
 
 func (c *ApiConnectivityCheck) GetWorkerPeersResponse() peers.Response {
+	c.config.Log.Info("[DEBUG] 0.1 GetWorkerPeersResponse starting")
+
 	c.errorCount++
 	if c.errorCount < c.config.MaxErrorsThreshold {
 		//TODO mshitrit uncomment
@@ -140,6 +142,7 @@ func (c *ApiConnectivityCheck) GetWorkerPeersResponse() peers.Response {
 	apiErrorsResponsesSum := 0
 	nrAllNodes := len(nodesToAsk)
 	// nodesToAsk is being reduced in every iteration, iterate until no nodes left to ask
+	c.config.Log.Info("[DEBUG] 0.2 GetWorkerPeersResponse about to query", "# nodes", nrAllNodes)
 	for i := 0; len(nodesToAsk) > 0; i++ {
 
 		// start asking a few nodes only in first iteration to cover the case we get a healthy / unhealthy result
@@ -162,10 +165,15 @@ func (c *ApiConnectivityCheck) GetWorkerPeersResponse() peers.Response {
 		responsesChan := make(chan selfNodeRemediation.HealthCheckResponseCode, nrAddresses)
 
 		for _, address := range chosenNodesAddresses {
+			c.config.Log.Info("[DEBUG] 0.4 GetWorkerPeersResponse ASYNC about to query", "node address", address)
+
 			go c.getHealthStatusFromPeer(address, responsesChan, false)
 		}
+		c.config.Log.Info("[DEBUG] 0.6 GetWorkerPeersResponse Waiting for ASYNC routines")
 
 		healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.sumPeersResponses(nrAddresses, responsesChan, false)
+
+		c.config.Log.Info("[DEBUG] 0.8 GetWorkerPeersResponse Done waiting for ASYNC routines", "healthyResponses", healthyResponses, "unhealthyResponses", unhealthyResponses, "apiErrorsResponses", apiErrorsResponses)
 
 		if healthyResponses > 0 {
 			c.config.Log.Info("Peer told me I'm healthy.")
@@ -271,6 +279,9 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, result
 	//TODO mshitrit remove isMaster flag
 	if isMaster {
 		logger.Info("[DEBUG] 2.5.1 - getHealthStatusFromPeer masters starting")
+	} else {
+		c.config.Log.Info("[DEBUG] 0.4.1 getHealthStatusFromPeer workers starting")
+
 	}
 
 	if err := c.initClientCreds(); err != nil {
@@ -278,26 +289,38 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, result
 		results <- selfNodeRemediation.RequestFailed
 		if isMaster {
 			logger.Info("[DEBUG] 2.5.2 - getHealthStatusFromPeer masters RequestFailed", "error", err)
+		} else {
+			c.config.Log.Info("[DEBUG] 0.4.2 getHealthStatusFromPeer workers RequestFailed", "error", err)
 		}
+
 		return
 	}
 
 	if isMaster {
 		logger.Info("[DEBUG] 2.5.3 - getHealthStatusFromPeer masters about to create client")
+	} else {
+		c.config.Log.Info("[DEBUG] 0.4.3 getHealthStatusFromPeer workers about to create client")
 	}
+
 	// TODO does this work with IPv6?
 	phClient, err := peerhealth.NewClient(fmt.Sprintf("%v:%v", endpointIp, c.config.PeerHealthPort), c.config.PeerDialTimeout, c.config.Log.WithName("peerhealth client"), c.clientCreds)
 
 	if isMaster {
-		logger.Info("[DEBUG] 2.5.4 - getHealthStatusFromPeer client  created", "error", err)
+		logger.Info("[DEBUG] 2.5.4 - getHealthStatusFromPeer  masters client  created", "error", err)
+	} else {
+		c.config.Log.Info("[DEBUG] 0.4.4 getHealthStatusFromPeer workers client  created", "error", err)
 	}
+
 	if err != nil {
 		//TODO mshitrit uncomment
 		//logger.Error(err, "failed to init grpc client")
 		results <- selfNodeRemediation.RequestFailed
 		if isMaster {
 			logger.Info("[DEBUG] 2.5.5 - getHealthStatusFromPeer masters RequestFailed", "error", err)
+		} else {
+			c.config.Log.Info("[DEBUG] 0.4.5 getHealthStatusFromPeer workers RequestFailed", "error", err)
 		}
+
 		return
 	}
 	defer phClient.Close()
@@ -313,6 +336,8 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, result
 		results <- selfNodeRemediation.RequestFailed
 		if isMaster {
 			logger.Info("[DEBUG] 2.5.6 - getHealthStatusFromPeer masters RequestFailed", "error", err)
+		} else {
+			c.config.Log.Info("[DEBUG] 0.4.6 getHealthStatusFromPeer workers RequestFailed", "error", err)
 		}
 		return
 	}
@@ -322,6 +347,8 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, result
 	results <- selfNodeRemediation.HealthCheckResponseCode(resp.Status)
 	if isMaster {
 		logger.Info("[DEBUG] 2.5.7 - getHealthStatusFromPeer masters done", "status", resp.Status)
+	} else {
+		c.config.Log.Info("[DEBUG] 0.4.7 getHealthStatusFromPeer workers done", "status", resp.Status)
 	}
 	return
 }
