@@ -66,7 +66,7 @@ func (manager *Manager) IsMaster() bool {
 }
 
 func (manager *Manager) IsMasterHealthy(workerPeerResponse peers.Response, isOtherMastersCanBeReached bool) bool {
-	manager.log.Info("[DEBUG] 3 - IsMasterHealthy starting ... ")
+	manager.log.Info("[DEBUG] 3 - IsMasterHealthy starting ... ", "isOtherMastersCanBeReached", isOtherMastersCanBeReached, "workerPeerResponse", workerPeerResponse)
 
 	switch workerPeerResponse.Reason {
 	//reported unhealthy by worker peers
