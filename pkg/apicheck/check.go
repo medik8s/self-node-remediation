@@ -213,12 +213,21 @@ func (c *ApiConnectivityCheck) isOtherMastersCanBeReached() bool {
 
 	nrAddresses := len(chosenNodesAddresses)
 	responsesChan := make(chan selfNodeRemediation.HealthCheckResponseCode, nrAddresses)
+	var wg sync.WaitGroup
 	for i := 0; numOfMasterPeers > 0; i++ {
 		c.config.Log.Info("[DEBUG] 2.4 - isOtherMastersCanBeReached", "index", i, "numOfMasterPeers", numOfMasterPeers)
+		wg.Add(len(chosenNodesAddresses))
 		for _, address := range chosenNodesAddresses {
 			c.config.Log.Info("[DEBUG] 2.5 - isOtherMastersCanBeReached about to get peer health status ASYNC", "peer address", address, "index", i, "total chosenNodesAddresses", len(chosenNodesAddresses))
-			go c.getHealthStatusFromPeer(address, responsesChan, true)
+			go func() {
+				defer wg.Done()
+				c.getHealthStatusFromPeer(address, responsesChan, true)
+			}()
+
 		}
+		c.config.Log.Info("[DEBUG] 2.54 - isOtherMastersCanBeReached about to wait for ASYNC calls to complete")
+		wg.Wait()
+		c.config.Log.Info("[DEBUG] 2.58 - isOtherMastersCanBeReached done waiting for ASYNC calls to complete")
 	}
 	//We are not expecting API Server connectivity at this stage, however an API Error is an indication to communication with the peer (peer is communicating with current node that it was unable to reach the API server)
 	c.config.Log.Info("[DEBUG] 2.6 - isOtherMastersCanBeReached about to sumPeersResponses ")
