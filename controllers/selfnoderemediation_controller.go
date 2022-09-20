@@ -415,7 +415,7 @@ func (r *SelfNodeRemediationReconciler) rebootIfNeeded(snr *v1alpha1.SelfNodeRem
 		//node already rebooted once during this SNR lifecycle, no need for additional reboot
 		return ctrl.Result{}, nil
 	}
-
+	r.Log.Info("[DEBUG] X - rebootIfNeeded ABOUT TO REBOOT NODE ")
 	return ctrl.Result{}, r.Rebooter.Reboot()
 }
 

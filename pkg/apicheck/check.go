@@ -111,10 +111,10 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
 	workerPeersResponse := c.GetWorkerPeersResponse()
 	isWorkerNode := c.masterManager == nil || !c.masterManager.IsMaster()
+	c.config.Log.Info("[DEBUG] 1 - isConsideredHealthy ", "workerPeersResponse", workerPeersResponse, "isWorkerNode", isWorkerNode)
 	if isWorkerNode {
 		return workerPeersResponse.IsHealthy
 	} else {
-		c.config.Log.Info("[DEBUG] 1 - isConsideredHealthy ", "workerPeersResponse", workerPeersResponse)
 		return c.masterManager.IsMasterHealthy(workerPeersResponse, c.isOtherMastersCanBeReached())
 	}
 
