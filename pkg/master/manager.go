@@ -21,7 +21,7 @@ const (
 	etcdContainerName            = "etcd"
 	kubeletPort                  = "10250"
 	etcdPort                     = "2379"
-	recoverAttemptsFromIsolation = 10
+	recoverAttemptsFromIsolation = 300
 )
 
 var (
@@ -40,7 +40,7 @@ type Manager struct {
 	exec                                 podCommandExecuter
 	etcdPod                              corev1.Pod
 	nodeInternalIP                       string
-	currentAttemptToRecoverFromIsolation uint8
+	currentAttemptToRecoverFromIsolation uint16
 }
 
 //NewManager inits a new Manager return nil if init fails
