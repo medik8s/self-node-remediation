@@ -21,7 +21,6 @@ const (
 	etcdContainerName            = "etcd"
 	kubeletPort                  = "10250"
 	etcdPort                     = "2379"
-	recoverAttemptsFromIsolation = 300
 )
 
 var (
@@ -40,7 +39,6 @@ type Manager struct {
 	exec                                 podCommandExecuter
 	etcdPod                              corev1.Pod
 	nodeInternalIP                       string
-	currentAttemptToRecoverFromIsolation uint16
 }
 
 //NewManager inits a new Manager return nil if init fails
@@ -69,20 +67,13 @@ func (manager *Manager) IsMaster() bool {
 
 func (manager *Manager) IsMasterHealthy(workerPeerResponse peers.Response, isOtherMastersCanBeReached bool) bool {
 	manager.log.Info("[DEBUG] 3 - IsMasterHealthy starting ... ", "isOtherMastersCanBeReached", isOtherMastersCanBeReached, "workerPeerResponse", workerPeerResponse)
-	prevAttemptsNumber := manager.currentAttemptToRecoverFromIsolation
-	manager.currentAttemptToRecoverFromIsolation = 0
 	switch workerPeerResponse.Reason {
 	//reported unhealthy by worker peers
 	case peers.UnHealthyBecauseCRFound:
 		manager.log.Info("[DEBUG] 3.1 - IsMasterHealthy done", "return value", false)
 		return false
 	case peers.UnHealthyBecauseNodeIsIsolated:
-		manager.log.Info("[DEBUG] 3.2 - IsMasterHealthy done", "return value", isOtherMastersCanBeReached, "attempt #", prevAttemptsNumber+1)
-		if !isOtherMastersCanBeReached {
-			manager.currentAttemptToRecoverFromIsolation = prevAttemptsNumber
-			manager.currentAttemptToRecoverFromIsolation++
-			return manager.currentAttemptToRecoverFromIsolation < recoverAttemptsFromIsolation
-		}
+		manager.log.Info("[DEBUG] 3.2 - IsMasterHealthy done", "return value", isOtherMastersCanBeReached)
 		return isOtherMastersCanBeReached
 	//reported healthy by worker peers
 	case peers.HealthyBecauseErrorsThresholdNotReached, peers.HealthyBecauseCRNotFound:
