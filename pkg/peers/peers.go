@@ -17,30 +17,45 @@ import (
 )
 
 const (
-	hostnameLabelName = "kubernetes.io/hostname"
-	workerLabelName   = "node-role.kubernetes.io/worker"
+	hostnameLabelName     = "kubernetes.io/hostname"
+	WorkerLabelName       = "node-role.kubernetes.io/worker"
+	MasterLabelName       = "node-role.kubernetes.io/master"
+	ControlPlaneLabelName = "node-role.kubernetes.io/control-plane" //replacing master label since k8s 1.25
+)
+
+var (
+	controlPlaneLabelLock sync.Mutex
+	UsedControlPlaneLabel string
+)
+
+type Role int8
+
+const (
+	Worker Role = iota
+	Master
 )
 
 type Peers struct {
 	client.Reader
-	log                logr.Logger
-	peerSelector       labels.Selector
-	peerUpdateInterval time.Duration
-	myNodeName         string
-	mutex              sync.Mutex
-	apiServerTimeout   time.Duration
-	peersAddresses     [][]v1.NodeAddress
+	log                                        logr.Logger
+	workerPeerSelector, masterPeerSelector     labels.Selector
+	peerUpdateInterval                         time.Duration
+	myNodeName                                 string
+	mutex                                      sync.Mutex
+	apiServerTimeout                           time.Duration
+	workerPeersAddresses, masterPeersAddresses [][]v1.NodeAddress
 }
 
 func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Reader, log logr.Logger, apiServerTimeout time.Duration) *Peers {
 	return &Peers{
-		Reader:             reader,
-		log:                log,
-		peerUpdateInterval: peerUpdateInterval,
-		myNodeName:         myNodeName,
-		mutex:              sync.Mutex{},
-		apiServerTimeout:   apiServerTimeout,
-		peersAddresses:     [][]v1.NodeAddress{},
+		Reader:               reader,
+		log:                  log,
+		peerUpdateInterval:   peerUpdateInterval,
+		myNodeName:           myNodeName,
+		mutex:                sync.Mutex{},
+		apiServerTimeout:     apiServerTimeout,
+		workerPeersAddresses: [][]v1.NodeAddress{},
+		masterPeersAddresses: [][]v1.NodeAddress{},
 	}
 }
 
@@ -59,20 +74,19 @@ func (p *Peers) Start(ctx context.Context) error {
 		p.log.Error(err, "failed to get own node")
 		return err
 	}
+	SetControlPlaneLabelType(myNode)
 	if hostname, ok := myNode.Labels[hostnameLabelName]; !ok {
 		err := fmt.Errorf("%s label not set on own node", hostnameLabelName)
 		p.log.Error(err, "failed to get own hostname")
 		return err
 	} else {
-		reqNotMe, _ := labels.NewRequirement(hostnameLabelName, selection.NotEquals, []string{hostname})
-		reqWorkers, _ := labels.NewRequirement(workerLabelName, selection.Exists, []string{})
-		selector := labels.NewSelector()
-		selector = selector.Add(*reqNotMe, *reqWorkers)
-		p.peerSelector = selector
+		p.workerPeerSelector = createSelector(hostname, Worker)
+		p.masterPeerSelector = createSelector(hostname, Master)
 	}
 
 	go wait.UntilWithContext(ctx, func(ctx context.Context) {
-		p.updatePeers(ctx)
+		p.updateWorkerPeers(ctx)
+		p.updateMasterPeers(ctx)
 	}, p.peerUpdateInterval)
 
 	p.log.Info("peers started")
@@ -81,7 +95,19 @@ func (p *Peers) Start(ctx context.Context) error {
 	return nil
 }
 
-func (p *Peers) updatePeers(ctx context.Context) {
+func (p *Peers) updateWorkerPeers(ctx context.Context) {
+	setterFunc := func(addresses [][]v1.NodeAddress) { p.workerPeersAddresses = addresses }
+	selectorGetter := func() labels.Selector { return p.workerPeerSelector }
+	p.updatePeers(ctx, selectorGetter, setterFunc)
+}
+
+func (p *Peers) updateMasterPeers(ctx context.Context) {
+	setterFunc := func(addresses [][]v1.NodeAddress) { p.masterPeersAddresses = addresses }
+	selectorGetter := func() labels.Selector { return p.masterPeerSelector }
+	p.updatePeers(ctx, selectorGetter, setterFunc)
+}
+
+func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selector, setAddresses func(addresses [][]v1.NodeAddress)) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
@@ -90,33 +116,79 @@ func (p *Peers) updatePeers(ctx context.Context) {
 
 	nodes := v1.NodeList{}
 	// get some nodes, but not ourself
-	if err := p.List(readerCtx, &nodes, client.MatchingLabelsSelector{Selector: p.peerSelector}); err != nil {
+	if err := p.List(readerCtx, &nodes, client.MatchingLabelsSelector{Selector: getSelector()}); err != nil {
 		if errors.IsNotFound(err) {
 			// we are the only node at the moment... reset peerList
-			p.peersAddresses = [][]v1.NodeAddress{}
+			p.workerPeersAddresses = [][]v1.NodeAddress{}
 		}
 		p.log.Error(err, "failed to update peer list")
 		return
 	}
+
 	nodesCount := len(nodes.Items)
 	addresses := make([][]v1.NodeAddress, nodesCount)
 	for i, node := range nodes.Items {
 		addresses[i] = node.Status.Addresses
 	}
-	p.peersAddresses = addresses
+	setAddresses(addresses)
 }
 
-func (p *Peers) GetPeersAddresses() [][]v1.NodeAddress {
+func (p *Peers) GetPeersAddresses(role Role) [][]v1.NodeAddress {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
+	var addresses [][]v1.NodeAddress
+	if role == Worker {
+		addresses = p.workerPeersAddresses
+	} else {
+		addresses = p.masterPeersAddresses
+	}
 	//we don't want the caller to be able to change the addresses
 	//so we create a deep copy and return it
-	addressesCopy := make([][]v1.NodeAddress, len(p.peersAddresses))
-	for i := range p.peersAddresses {
-		addressesCopy[i] = make([]v1.NodeAddress, len(p.peersAddresses[i]))
-		copy(addressesCopy, p.peersAddresses)
+	addressesCopy := make([][]v1.NodeAddress, len(addresses))
+	for i := range addressesCopy {
+		addressesCopy[i] = make([]v1.NodeAddress, len(addresses[i]))
+		copy(addressesCopy, addresses)
 	}
 
 	return addressesCopy
+}
+
+func createSelector(hostNameToExclude string, nodeRole Role) labels.Selector {
+	var nodeTypeLabel string
+
+	switch nodeRole {
+	case Master:
+		nodeTypeLabel = GetUsedControlPlaneLabel()
+	default:
+		nodeTypeLabel = WorkerLabelName
+	}
+
+	reqNotMe, _ := labels.NewRequirement(hostnameLabelName, selection.NotEquals, []string{hostNameToExclude})
+	reqPeers, _ := labels.NewRequirement(nodeTypeLabel, selection.Exists, []string{})
+	selector := labels.NewSelector()
+	selector = selector.Add(*reqNotMe, *reqPeers)
+	return selector
+}
+
+func SetControlPlaneLabelType(node *v1.Node) {
+	controlPlaneLabelLock.Lock()
+	defer controlPlaneLabelLock.Unlock()
+	if len(UsedControlPlaneLabel) != 0 {
+		return
+	}
+	if _, isMasterLabel := node.Labels[MasterLabelName]; isMasterLabel {
+		UsedControlPlaneLabel = MasterLabelName
+	} else if _, isControlPlaneLabel := node.Labels[ControlPlaneLabelName]; isControlPlaneLabel {
+		UsedControlPlaneLabel = ControlPlaneLabelName
+	}
+}
+
+func GetUsedControlPlaneLabel() string {
+	controlPlaneLabelLock.Lock()
+	defer controlPlaneLabelLock.Unlock()
+	if len(UsedControlPlaneLabel) == 0 {
+		return MasterLabelName
+	}
+	return UsedControlPlaneLabel
 }
