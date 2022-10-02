@@ -33,7 +33,7 @@ const (
 )
 
 var (
-	pprRes = schema.GroupVersionResource{
+	snrRes = schema.GroupVersionResource{
 		Group:    v1alpha1.GroupVersion.Group,
 		Version:  v1alpha1.GroupVersion.Version,
 		Resource: "selfnoderemediations",
@@ -146,7 +146,7 @@ func (s Server) IsHealthy(ctx context.Context, request *HealthRequest) (*HealthR
 }
 
 func (s Server) isHealthyNode(ctx context.Context, nodeName string, namespace string) selfNodeRemediationApis.HealthCheckResponseCode {
-	return s.isHealthyByPpr(ctx, nodeName, namespace)
+	return s.isHealthyBySnr(ctx, nodeName, namespace)
 }
 
 func (s Server) isHealthyMachine(ctx context.Context, nodeName string, namespace string) selfNodeRemediationApis.HealthCheckResponseCode {
@@ -169,14 +169,14 @@ func (s Server) isHealthyMachine(ctx context.Context, nodeName string, namespace
 		return selfNodeRemediationApis.Unhealthy //todo is this the correct response?
 	}
 
-	return s.isHealthyByPpr(ctx, machineName, namespace)
+	return s.isHealthyBySnr(ctx, machineName, namespace)
 }
 
-func (s Server) isHealthyByPpr(ctx context.Context, pprName string, pprNamespace string) selfNodeRemediationApis.HealthCheckResponseCode {
+func (s Server) isHealthyBySnr(ctx context.Context, snrName string, snrNamespace string) selfNodeRemediationApis.HealthCheckResponseCode {
 	apiCtx, cancelFunc := context.WithTimeout(ctx, apiServerTimeout)
 	defer cancelFunc()
 
-	_, err := s.client.Resource(pprRes).Namespace(pprNamespace).Get(apiCtx, pprName, metav1.GetOptions{})
+	_, err := s.client.Resource(snrRes).Namespace(snrNamespace).Get(apiCtx, snrName, metav1.GetOptions{})
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			s.log.Info("node is healthy")
