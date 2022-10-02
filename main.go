@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"flag"
+	"github.com/medik8s/self-node-remediation/pkg/master"
 	"os"
 	"strconv"
 	"time"
@@ -256,7 +257,14 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		PeerHealthPort:     peerHealthDefaultPort,
 	}
 
-	apiChecker := apicheck.New(apiConnectivityCheckConfig)
+	masterManager := master.NewManager(myNodeName, mgr.GetClient())
+
+	if err = mgr.Add(masterManager); err != nil {
+		setupLog.Error(err, "failed to add master remediation manager to setup manager")
+		os.Exit(1)
+	}
+
+	apiChecker := apicheck.New(apiConnectivityCheckConfig, masterManager)
 	if err = mgr.Add(apiChecker); err != nil {
 		setupLog.Error(err, "failed to add api-check to the manager")
 		os.Exit(1)
@@ -283,7 +291,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	setupLog.Info("Time to assume that unhealthy node has been rebooted", "time", timeToAssumeNodeRebooted)
 
 	restoreNodeAfter := 90 * time.Second
-	pprReconciler := &controllers.SelfNodeRemediationReconciler{
+	snrReconciler := &controllers.SelfNodeRemediationReconciler{
 		Client:                       mgr.GetClient(),
 		Log:                          ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
 		Scheme:                       mgr.GetScheme(),
@@ -293,14 +301,14 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		RestoreNodeAfter:             restoreNodeAfter,
 	}
 
-	if err = pprReconciler.SetupWithManager(mgr); err != nil {
+	if err = snrReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SelfNodeRemediation")
 		os.Exit(1)
 	}
 
 	setupLog.Info("init grpc server")
 	// TODO make port configurable?
-	server, err := peerhealth.NewServer(pprReconciler, mgr.GetConfig(), ctrl.Log.WithName("peerhealth").WithName("server"), peerHealthDefaultPort, certReader)
+	server, err := peerhealth.NewServer(snrReconciler, mgr.GetConfig(), ctrl.Log.WithName("peerhealth").WithName("server"), peerHealthDefaultPort, certReader)
 	if err != nil {
 		setupLog.Error(err, "failed to init grpc server")
 		os.Exit(1)
