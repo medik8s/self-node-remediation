@@ -36,7 +36,7 @@ type SelfNodeRemediationSpec struct {
 	//currently only option is "ResourceDeletion"
 	//it will iterate over all pos and volumeattachments related to the unhealthy node and delete them
 	// +kubebuilder:default:="ResourceDeletion"
-	// +kubebuilder:validation:Enum=ResourceDeletion
+	// +kubebuilder:validation:Enum=ResourceDeletion;NodeDeletion
 	RemediationStrategy RemediationStrategyType `json:"remediationStrategy,omitempty"`
 }
 

@@ -57,6 +57,7 @@ spec:
                           to the unhealthy node and delete them
                         enum:
                         - ResourceDeletion
+                        - NodeDeletion
                         type: string
                     type: object
                 required:

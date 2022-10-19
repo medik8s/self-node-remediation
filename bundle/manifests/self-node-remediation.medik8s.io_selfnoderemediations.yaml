@@ -48,6 +48,7 @@ spec:
                   and delete them
                 enum:
                 - ResourceDeletion
+                - NodeDeletion
                 type: string
             type: object
           status:
