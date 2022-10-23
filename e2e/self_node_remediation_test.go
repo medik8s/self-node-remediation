@@ -36,12 +36,13 @@ const (
 
 var _ = Describe("Self Node Remediation E2E", func() {
 
-	var node *v1.Node
-	var oldBootTime *time.Time
-	var oldUID types.UID
-	var apiIPs []string
+
 	Describe("Workers Remediation", func() {
+		var node *v1.Node
 		workers := &v1.NodeList{}
+		var oldBootTime *time.Time
+		var oldUID types.UID
+		var apiIPs []string
 
 		BeforeEach(func() {
 
@@ -272,6 +273,96 @@ var _ = Describe("Self Node Remediation E2E", func() {
 		})
 	})
 
+	Describe("Control Plane Remediation", func() {
+		masters := &v1.NodeList{}
+		var masterNode *v1.Node
+
+		BeforeEach(func() {
+
+			// get all things that doesn't change once only
+			if masterNode == nil {
+				// get worker node(s)
+				selector := labels.NewSelector()
+				req, _ := labels.NewRequirement(peers.MasterLabelName, selection.Exists, []string{})
+				selector = selector.Add(*req)
+				if err := k8sClient.List(context.Background(), masters, &client.ListOptions{LabelSelector: selector}); err != nil && errors.IsNotFound(err) {
+					selector = labels.NewSelector()
+					req, _ = labels.NewRequirement(peers.ControlPlaneLabelName, selection.Exists, []string{})
+					Expect(k8sClient.List(context.Background(), masters, &client.ListOptions{LabelSelector: selector})).ToNot(HaveOccurred())
+				}
+				Expect(len(masters.Items)).To(BeNumerically(">=", 2))
+
+				masterNode = &masters.Items[0]
+
+			} else {
+				// just update the node for getting the current UID
+				Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(masterNode), masterNode)).ToNot(HaveOccurred())
+			}
+
+			var err error
+			Expect(err).ToNot(HaveOccurred())
+
+			ensureSnrRunning(masters)
+		})
+
+		AfterEach(func() {
+			// restart snr pods for resetting logs...
+			restartSnrPods(masters)
+		})
+
+		JustAfterEach(func() {
+			By("printing self node remediation log of healthy node")
+			healthyNode := &masters.Items[1]
+			pod := findSnrPod(healthyNode)
+			logs, err := utils.GetLogs(k8sClientSet, pod)
+			Expect(err).ToNot(HaveOccurred())
+			logger.Info("logs of healthy self-node-remediation pod", "logs", logs)
+		})
+
+		Describe("With API connectivity", func() {
+			Context("creating a SNR", func() {
+				// normal remediation
+				// - create SNR
+				// - node should reboot
+				// - node should be deleted and re-created
+
+				var snr *v1alpha1.SelfNodeRemediation
+				var remediationStrategy v1alpha1.RemediationStrategyType
+				JustBeforeEach(func() {
+					snr = createSNR(masterNode, remediationStrategy)
+				})
+
+				AfterEach(func() {
+					if snr != nil {
+						deleteAndWait(snr)
+					}
+				})
+
+				Context("Resource Deletion Strategy", func() {
+					var oldPodCreationTime time.Time
+					var va *storagev1.VolumeAttachment
+
+					BeforeEach(func() {
+						remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
+						oldPodCreationTime = findSnrPod(masterNode).CreationTimestamp.Time
+						va = createVolumeAttachment(masterNode)
+					})
+
+					It("should delete pods and volume attachments", func() {
+						checkPodRecreated(masterNode, oldPodCreationTime)
+						checkVaDeleted(va)
+						//Simulate NHC trying to delete SNR
+						deleteAndWait(snr)
+						snr = nil
+
+						checkNoExecuteTaintRemoved(masterNode)
+					})
+				})
+
+			})
+		})
+
+	})
 })
 
 func checkVaDeleted(va *storagev1.VolumeAttachment) {
@@ -531,7 +622,6 @@ func restartSnrPods(nodes *v1.NodeList) {
 }
 
 func restartSnrPod(node *v1.Node) {
-	By("restarting snr pod for resetting logs")
 	pod := findSnrPod(node)
 	ExpectWithOffset(1, pod).ToNot(BeNil())
 	oldPodUID := pod.GetUID()
