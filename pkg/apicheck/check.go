@@ -171,7 +171,7 @@ func (c *ApiConnectivityCheck) GetWorkerPeersResponse() peers.Response {
 
 		if unhealthyResponses > 0 {
 			c.config.Log.Info("Peer told me I'm unhealthy!")
-			return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecauseDueToPeersResponse}
+			return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecausePeersResponse}
 		}
 
 		if apiErrorsResponses > 0 {

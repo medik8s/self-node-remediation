@@ -62,7 +62,7 @@ func (manager *Manager) IsMaster() bool {
 func (manager *Manager) IsMasterHealthy(workerPeerResponse peers.Response, canOtherMastersBeReached bool) bool {
 	switch workerPeerResponse.Reason {
 	//reported unhealthy by worker peers
-	case peers.UnHealthyBecauseDueToPeersResponse:
+	case peers.UnHealthyBecausePeersResponse:
 		return false
 	case peers.UnHealthyBecauseNodeIsIsolated:
 		return canOtherMastersBeReached
