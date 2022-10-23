@@ -13,6 +13,6 @@ const (
 	HealthyBecauseNoPeersWereFound             reason = "No Peers where found, node is considered healthy"
 	HealthyBecauseMostPeersCantAccessAPIServer reason = "Most peers couldn't access API server, node is considered healthy"
 
-	UnHealthyBecauseCRFound        reason = "CR found, node is considered unhealthy"
-	UnHealthyBecauseNodeIsIsolated reason = "Node is isolated, node is considered unhealthy"
+	UnHealthyBecauseDueToPeersResponse reason = "Node is reported unhealthy by it's peers"
+	UnHealthyBecauseNodeIsIsolated     reason = "Node is isolated, node is considered unhealthy"
 )
