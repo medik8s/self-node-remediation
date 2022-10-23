@@ -70,14 +70,14 @@ var _ = Describe("Self Node Remediation E2E", func() {
 	})
 
 	AfterEach(func() {
-		// restart pp pods for resetting logs...
-		restartPPPods(workers)
+		// restart snr pods for resetting logs...
+		restartSnrPods(workers)
 	})
 
 	JustAfterEach(func() {
 		By("printing self node remediation log of healthy node")
 		healthyNode := &workers.Items[1]
-		pod := findPPPod(healthyNode)
+		pod := findSnrPod(healthyNode)
 		logs, err := utils.GetLogs(k8sClientSet, pod)
 		Expect(err).ToNot(HaveOccurred())
 		logger.Info("logs of healthy self-node-remediation pod", "logs", logs)
@@ -108,7 +108,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 
 				BeforeEach(func() {
 					remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
-					oldPodCreationTime = findPPPod(node).CreationTimestamp.Time
+					oldPodCreationTime = findSnrPod(node).CreationTimestamp.Time
 					va = createVolumeAttachment(node)
 				})
 
@@ -164,7 +164,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				checkNoReboot(node, oldBootTime)
 
 				// check logs to make sure that the actual peer health check did run
-				checkPPLogs(node, []string{"failed to check api server", "Peer told me I'm healthy."})
+				checkSnrLogs(node, []string{"failed to check api server", "Peer told me I'm healthy."})
 			})
 		})
 
@@ -198,7 +198,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 
 				// we can't check logs of unhealthy node anymore, check peer logs
 				peer := &workers.Items[1]
-				checkPPLogs(peer, []string{node.GetName(), "node is unhealthy"})
+				checkSnrLogs(peer, []string{node.GetName(), "node is unhealthy"})
 			})
 
 		})
@@ -260,7 +260,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 						checkNoReboot(worker, bootTimes[worker.GetName()])
 
 						// check logs to make sure that the actual peer health check did run
-						checkPPLogs(worker, []string{"failed to check api server", "nodes couldn't access the api-server"})
+						checkSnrLogs(worker, []string{"failed to check api server", "nodes couldn't access the api-server"})
 					}()
 				}
 				wg.Wait()
@@ -300,7 +300,7 @@ func createVolumeAttachment(node *v1.Node) *storagev1.VolumeAttachment {
 
 func checkPodRecreated(node *v1.Node, oldPodCreationTime time.Time) bool {
 	return EventuallyWithOffset(1, func() time.Time {
-		pod := findPPPod(node)
+		pod := findSnrPod(node)
 		return pod.CreationTimestamp.Time
 
 	}, 7*time.Minute, 10*time.Second).Should(BeTemporally(">", oldPodCreationTime))
@@ -469,9 +469,9 @@ func checkNoReboot(node *v1.Node, oldBootTime *time.Time) {
 	}, 1*time.Minute, 10*time.Second).Should(BeTemporally("==", *oldBootTime))
 }
 
-func checkPPLogs(node *v1.Node, expected []string) {
+func checkSnrLogs(node *v1.Node, expected []string) {
 	By("checking logs")
-	pod := findPPPod(node)
+	pod := findSnrPod(node)
 	ExpectWithOffset(1, pod).ToNot(BeNil())
 
 	var matchers []gomegatypes.GomegaMatcher
@@ -490,9 +490,9 @@ func checkPPLogs(node *v1.Node, expected []string) {
 	}, 6*time.Minute, 10*time.Second).Should(And(matchers...), "logs don't contain expected strings")
 }
 
-func findPPPod(node *v1.Node) *v1.Pod {
-	// long timeout, after deployment of PP it takes some time until it is up and running
-	var ppPod *v1.Pod
+func findSnrPod(node *v1.Node) *v1.Pod {
+	// long timeout, after deployment of SNR it takes some time until it is up and running
+	var snrPod *v1.Pod
 	EventuallyWithOffset(2, func() bool {
 		pods := &v1.PodList{}
 		err := k8sClient.List(context.Background(), pods)
@@ -503,16 +503,16 @@ func findPPPod(node *v1.Node) *v1.Pod {
 		for i := range pods.Items {
 			pod := pods.Items[i]
 			if strings.HasPrefix(pod.GetName(), "self-node-remediation-ds") && pod.Spec.NodeName == node.GetName() {
-				ppPod = &pod
+				snrPod = &pod
 				return true
 			}
 		}
 		return false
-	}, 9*time.Minute, 10*time.Second).Should(BeTrue(), "didn't find PP pod")
-	return ppPod
+	}, 9*time.Minute, 10*time.Second).Should(BeTrue(), "didn't find SNR pod")
+	return snrPod
 }
 
-func restartPPPods(nodes *v1.NodeList) {
+func restartSnrPods(nodes *v1.NodeList) {
 	wg := sync.WaitGroup{}
 	for i := range nodes.Items {
 		wg.Add(1)
@@ -520,15 +520,15 @@ func restartPPPods(nodes *v1.NodeList) {
 		go func() {
 			defer GinkgoRecover()
 			defer wg.Done()
-			restartPPPod(node)
+			restartSnrPod(node)
 		}()
 	}
 	wg.Wait()
 }
 
-func restartPPPod(node *v1.Node) {
-	By("restarting pp pod for resetting logs")
-	pod := findPPPod(node)
+func restartSnrPod(node *v1.Node) {
+	By("restarting snr pod for resetting logs")
+	pod := findSnrPod(node)
 	ExpectWithOffset(1, pod).ToNot(BeNil())
 	oldPodUID := pod.GetUID()
 
@@ -537,7 +537,7 @@ func restartPPPod(node *v1.Node) {
 	// wait for restart
 	var newPod *v1.Pod
 	EventuallyWithOffset(1, func() types.UID {
-		newPod = findPPPod(node)
+		newPod = findSnrPod(node)
 		if newPod == nil {
 			return oldPodUID
 		}
@@ -588,7 +588,7 @@ func ensureSnrRunning(nodes *v1.NodeList) {
 		go func() {
 			defer GinkgoRecover()
 			defer wg.Done()
-			pod := findPPPod(node)
+			pod := findSnrPod(node)
 			utils.WaitForPodReady(k8sClient, pod)
 		}()
 	}
