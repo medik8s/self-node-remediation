@@ -59,13 +59,13 @@ func (manager *Manager) IsMaster() bool {
 	return manager.nodeRole == peers.Master
 }
 
-func (manager *Manager) IsMasterHealthy(workerPeerResponse peers.Response, isOtherMastersCanBeReached bool) bool {
+func (manager *Manager) IsMasterHealthy(workerPeerResponse peers.Response, canOtherMastersBeReached bool) bool {
 	switch workerPeerResponse.Reason {
 	//reported unhealthy by worker peers
 	case peers.UnHealthyBecauseDueToPeersResponse:
 		return false
 	case peers.UnHealthyBecauseNodeIsIsolated:
-		return isOtherMastersCanBeReached
+		return canOtherMastersBeReached
 	//reported healthy by worker peers
 	case peers.HealthyBecauseErrorsThresholdNotReached, peers.HealthyBecauseCRNotFound:
 		return true
@@ -73,7 +73,7 @@ func (manager *Manager) IsMasterHealthy(workerPeerResponse peers.Response, isOth
 	case peers.HealthyBecauseMostPeersCantAccessAPIServer:
 		return manager.isDiagnosticsPassed()
 	case peers.HealthyBecauseNoPeersWereFound:
-		return manager.isDiagnosticsPassed() && isOtherMastersCanBeReached
+		return manager.isDiagnosticsPassed() && canOtherMastersBeReached
 
 	default:
 		manager.log.Error(processError, "node is considered unhealthy by worker peers for an unknown reason", "reason", workerPeerResponse.Reason, "node name", manager.nodeName)

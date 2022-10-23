@@ -113,7 +113,7 @@ func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
 	if isWorkerNode {
 		return workerPeersResponse.IsHealthy
 	} else {
-		return c.masterManager.IsMasterHealthy(workerPeersResponse, c.isOtherMastersCanBeReached())
+		return c.masterManager.IsMasterHealthy(workerPeersResponse, c.canOtherMastersBeReached())
 	}
 
 }
@@ -191,7 +191,7 @@ func (c *ApiConnectivityCheck) GetWorkerPeersResponse() peers.Response {
 	return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecauseNodeIsIsolated}
 }
 
-func (c *ApiConnectivityCheck) isOtherMastersCanBeReached() bool {
+func (c *ApiConnectivityCheck) canOtherMastersBeReached() bool {
 	nodesToAsk := c.config.Peers.GetPeersAddresses(peers.Master)
 	numOfMasterPeers := len(nodesToAsk)
 	if nodesToAsk == nil || numOfMasterPeers == 0 {
