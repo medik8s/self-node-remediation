@@ -19,7 +19,6 @@ package main
 import (
 	"context"
 	"flag"
-	"github.com/medik8s/self-node-remediation/pkg/master"
 	"os"
 	"strconv"
 	"time"
@@ -46,6 +45,7 @@ import (
 	"github.com/medik8s/self-node-remediation/controllers"
 	"github.com/medik8s/self-node-remediation/pkg/apicheck"
 	"github.com/medik8s/self-node-remediation/pkg/certificates"
+	"github.com/medik8s/self-node-remediation/pkg/master"
 	"github.com/medik8s/self-node-remediation/pkg/peerhealth"
 	"github.com/medik8s/self-node-remediation/pkg/peers"
 	"github.com/medik8s/self-node-remediation/pkg/reboot"

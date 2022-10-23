@@ -4,20 +4,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
+	"time"
+
 	"github.com/go-logr/logr"
 	"github.com/go-ping/ping"
-	"github.com/medik8s/self-node-remediation/pkg/peers"
+
 	corev1 "k8s.io/api/core/v1"
-	"os/exec"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"time"
+
+	"github.com/medik8s/self-node-remediation/pkg/peers"
 )
 
 const (
-	initErrorText                = "error initializing master handler"
-	kubeletPort                  = "10250"
-	endpointToAccess             = "www.google.com"
+	initErrorText    = "error initializing master handler"
+	kubeletPort      = "10250"
+	endpointToAccess = "www.google.com"
 )
 
 var (
@@ -27,11 +31,11 @@ var (
 
 //Manager contains logic and info needed to fence and remediate master nodes
 type Manager struct {
-	nodeName                             string
-	nodeRole                             peers.Role
-	wasEndpointAccessibleAtStart         bool
-	client                               client.Client
-	log                                  logr.Logger
+	nodeName                     string
+	nodeRole                     peers.Role
+	wasEndpointAccessibleAtStart bool
+	client                       client.Client
+	log                          logr.Logger
 }
 
 //NewManager inits a new Manager return nil if init fails
