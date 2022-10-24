@@ -19,14 +19,8 @@ import (
 )
 
 const (
-	initErrorText    = "error initializing master handler"
 	kubeletPort      = "10250"
 	endpointToAccess = "www.google.com"
-)
-
-var (
-	initError    = errors.New(initErrorText)
-	processError = errors.New("an error occurred during master remediation process")
 )
 
 //Manager contains logic and info needed to fence and remediate master nodes
@@ -76,7 +70,8 @@ func (manager *Manager) IsMasterHealthy(workerPeerResponse peers.Response, canOt
 		return manager.isDiagnosticsPassed() && canOtherMastersBeReached
 
 	default:
-		manager.log.Error(processError, "node is considered unhealthy by worker peers for an unknown reason", "reason", workerPeerResponse.Reason, "node name", manager.nodeName)
+		errorText := "node is considered unhealthy by worker peers for an unknown reason"
+		manager.log.Error(errors.New(errorText), errorText, "reason", workerPeerResponse.Reason, "node name", manager.nodeName)
 		return false
 	}
 
@@ -94,28 +89,21 @@ func (manager *Manager) isDiagnosticsPassed() bool {
 }
 
 func wrapWithInitError(err error) error {
-	return fmt.Errorf(initErrorText+" [%w]", err)
+	return fmt.Errorf("error initializing master handler [%w]", err)
 }
 
 func (manager *Manager) initializeManager() error {
-	nodesList := &corev1.NodeList{}
-	if err := manager.client.List(context.TODO(), nodesList, &client.ListOptions{}); err != nil {
-		manager.log.Error(err, "could not retrieve nodes")
-		return wrapWithInitError(err)
-	}
-	var node corev1.Node
-	for _, n := range nodesList.Items {
-		if n.Name == manager.nodeName {
-			manager.setNodeRole(n)
-			node = n
-			break
-		}
+
+	node := corev1.Node{}
+	key := client.ObjectKey{
+		Name: manager.nodeName,
 	}
 
-	if &node == nil {
-		manager.log.Error(initError, "could not find node")
-		return initError
+	if err := manager.client.Get(context.TODO(), key, &node); err != nil {
+		manager.log.Error(err, "could not retrieve node")
+		return wrapWithInitError(err)
 	}
+	manager.setNodeRole(node)
 
 	manager.wasEndpointAccessibleAtStart = manager.isEndpointAccessible()
 	return nil
