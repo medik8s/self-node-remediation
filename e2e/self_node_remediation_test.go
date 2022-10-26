@@ -366,7 +366,7 @@ func checkReboot(node *v1.Node, oldBootTime *time.Time) {
 		}
 		logger.Info("boot time", "new", newBootTime)
 		return *newBootTime
-	}, 2*time.Minute, 10*time.Second).Should(BeTemporally(">", *oldBootTime))
+	}, 7*time.Minute, 10*time.Second).Should(BeTemporally(">", *oldBootTime))
 }
 
 func killApiConnection(node *v1.Node, apiIPs []string, withReconnect bool) {
