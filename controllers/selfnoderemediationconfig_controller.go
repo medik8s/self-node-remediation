@@ -96,35 +96,35 @@ func (r *SelfNodeRemediationConfigReconciler) SetupWithManager(mgr ctrl.Manager)
 		Complete(r)
 }
 
-func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ppc *selfnoderemediationv1alpha1.SelfNodeRemediationConfig) error {
+func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(snrConfig *selfnoderemediationv1alpha1.SelfNodeRemediationConfig) error {
 	logger := r.Log.WithName("syncConfigDaemonset")
 	logger.Info("Start to sync config daemonset")
 
 	data := render.MakeRenderData()
 	data.Data["Image"] = os.Getenv("SELF_NODE_REMEDIATION_IMAGE")
-	data.Data["Namespace"] = ppc.Namespace
+	data.Data["Namespace"] = snrConfig.Namespace
 
-	watchdogPath := ppc.Spec.WatchdogFilePath
+	watchdogPath := snrConfig.Spec.WatchdogFilePath
 	if watchdogPath == "" {
 		watchdogPath = "/dev/watchdog"
 	}
 	data.Data["WatchdogPath"] = watchdogPath
 
-	data.Data["PeerApiServerTimeout"] = ppc.Spec.PeerApiServerTimeout.Nanoseconds()
-	data.Data["ApiCheckInterval"] = ppc.Spec.ApiCheckInterval.Nanoseconds()
-	data.Data["PeerUpdateInterval"] = ppc.Spec.PeerUpdateInterval.Nanoseconds()
-	data.Data["ApiServerTimeout"] = ppc.Spec.ApiServerTimeout.Nanoseconds()
-	data.Data["PeerDialTimeout"] = ppc.Spec.PeerDialTimeout.Nanoseconds()
-	data.Data["PeerRequestTimeout"] = ppc.Spec.PeerRequestTimeout.Nanoseconds()
-	data.Data["MaxApiErrorThreshold"] = ppc.Spec.MaxApiErrorThreshold
+	data.Data["PeerApiServerTimeout"] = snrConfig.Spec.PeerApiServerTimeout.Nanoseconds()
+	data.Data["ApiCheckInterval"] = snrConfig.Spec.ApiCheckInterval.Nanoseconds()
+	data.Data["PeerUpdateInterval"] = snrConfig.Spec.PeerUpdateInterval.Nanoseconds()
+	data.Data["ApiServerTimeout"] = snrConfig.Spec.ApiServerTimeout.Nanoseconds()
+	data.Data["PeerDialTimeout"] = snrConfig.Spec.PeerDialTimeout.Nanoseconds()
+	data.Data["PeerRequestTimeout"] = snrConfig.Spec.PeerRequestTimeout.Nanoseconds()
+	data.Data["MaxApiErrorThreshold"] = snrConfig.Spec.MaxApiErrorThreshold
 
-	timeToAssumeNodeRebooted := ppc.Spec.SafeTimeToAssumeNodeRebootedSeconds
+	timeToAssumeNodeRebooted := snrConfig.Spec.SafeTimeToAssumeNodeRebootedSeconds
 	if timeToAssumeNodeRebooted == 0 {
 		timeToAssumeNodeRebooted = 180
 	}
 	data.Data["TimeToAssumeNodeRebooted"] = fmt.Sprintf("\"%d\"", timeToAssumeNodeRebooted)
 
-	data.Data["IsSoftwareRebootEnabled"] = fmt.Sprintf("\"%t\"", ppc.Spec.IsSoftwareRebootEnabled)
+	data.Data["IsSoftwareRebootEnabled"] = fmt.Sprintf("\"%t\"", snrConfig.Spec.IsSoftwareRebootEnabled)
 
 	objs, err := render.Dir(r.InstallFileFolder, &data)
 	if err != nil {
@@ -133,7 +133,7 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ppc *selfnoder
 	}
 	// Sync DaemonSets
 	for _, obj := range objs {
-		err = r.syncK8sResource(ppc, obj)
+		err = r.syncK8sResource(snrConfig, obj)
 		if err != nil {
 			logger.Error(err, "Couldn't sync self-node-remediation daemons objects")
 			return err
