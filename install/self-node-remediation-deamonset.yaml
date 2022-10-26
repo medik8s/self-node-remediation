@@ -58,6 +58,8 @@ spec:
             value: "{{.MaxApiErrorThreshold}}"
           - name: IS_SOFTWARE_REBOOT_ENABLED
             value: {{.IsSoftwareRebootEnabled}}
+          - name: END_POINT_HEALTH_CHECK_URL
+            value: {{.EndPointHealthCheckUrl}}
         image: {{.Image}}
         imagePullPolicy: Always
         volumeMounts:

@@ -117,6 +117,7 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(snrConfig *sel
 	data.Data["PeerDialTimeout"] = snrConfig.Spec.PeerDialTimeout.Nanoseconds()
 	data.Data["PeerRequestTimeout"] = snrConfig.Spec.PeerRequestTimeout.Nanoseconds()
 	data.Data["MaxApiErrorThreshold"] = snrConfig.Spec.MaxApiErrorThreshold
+	data.Data["EndPointHealthCheckUrl"] = snrConfig.Spec.EndPointHealthCheckUrl
 
 	timeToAssumeNodeRebooted := snrConfig.Spec.SafeTimeToAssumeNodeRebootedSeconds
 	if timeToAssumeNodeRebooted == 0 {

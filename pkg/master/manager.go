@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"time"
 
@@ -19,14 +20,14 @@ import (
 )
 
 const (
-	kubeletPort      = "10250"
-	endpointToAccess = "www.google.com"
+	kubeletPort = "10250"
 )
 
 //Manager contains logic and info needed to fence and remediate master nodes
 type Manager struct {
 	nodeName                     string
 	nodeRole                     peers.Role
+	endPointHealthCheckUrl       string
 	wasEndpointAccessibleAtStart bool
 	client                       client.Client
 	log                          logr.Logger
@@ -36,6 +37,7 @@ type Manager struct {
 func NewManager(nodeName string, myClient client.Client) *Manager {
 	return &Manager{
 		nodeName:                     nodeName,
+		endPointHealthCheckUrl:       os.Getenv("END_POINT_HEALTH_CHECK_URL"),
 		client:                       myClient,
 		wasEndpointAccessibleAtStart: false,
 		log:                          ctrl.Log.WithName("master").WithName("Manager"),
@@ -128,14 +130,20 @@ func (manager *Manager) isEndpointAccessLost() bool {
 }
 
 func (manager *Manager) isEndpointAccessible() bool {
-	pinger, err := ping.NewPinger(endpointToAccess)
+	if len(manager.endPointHealthCheckUrl) == 0 {
+		return true
+	}
+
+	pinger, err := ping.NewPinger(manager.endPointHealthCheckUrl)
 	if err != nil {
+		manager.log.Error(err, "could not access endpoint","endpoint URL", manager.endPointHealthCheckUrl)
 		return false
 	}
 	pinger.Count = 3
 	pinger.Timeout = time.Second * 5
 
 	if err := pinger.Run(); err != nil {
+		manager.log.Error(err, "could not access endpoint","endpoint URL", manager.endPointHealthCheckUrl)
 		return false
 	}
 	return true
