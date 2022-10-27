@@ -288,6 +288,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		Client:                       mgr.GetClient(),
 		Log:                          ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
 		Scheme:                       mgr.GetScheme(),
+		Recorder:                     mgr.GetEventRecorderFor("SelfNodeRemediation"),
 		Rebooter:                     rebooter,
 		SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
 		MyNodeName:                   myNodeName,

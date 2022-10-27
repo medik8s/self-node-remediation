@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -43,6 +44,9 @@ import (
 const (
 	SNRFinalizer          = "self-node-remediation.medik8s.io/snr-finalizer"
 	fencingCompletedPhase = "Fencing-Completed"
+	//Event const
+	eventTypeWarning              = "Warning"
+	eventReasonDeprecatedStrategy = "Deprecated Strategy"
 )
 
 var (
@@ -91,6 +95,7 @@ type SelfNodeRemediationReconciler struct {
 	//logger is a logger that holds the CR name being reconciled
 	logger   logr.Logger
 	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 	Rebooter reboot.Rebooter
 	// note that this time must include the time for a unhealthy node without api-server access to reach the conclusion that it's unhealthy
 	// this should be at least worst-case time to reach a conclusion from the other peers * request context timeout + watchdog interval + maxFailuresThreshold * reconcileInterval + padding
@@ -146,7 +151,9 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	switch snr.Spec.RemediationStrategy {
 	case v1alpha1.ResourceDeletionRemediationStrategy, v1alpha1.DeprecatedNodeDeletionRemediationStrategy:
 		if snr.Spec.RemediationStrategy == v1alpha1.DeprecatedNodeDeletionRemediationStrategy {
-			r.logger.Info("`Node Deletion` remediation strategy is deprecated, using `Resource Deletion` remediation strategy instead")
+			msg := "`Node Deletion` remediation strategy is deprecated, using `Resource Deletion` remediation strategy instead"
+			r.logger.Info(msg)
+			r.Recorder.Eventf(snr, eventTypeWarning, eventReasonDeprecatedStrategy, msg)
 		}
 		result, err = r.remediateWithResourceDeletion(snr)
 	default:
