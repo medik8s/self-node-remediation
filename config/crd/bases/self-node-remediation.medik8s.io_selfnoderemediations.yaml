@@ -43,7 +43,7 @@ spec:
                 default: ResourceDeletion
                 description: RemediationStrategy is the remediation method for unhealthy
                   nodes currently only option is "ResourceDeletion" it will iterate
-                  over all pos and volumeattachments related to the unhealthy node
+                  over all pods and volume attachments related to the unhealthy node
                   and delete them
                 enum:
                 - ResourceDeletion

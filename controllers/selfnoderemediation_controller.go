@@ -144,7 +144,10 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	var err error
 
 	switch snr.Spec.RemediationStrategy {
-	case v1alpha1.ResourceDeletionRemediationStrategy:
+	case v1alpha1.ResourceDeletionRemediationStrategy, v1alpha1.DeprecatedNodeDeletionRemediationStrategy:
+		if snr.Spec.RemediationStrategy == v1alpha1.DeprecatedNodeDeletionRemediationStrategy {
+			r.logger.Info("`Node Deletion` remediation strategy is deprecated, using `Resource Deletion` remediation strategy instead")
+		}
 		result, err = r.remediateWithResourceDeletion(snr)
 	default:
 		//this should never happen since we enforce valid values with kubebuilder

@@ -19,7 +19,6 @@ package main
 import (
 	"context"
 	"flag"
-	"github.com/medik8s/self-node-remediation/pkg/cleanup"
 	"os"
 	"strconv"
 	"time"
@@ -165,12 +164,6 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 
 	if err := newTemplatesIfNotExist(mgr.GetClient()); err != nil {
 		setupLog.Error(err, "failed to create remediation templates")
-		os.Exit(1)
-	}
-
-	templateCleaner := cleanup.New(mgr.GetClient())
-	if err = mgr.Add(templateCleaner); err != nil {
-		setupLog.Error(err, "failed to add templateCleaner to the manager")
 		os.Exit(1)
 	}
 

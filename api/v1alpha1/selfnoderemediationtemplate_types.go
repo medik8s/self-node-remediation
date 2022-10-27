@@ -21,8 +21,7 @@ import (
 )
 
 const (
-	resourceDeletionTemplateName       = "self-node-remediation-resource-deletion-template"
-	DeprecatedNodeDeletionTemplateName = "self-node-remediation-node-deletion-template"
+	resourceDeletionTemplateName = "self-node-remediation-resource-deletion-template"
 )
 
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
