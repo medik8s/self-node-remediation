@@ -224,6 +224,12 @@ bundle-build: ## Build the bundle image.
 bundle-push: ## Push the bundle image.
 	docker push $(BUNDLE_IMG)
 
+# Generate bundle manifests and metadata, then validate generated files.
+.PHONY: bundle-k8s
+bundle-k8s: bundle
+	$(KUSTOMIZE) build config/manifests-k8s | $(OPERATOR_SDK) generate --verbose bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
+	$(OPERATOR_SDK) bundle validate ./bundle
+
 .PHONY: protoc ## Download protoc (protocol buffers tool needed for gRPC)
 PROTOC = $(shell pwd)/bin/proto/bin/protoc
 protoc: protoc-gen-go protoc-gen-go-grpc

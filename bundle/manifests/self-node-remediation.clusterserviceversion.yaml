@@ -365,9 +365,12 @@ spec:
                     memory: 110Mi
                 securityContext:
                   allowPrivilegeEscalation: false
+                  capabilities:
+                    drop:
+                    - ALL
               priorityClassName: system-cluster-critical
               securityContext:
-                runAsNonRoot: false
+                runAsNonRoot: true
               serviceAccountName: self-node-remediation-controller-manager
               terminationGracePeriodSeconds: 10
       permissions:

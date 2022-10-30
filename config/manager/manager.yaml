@@ -23,7 +23,7 @@ spec:
         control-plane: controller-manager
     spec:
       securityContext:
-        runAsNonRoot: false
+        runAsNonRoot: true
       priorityClassName: system-cluster-critical
       containers:
       - command:
@@ -39,6 +39,9 @@ spec:
                 fieldPath: metadata.namespace
         securityContext:
           allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
         livenessProbe:
           httpGet:
             path: /healthz
