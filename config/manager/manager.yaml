@@ -23,7 +23,7 @@ spec:
         control-plane: controller-manager
     spec:
       securityContext:
-        runAsNonRoot: true
+        runAsNonRoot: false
       priorityClassName: system-cluster-critical
       containers:
       - command:

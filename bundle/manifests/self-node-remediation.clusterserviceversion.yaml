@@ -370,7 +370,7 @@ spec:
                     - ALL
               priorityClassName: system-cluster-critical
               securityContext:
-                runAsNonRoot: true
+                runAsNonRoot: false
               serviceAccountName: self-node-remediation-controller-manager
               terminationGracePeriodSeconds: 10
       permissions:
