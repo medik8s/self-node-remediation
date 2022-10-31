@@ -144,6 +144,12 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
+	labelSetter := utils.NewNsLabelSetter(ns, mgr.GetClient(), ctrl.Log.WithName("nameSpaceLabelSetter"))
+	if err := mgr.Add(labelSetter); err != nil {
+		setupLog.Error(err, "failed to set Pod Security Access labels on namespace")
+		os.Exit(1)
+	}
+
 	if err := (&controllers.SelfNodeRemediationConfigReconciler{
 		Client:            mgr.GetClient(),
 		Log:               ctrl.Log.WithName("controllers").WithName("SelfNodeRemediationConfig"),
