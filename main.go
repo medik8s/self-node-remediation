@@ -143,9 +143,8 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 		setupLog.Error(err, "failed to get deployed namespace from env var")
 		os.Exit(1)
 	}
-	setupLog.Info("[DEBUG] 0 about to create label setter")
+
 	labelSetter := utils.NewNsLabelSetter(ns, mgr.GetClient(), ctrl.Log.WithName("nameSpaceLabelSetter"))
-	setupLog.Info("[DEBUG] 1 label setter created")
 	if err := mgr.Add(labelSetter); err != nil {
 		setupLog.Error(err, "failed to set Pod Security Access labels on namespace")
 		os.Exit(1)

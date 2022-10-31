@@ -43,28 +43,23 @@ func NewNsLabelSetter(nsName string, client client.Client, log logr.Logger) *lab
 }
 
 func (ls *labelSetter) Start(ctx context.Context) error {
-	ls.log.Info("[DEBUG] 2 label setter triggered !")
 	return ls.setPsaLabels()
 }
 
 func (ls *labelSetter) setPsaLabels() error {
-
 	ns := &v1.Namespace{}
 	if err := ls.k8sClient.Get(context.Background(), client.ObjectKey{Name: ls.nsName}, ns); err != nil {
-		ls.log.Info("[DEBUG] 2.1 label setter terminated")
 		ls.log.Error(err, "failed to fetch namespace")
 		return err
 	}
-	ls.log.Info("[DEBUG] 2.2 label setter fetched namespace")
 
 	ns.Labels[psaPrivileges] = "privileged"
 	ns.Labels[psaLabelSync] = "false"
 
 	if err := ls.k8sClient.Update(context.Background(), ns); err != nil {
-		ls.log.Info("[DEBUG] 2.3 label setter terminated")
 		ls.log.Error(err, "failed to update namespace with pod security access labels")
 		return err
 	}
-	ls.log.Info("[DEBUG] 2.4 label setter updated namespace")
+
 	return nil
 }
