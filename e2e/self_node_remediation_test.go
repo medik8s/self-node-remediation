@@ -294,13 +294,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 
 				masterNode = &masters.Items[0]
 
-			} else {
-				// just update the node for getting the current UID
-				Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(masterNode), masterNode)).ToNot(HaveOccurred())
 			}
-
-			var err error
-			Expect(err).ToNot(HaveOccurred())
 
 			ensureSnrRunning(masters)
 		})
