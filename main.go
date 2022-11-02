@@ -140,6 +140,15 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
+	if err := (&selfnoderemediationv1alpha1.SelfNodeRemediation{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "SelfNodeRemediation")
+		os.Exit(1)
+	}
+	if err := (&selfnoderemediationv1alpha1.SelfNodeRemediationTemplate{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "SelfNodeRemediationTemplate")
+		os.Exit(1)
+	}
+
 	ns, err := utils.GetDeploymentNamespace()
 	if err != nil {
 		setupLog.Error(err, "failed to get deployed namespace from env var")
