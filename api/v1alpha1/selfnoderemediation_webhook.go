@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -32,9 +33,6 @@ func (r *SelfNodeRemediation) SetupWebhookWithManager(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-
-// TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
 //+kubebuilder:webhook:path=/validate-self-node-remediation-medik8s-io-v1alpha1-selfnoderemediation,mutating=false,failurePolicy=fail,sideEffects=None,groups=self-node-remediation.medik8s.io,resources=selfnoderemediations,verbs=create;update,versions=v1alpha1,name=vselfnoderemediation.kb.io,admissionReviewVersions=v1
 
 var _ webhook.Validator = &SelfNodeRemediation{}
@@ -42,23 +40,27 @@ var _ webhook.Validator = &SelfNodeRemediation{}
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
 func (r *SelfNodeRemediation) ValidateCreate() error {
 	selfnoderemediationlog.Info("validate create", "name", r.Name)
-
-	// TODO(user): fill in your validation logic upon object creation.
-	return nil
+	return ValidateStrategy(r.Spec)
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (r *SelfNodeRemediation) ValidateUpdate(old runtime.Object) error {
 	selfnoderemediationlog.Info("validate update", "name", r.Name)
-
-	// TODO(user): fill in your validation logic upon object update.
-	return nil
+	return ValidateStrategy(r.Spec)
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
 func (r *SelfNodeRemediation) ValidateDelete() error {
+	// unused for now, add "delete" when needed to verbs in the kubebuilder annotation above
 	selfnoderemediationlog.Info("validate delete", "name", r.Name)
+	return nil
+}
 
-	// TODO(user): fill in your validation logic upon object deletion.
+func ValidateStrategy(snrSpec SelfNodeRemediationSpec) error {
+	if snrSpec.RemediationStrategy == DeprecatedNodeDeletionRemediationStrategy {
+		return fmt.Errorf("%s is deprecated, please switch to %s", DeprecatedNodeDeletionRemediationStrategy, ResourceDeletionRemediationStrategy)
+	} else if snrSpec.RemediationStrategy != ResourceDeletionRemediationStrategy {
+		return fmt.Errorf("invalid remediation strategy %s", snrSpec.RemediationStrategy)
+	}
 	return nil
 }

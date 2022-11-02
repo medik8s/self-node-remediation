@@ -32,9 +32,6 @@ func (r *SelfNodeRemediationTemplate) SetupWebhookWithManager(mgr ctrl.Manager) 
 		Complete()
 }
 
-// TODO(user): EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-
-// TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
 //+kubebuilder:webhook:path=/validate-self-node-remediation-medik8s-io-v1alpha1-selfnoderemediationtemplate,mutating=false,failurePolicy=fail,sideEffects=None,groups=self-node-remediation.medik8s.io,resources=selfnoderemediationtemplates,verbs=create;update,versions=v1alpha1,name=vselfnoderemediationtemplate.kb.io,admissionReviewVersions=v1
 
 var _ webhook.Validator = &SelfNodeRemediationTemplate{}
@@ -42,23 +39,18 @@ var _ webhook.Validator = &SelfNodeRemediationTemplate{}
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
 func (r *SelfNodeRemediationTemplate) ValidateCreate() error {
 	selfnoderemediationtemplatelog.Info("validate create", "name", r.Name)
-
-	// TODO(user): fill in your validation logic upon object creation.
-	return nil
+	return ValidateStrategy(r.Spec.Template.Spec)
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (r *SelfNodeRemediationTemplate) ValidateUpdate(old runtime.Object) error {
 	selfnoderemediationtemplatelog.Info("validate update", "name", r.Name)
-
-	// TODO(user): fill in your validation logic upon object update.
-	return nil
+	return ValidateStrategy(r.Spec.Template.Spec)
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
 func (r *SelfNodeRemediationTemplate) ValidateDelete() error {
+	// unused for now, add "delete" when needed to verbs in the kubebuilder annotation above
 	selfnoderemediationtemplatelog.Info("validate delete", "name", r.Name)
-
-	// TODO(user): fill in your validation logic upon object deletion.
 	return nil
 }
