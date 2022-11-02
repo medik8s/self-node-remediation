@@ -34,7 +34,7 @@ type RemediationStrategyType string
 // SelfNodeRemediationSpec defines the desired state of SelfNodeRemediation
 type SelfNodeRemediationSpec struct {
 	//RemediationStrategy is the remediation method for unhealthy nodes
-	//currently only option is "ResourceDeletion"
+	//currently "NodeDeletion" is deprecated and "ResourceDeletion" will always happen, regardless of which strategy is selected
 	//it will iterate over all pods and volume attachments related to the unhealthy node and delete them
 	// +kubebuilder:default:="ResourceDeletion"
 	// +kubebuilder:validation:Enum=ResourceDeletion;NodeDeletion
