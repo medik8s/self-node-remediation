@@ -36,7 +36,6 @@ const (
 
 var _ = Describe("Self Node Remediation E2E", func() {
 
-
 	Describe("Workers Remediation", func() {
 		var node *v1.Node
 		workers := &v1.NodeList{}
@@ -288,6 +287,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				if err := k8sClient.List(context.Background(), masters, &client.ListOptions{LabelSelector: selector}); err != nil && errors.IsNotFound(err) {
 					selector = labels.NewSelector()
 					req, _ = labels.NewRequirement(peers.ControlPlaneLabelName, selection.Exists, []string{})
+					selector = selector.Add(*req)
 					Expect(k8sClient.List(context.Background(), masters, &client.ListOptions{LabelSelector: selector})).ToNot(HaveOccurred())
 				}
 				Expect(len(masters.Items)).To(BeNumerically(">=", 2))
