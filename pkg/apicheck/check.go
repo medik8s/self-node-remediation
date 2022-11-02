@@ -108,7 +108,7 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 // isConsideredHealthy keeps track of the number of errors reported, and when a certain amount of error occur within a certain
 // time, ask peers if this node is healthy. Returns if the node is considered to be healthy or not.
 func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
-	workerPeersResponse := c.GetWorkerPeersResponse()
+	workerPeersResponse := c.getWorkerPeersResponse()
 	isWorkerNode := c.controlPlaneManager == nil || !c.controlPlaneManager.IsControlPlane()
 	if isWorkerNode {
 		return workerPeersResponse.IsHealthy
@@ -118,7 +118,7 @@ func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
 
 }
 
-func (c *ApiConnectivityCheck) GetWorkerPeersResponse() peers.Response {
+func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 	c.errorCount++
 	if c.errorCount < c.config.MaxErrorsThreshold {
 		c.config.Log.Info("Ignoring api-server error, error count below threshold", "current count", c.errorCount, "threshold", c.config.MaxErrorsThreshold)
