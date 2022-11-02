@@ -273,40 +273,40 @@ var _ = Describe("Self Node Remediation E2E", func() {
 	})
 
 	Describe("Control Plane Remediation", func() {
-		masters := &v1.NodeList{}
-		var masterNode *v1.Node
+		controlPlaneNodes := &v1.NodeList{}
+		var controlPlaneNode *v1.Node
 
 		BeforeEach(func() {
 
 			// get all things that doesn't change once only
-			if masterNode == nil {
+			if controlPlaneNode == nil {
 				// get worker node(s)
 				selector := labels.NewSelector()
 				req, _ := labels.NewRequirement(peers.MasterLabelName, selection.Exists, []string{})
 				selector = selector.Add(*req)
-				if err := k8sClient.List(context.Background(), masters, &client.ListOptions{LabelSelector: selector}); err != nil && errors.IsNotFound(err) {
+				if err := k8sClient.List(context.Background(), controlPlaneNodes, &client.ListOptions{LabelSelector: selector}); err != nil && errors.IsNotFound(err) {
 					selector = labels.NewSelector()
 					req, _ = labels.NewRequirement(peers.ControlPlaneLabelName, selection.Exists, []string{})
 					selector = selector.Add(*req)
-					Expect(k8sClient.List(context.Background(), masters, &client.ListOptions{LabelSelector: selector})).ToNot(HaveOccurred())
+					Expect(k8sClient.List(context.Background(), controlPlaneNodes, &client.ListOptions{LabelSelector: selector})).ToNot(HaveOccurred())
 				}
-				Expect(len(masters.Items)).To(BeNumerically(">=", 2))
+				Expect(len(controlPlaneNodes.Items)).To(BeNumerically(">=", 2))
 
-				masterNode = &masters.Items[0]
+				controlPlaneNode = &controlPlaneNodes.Items[0]
 
 			}
 
-			ensureSnrRunning(masters)
+			ensureSnrRunning(controlPlaneNodes)
 		})
 
 		AfterEach(func() {
 			// restart snr pods for resetting logs...
-			restartSnrPods(masters)
+			restartSnrPods(controlPlaneNodes)
 		})
 
 		JustAfterEach(func() {
 			By("printing self node remediation log of healthy node")
-			healthyNode := &masters.Items[1]
+			healthyNode := &controlPlaneNodes.Items[1]
 			pod := findSnrPod(healthyNode)
 			logs, err := utils.GetLogs(k8sClientSet, pod)
 			Expect(err).ToNot(HaveOccurred())
@@ -323,7 +323,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				var snr *v1alpha1.SelfNodeRemediation
 				var remediationStrategy v1alpha1.RemediationStrategyType
 				JustBeforeEach(func() {
-					snr = createSNR(masterNode, remediationStrategy)
+					snr = createSNR(controlPlaneNode, remediationStrategy)
 				})
 
 				AfterEach(func() {
@@ -338,18 +338,18 @@ var _ = Describe("Self Node Remediation E2E", func() {
 
 					BeforeEach(func() {
 						remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
-						oldPodCreationTime = findSnrPod(masterNode).CreationTimestamp.Time
-						va = createVolumeAttachment(masterNode)
+						oldPodCreationTime = findSnrPod(controlPlaneNode).CreationTimestamp.Time
+						va = createVolumeAttachment(controlPlaneNode)
 					})
 
 					It("should delete pods and volume attachments", func() {
-						checkPodRecreated(masterNode, oldPodCreationTime)
+						checkPodRecreated(controlPlaneNode, oldPodCreationTime)
 						checkVaDeleted(va)
 						//Simulate NHC trying to delete SNR
 						deleteAndWait(snr)
 						snr = nil
 
-						checkNoExecuteTaintRemoved(masterNode)
+						checkNoExecuteTaintRemoved(controlPlaneNode)
 					})
 				})
 

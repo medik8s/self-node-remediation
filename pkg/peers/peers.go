@@ -32,30 +32,30 @@ type Role int8
 
 const (
 	Worker Role = iota
-	Master
+	ControlPlane
 )
 
 type Peers struct {
 	client.Reader
-	log                                        logr.Logger
-	workerPeerSelector, masterPeerSelector     labels.Selector
-	peerUpdateInterval                         time.Duration
-	myNodeName                                 string
-	mutex                                      sync.Mutex
-	apiServerTimeout                           time.Duration
-	workerPeersAddresses, masterPeersAddresses [][]v1.NodeAddress
+	log                                              logr.Logger
+	workerPeerSelector, controlPlanePeerSelector     labels.Selector
+	peerUpdateInterval                               time.Duration
+	myNodeName                                       string
+	mutex                                            sync.Mutex
+	apiServerTimeout                                 time.Duration
+	workerPeersAddresses, controlPlanePeersAddresses [][]v1.NodeAddress
 }
 
 func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Reader, log logr.Logger, apiServerTimeout time.Duration) *Peers {
 	return &Peers{
-		Reader:               reader,
-		log:                  log,
-		peerUpdateInterval:   peerUpdateInterval,
-		myNodeName:           myNodeName,
-		mutex:                sync.Mutex{},
-		apiServerTimeout:     apiServerTimeout,
-		workerPeersAddresses: [][]v1.NodeAddress{},
-		masterPeersAddresses: [][]v1.NodeAddress{},
+		Reader:                     reader,
+		log:                        log,
+		peerUpdateInterval:         peerUpdateInterval,
+		myNodeName:                 myNodeName,
+		mutex:                      sync.Mutex{},
+		apiServerTimeout:           apiServerTimeout,
+		workerPeersAddresses:       [][]v1.NodeAddress{},
+		controlPlanePeersAddresses: [][]v1.NodeAddress{},
 	}
 }
 
@@ -81,12 +81,12 @@ func (p *Peers) Start(ctx context.Context) error {
 		return err
 	} else {
 		p.workerPeerSelector = createSelector(hostname, Worker)
-		p.masterPeerSelector = createSelector(hostname, Master)
+		p.controlPlanePeerSelector = createSelector(hostname, ControlPlane)
 	}
 
 	go wait.UntilWithContext(ctx, func(ctx context.Context) {
 		p.updateWorkerPeers(ctx)
-		p.updateMasterPeers(ctx)
+		p.updateControlPlanePeers(ctx)
 	}, p.peerUpdateInterval)
 
 	p.log.Info("peers started")
@@ -101,9 +101,9 @@ func (p *Peers) updateWorkerPeers(ctx context.Context) {
 	p.updatePeers(ctx, selectorGetter, setterFunc)
 }
 
-func (p *Peers) updateMasterPeers(ctx context.Context) {
-	setterFunc := func(addresses [][]v1.NodeAddress) { p.masterPeersAddresses = addresses }
-	selectorGetter := func() labels.Selector { return p.masterPeerSelector }
+func (p *Peers) updateControlPlanePeers(ctx context.Context) {
+	setterFunc := func(addresses [][]v1.NodeAddress) { p.controlPlanePeersAddresses = addresses }
+	selectorGetter := func() labels.Selector { return p.controlPlanePeerSelector }
 	p.updatePeers(ctx, selectorGetter, setterFunc)
 }
 
@@ -141,7 +141,7 @@ func (p *Peers) GetPeersAddresses(role Role) [][]v1.NodeAddress {
 	if role == Worker {
 		addresses = p.workerPeersAddresses
 	} else {
-		addresses = p.masterPeersAddresses
+		addresses = p.controlPlanePeersAddresses
 	}
 	//we don't want the caller to be able to change the addresses
 	//so we create a deep copy and return it
@@ -158,7 +158,7 @@ func createSelector(hostNameToExclude string, nodeRole Role) labels.Selector {
 	var nodeTypeLabel string
 
 	switch nodeRole {
-	case Master:
+	case ControlPlane:
 		nodeTypeLabel = GetUsedControlPlaneLabel()
 	default:
 		nodeTypeLabel = WorkerLabelName

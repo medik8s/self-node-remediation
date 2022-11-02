@@ -1,4 +1,4 @@
-package master
+package controlplane
 
 import (
 	"context"
@@ -23,7 +23,7 @@ const (
 	kubeletPort = "10250"
 )
 
-//Manager contains logic and info needed to fence and remediate master nodes
+//Manager contains logic and info needed to fence and remediate controlplane nodes
 type Manager struct {
 	nodeName                     string
 	nodeRole                     peers.Role
@@ -40,7 +40,7 @@ func NewManager(nodeName string, myClient client.Client) *Manager {
 		endpointHealthCheckUrl:       os.Getenv("END_POINT_HEALTH_CHECK_URL"),
 		client:                       myClient,
 		wasEndpointAccessibleAtStart: false,
-		log:                          ctrl.Log.WithName("master").WithName("Manager"),
+		log:                          ctrl.Log.WithName("controlPlane").WithName("Manager"),
 	}
 }
 
@@ -51,11 +51,11 @@ func (manager *Manager) Start(ctx context.Context) error {
 	return nil
 }
 
-func (manager *Manager) IsMaster() bool {
-	return manager.nodeRole == peers.Master
+func (manager *Manager) IsControlPlane() bool {
+	return manager.nodeRole == peers.ControlPlane
 }
 
-func (manager *Manager) IsMasterHealthy(workerPeerResponse peers.Response, canOtherMastersBeReached bool) bool {
+func (manager *Manager) IsControlPlaneHealthy(workerPeerResponse peers.Response, canOtherMastersBeReached bool) bool {
 	switch workerPeerResponse.Reason {
 	//reported unhealthy by worker peers
 	case peers.UnHealthyBecausePeersResponse:
@@ -65,7 +65,7 @@ func (manager *Manager) IsMasterHealthy(workerPeerResponse peers.Response, canOt
 	//reported healthy by worker peers
 	case peers.HealthyBecauseErrorsThresholdNotReached, peers.HealthyBecauseCRNotFound:
 		return true
-	//master node has connection to most workers, we assume it's not isolated (or at least that the master node that does not have worker peers quorum will reboot)
+	//controlplane node has connection to most workers, we assume it's not isolated (or at least that the controlplane node that does not have worker peers quorum will reboot)
 	case peers.HealthyBecauseMostPeersCantAccessAPIServer:
 		return manager.isDiagnosticsPassed()
 	case peers.HealthyBecauseNoPeersWereFound:
@@ -91,7 +91,7 @@ func (manager *Manager) isDiagnosticsPassed() bool {
 }
 
 func wrapWithInitError(err error) error {
-	return fmt.Errorf("error initializing master handler [%w]", err)
+	return fmt.Errorf("error initializing controlplane handler [%w]", err)
 }
 
 func (manager *Manager) initializeManager() error {
@@ -117,7 +117,7 @@ func (manager *Manager) setNodeRole(node corev1.Node) {
 	} else {
 		peers.SetControlPlaneLabelType(&node)
 		if _, isMaster := node.Labels[peers.GetUsedControlPlaneLabel()]; isMaster {
-			manager.nodeRole = peers.Master
+			manager.nodeRole = peers.ControlPlane
 		}
 	}
 }

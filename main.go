@@ -45,7 +45,7 @@ import (
 	"github.com/medik8s/self-node-remediation/controllers"
 	"github.com/medik8s/self-node-remediation/pkg/apicheck"
 	"github.com/medik8s/self-node-remediation/pkg/certificates"
-	"github.com/medik8s/self-node-remediation/pkg/master"
+	"github.com/medik8s/self-node-remediation/pkg/controlplane"
 	"github.com/medik8s/self-node-remediation/pkg/peerhealth"
 	"github.com/medik8s/self-node-remediation/pkg/peers"
 	"github.com/medik8s/self-node-remediation/pkg/reboot"
@@ -257,14 +257,14 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		PeerHealthPort:     peerHealthDefaultPort,
 	}
 
-	masterManager := master.NewManager(myNodeName, mgr.GetClient())
+	controlPlaneManager := controlplane.NewManager(myNodeName, mgr.GetClient())
 
-	if err = mgr.Add(masterManager); err != nil {
-		setupLog.Error(err, "failed to add master remediation manager to setup manager")
+	if err = mgr.Add(controlPlaneManager); err != nil {
+		setupLog.Error(err, "failed to add controlPlane remediation manager to setup manager")
 		os.Exit(1)
 	}
 
-	apiChecker := apicheck.New(apiConnectivityCheckConfig, masterManager)
+	apiChecker := apicheck.New(apiConnectivityCheckConfig, controlPlaneManager)
 	if err = mgr.Add(apiChecker); err != nil {
 		setupLog.Error(err, "failed to add api-check to the manager")
 		os.Exit(1)

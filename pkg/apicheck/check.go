@@ -3,7 +3,7 @@ package apicheck
 import (
 	"context"
 	"fmt"
-	"github.com/medik8s/self-node-remediation/pkg/master"
+	"github.com/medik8s/self-node-remediation/pkg/controlplane"
 	"net/http"
 	"sync"
 	"time"
@@ -26,11 +26,11 @@ import (
 
 type ApiConnectivityCheck struct {
 	client.Reader
-	config        *ApiConnectivityCheckConfig
-	errorCount    int
-	clientCreds   credentials.TransportCredentials
-	mutex         sync.Mutex
-	masterManager *master.Manager
+	config              *ApiConnectivityCheckConfig
+	errorCount          int
+	clientCreds         credentials.TransportCredentials
+	mutex               sync.Mutex
+	controlPlaneManager *controlplane.Manager
 }
 
 type ApiConnectivityCheckConfig struct {
@@ -48,11 +48,11 @@ type ApiConnectivityCheckConfig struct {
 	PeerHealthPort     int
 }
 
-func New(config *ApiConnectivityCheckConfig, masterManager *master.Manager) *ApiConnectivityCheck {
+func New(config *ApiConnectivityCheckConfig, controlPlaneManager *controlplane.Manager) *ApiConnectivityCheck {
 	return &ApiConnectivityCheck{
-		config:        config,
-		mutex:         sync.Mutex{},
-		masterManager: masterManager,
+		config:              config,
+		mutex:               sync.Mutex{},
+		controlPlaneManager: controlPlaneManager,
 	}
 }
 
@@ -109,11 +109,11 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 // time, ask peers if this node is healthy. Returns if the node is considered to be healthy or not.
 func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
 	workerPeersResponse := c.GetWorkerPeersResponse()
-	isWorkerNode := c.masterManager == nil || !c.masterManager.IsMaster()
+	isWorkerNode := c.controlPlaneManager == nil || !c.controlPlaneManager.IsControlPlane()
 	if isWorkerNode {
 		return workerPeersResponse.IsHealthy
 	} else {
-		return c.masterManager.IsMasterHealthy(workerPeersResponse, c.canOtherMastersBeReached())
+		return c.controlPlaneManager.IsControlPlaneHealthy(workerPeersResponse, c.canOtherControlPlanesBeReached())
 	}
 
 }
@@ -191,14 +191,14 @@ func (c *ApiConnectivityCheck) GetWorkerPeersResponse() peers.Response {
 	return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecauseNodeIsIsolated}
 }
 
-func (c *ApiConnectivityCheck) canOtherMastersBeReached() bool {
-	nodesToAsk := c.config.Peers.GetPeersAddresses(peers.Master)
-	numOfMasterPeers := len(nodesToAsk)
-	if nodesToAsk == nil || numOfMasterPeers == 0 {
-		c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, other masters can't be reached")
+func (c *ApiConnectivityCheck) canOtherControlPlanesBeReached() bool {
+	nodesToAsk := c.config.Peers.GetPeersAddresses(peers.ControlPlane)
+	numOfControlPlanePeers := len(nodesToAsk)
+	if nodesToAsk == nil || numOfControlPlanePeers == 0 {
+		c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, other control planes can't be reached")
 		return false
 	}
-	chosenNodesAddresses := c.popNodes(&nodesToAsk, numOfMasterPeers)
+	chosenNodesAddresses := c.popNodes(&nodesToAsk, numOfControlPlanePeers)
 
 	nrAddresses := len(chosenNodesAddresses)
 	responsesChan := make(chan selfNodeRemediation.HealthCheckResponseCode, nrAddresses)
