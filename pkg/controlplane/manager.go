@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/medik8s/self-node-remediation/pkg/peers"
+	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
 const (
@@ -113,13 +114,10 @@ func (manager *Manager) initializeManager() error {
 }
 
 func (manager *Manager) setNodeRole(node corev1.Node) {
-	if _, isWorker := node.Labels[peers.WorkerLabelName]; isWorker {
-		manager.nodeRole = peers.Worker
+	if utils.IsControlPlaneNode(&node) {
+		manager.nodeRole = peers.ControlPlane
 	} else {
-		peers.SetControlPlaneLabelType(&node)
-		if _, isMaster := node.Labels[peers.GetUsedControlPlaneLabel()]; isMaster {
-			manager.nodeRole = peers.ControlPlane
-		}
+		manager.nodeRole = peers.Worker
 	}
 }
 

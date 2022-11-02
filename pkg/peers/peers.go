@@ -14,18 +14,12 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
 const (
-	hostnameLabelName     = "kubernetes.io/hostname"
-	WorkerLabelName       = "node-role.kubernetes.io/worker"
-	MasterLabelName       = "node-role.kubernetes.io/master"
-	ControlPlaneLabelName = "node-role.kubernetes.io/control-plane" //replacing master label since k8s 1.25
-)
-
-var (
-	controlPlaneLabelLock sync.Mutex
-	UsedControlPlaneLabel string
+	hostnameLabelName = "kubernetes.io/hostname"
 )
 
 type Role int8
@@ -74,14 +68,13 @@ func (p *Peers) Start(ctx context.Context) error {
 		p.log.Error(err, "failed to get own node")
 		return err
 	}
-	SetControlPlaneLabelType(myNode)
 	if hostname, ok := myNode.Labels[hostnameLabelName]; !ok {
 		err := fmt.Errorf("%s label not set on own node", hostnameLabelName)
 		p.log.Error(err, "failed to get own hostname")
 		return err
 	} else {
-		p.workerPeerSelector = createSelector(hostname, Worker)
-		p.controlPlanePeerSelector = createSelector(hostname, ControlPlane)
+		p.workerPeerSelector = createSelector(hostname, utils.WorkerLabelName)
+		p.controlPlanePeerSelector = createSelector(hostname, utils.GetControlPlaneLabel(myNode))
 	}
 
 	go wait.UntilWithContext(ctx, func(ctx context.Context) {
@@ -154,41 +147,10 @@ func (p *Peers) GetPeersAddresses(role Role) [][]v1.NodeAddress {
 	return addressesCopy
 }
 
-func createSelector(hostNameToExclude string, nodeRole Role) labels.Selector {
-	var nodeTypeLabel string
-
-	switch nodeRole {
-	case ControlPlane:
-		nodeTypeLabel = GetUsedControlPlaneLabel()
-	default:
-		nodeTypeLabel = WorkerLabelName
-	}
-
+func createSelector(hostNameToExclude string, nodeTypeLabel string) labels.Selector {
 	reqNotMe, _ := labels.NewRequirement(hostnameLabelName, selection.NotEquals, []string{hostNameToExclude})
 	reqPeers, _ := labels.NewRequirement(nodeTypeLabel, selection.Exists, []string{})
 	selector := labels.NewSelector()
 	selector = selector.Add(*reqNotMe, *reqPeers)
 	return selector
-}
-
-func SetControlPlaneLabelType(node *v1.Node) {
-	controlPlaneLabelLock.Lock()
-	defer controlPlaneLabelLock.Unlock()
-	if len(UsedControlPlaneLabel) != 0 {
-		return
-	}
-	if _, isMasterLabel := node.Labels[MasterLabelName]; isMasterLabel {
-		UsedControlPlaneLabel = MasterLabelName
-	} else if _, isControlPlaneLabel := node.Labels[ControlPlaneLabelName]; isControlPlaneLabel {
-		UsedControlPlaneLabel = ControlPlaneLabelName
-	}
-}
-
-func GetUsedControlPlaneLabel() string {
-	controlPlaneLabelLock.Lock()
-	defer controlPlaneLabelLock.Unlock()
-	if len(UsedControlPlaneLabel) == 0 {
-		return MasterLabelName
-	}
-	return UsedControlPlaneLabel
 }
