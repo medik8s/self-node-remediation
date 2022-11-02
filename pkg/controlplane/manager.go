@@ -2,10 +2,11 @@ package controlplane
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
-	"os/exec"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -65,7 +66,7 @@ func (manager *Manager) IsControlPlaneHealthy(workerPeerResponse peers.Response,
 	//reported healthy by worker peers
 	case peers.HealthyBecauseErrorsThresholdNotReached, peers.HealthyBecauseCRNotFound:
 		return true
-	//controlplane node has connection to most workers, we assume it's not isolated (or at least that the controlplane node that does not have worker peers quorum will reboot)
+	//controlPlane node has connection to most workers, we assume it's not isolated (or at least that the controlPlane node that does not have worker peers quorum will reboot)
 	case peers.HealthyBecauseMostPeersCantAccessAPIServer:
 		return manager.isDiagnosticsPassed()
 	case peers.HealthyBecauseNoPeersWereFound:
@@ -151,13 +152,23 @@ func (manager *Manager) isEndpointAccessible() bool {
 
 func (manager *Manager) isKubeletServiceRunning() bool {
 	url := fmt.Sprintf("https://%s:%s/pods", manager.nodeName, kubeletPort)
-	cmd := exec.Command("curl", "-k", "-X", "GET", url)
-	if err := cmd.Run(); err != nil {
-		manager.log.Error(err, "kubelet service is down", "node name", manager.nodeName)
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	httpClient := &http.Client{Transport: tr}
 
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		manager.log.Error(err, "failed to create a kubelet service request", "node name", manager.nodeName)
 		return false
 	}
 
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		manager.log.Error(err, "kubelet service is down", "node name", manager.nodeName)
+		return false
+	}
+	defer resp.Body.Close()
 	return true
 }
 
