@@ -27,7 +27,7 @@ const (
 type Manager struct {
 	nodeName                     string
 	nodeRole                     peers.Role
-	endPointHealthCheckUrl       string
+	endpointHealthCheckUrl       string
 	wasEndpointAccessibleAtStart bool
 	client                       client.Client
 	log                          logr.Logger
@@ -37,7 +37,7 @@ type Manager struct {
 func NewManager(nodeName string, myClient client.Client) *Manager {
 	return &Manager{
 		nodeName:                     nodeName,
-		endPointHealthCheckUrl:       os.Getenv("END_POINT_HEALTH_CHECK_URL"),
+		endpointHealthCheckUrl:       os.Getenv("END_POINT_HEALTH_CHECK_URL"),
 		client:                       myClient,
 		wasEndpointAccessibleAtStart: false,
 		log:                          ctrl.Log.WithName("master").WithName("Manager"),
@@ -130,20 +130,20 @@ func (manager *Manager) isEndpointAccessLost() bool {
 }
 
 func (manager *Manager) isEndpointAccessible() bool {
-	if len(manager.endPointHealthCheckUrl) == 0 {
+	if len(manager.endpointHealthCheckUrl) == 0 {
 		return true
 	}
 
-	pinger, err := ping.NewPinger(manager.endPointHealthCheckUrl)
+	pinger, err := ping.NewPinger(manager.endpointHealthCheckUrl)
 	if err != nil {
-		manager.log.Error(err, "could not access endpoint","endpoint URL", manager.endPointHealthCheckUrl)
+		manager.log.Error(err, "could not access endpoint", "endpoint URL", manager.endpointHealthCheckUrl)
 		return false
 	}
 	pinger.Count = 3
 	pinger.Timeout = time.Second * 5
 
 	if err := pinger.Run(); err != nil {
-		manager.log.Error(err, "could not access endpoint","endpoint URL", manager.endPointHealthCheckUrl)
+		manager.log.Error(err, "could not access endpoint", "endpoint URL", manager.endpointHealthCheckUrl)
 		return false
 	}
 	return true
