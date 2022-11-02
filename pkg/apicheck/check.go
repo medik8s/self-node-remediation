@@ -3,7 +3,6 @@ package apicheck
 import (
 	"context"
 	"fmt"
-	"github.com/medik8s/self-node-remediation/pkg/controlplane"
 	"net/http"
 	"sync"
 	"time"
@@ -19,6 +18,7 @@ import (
 
 	selfNodeRemediation "github.com/medik8s/self-node-remediation/api"
 	"github.com/medik8s/self-node-remediation/pkg/certificates"
+	"github.com/medik8s/self-node-remediation/pkg/controlplane"
 	"github.com/medik8s/self-node-remediation/pkg/peerhealth"
 	"github.com/medik8s/self-node-remediation/pkg/peers"
 	"github.com/medik8s/self-node-remediation/pkg/reboot"
