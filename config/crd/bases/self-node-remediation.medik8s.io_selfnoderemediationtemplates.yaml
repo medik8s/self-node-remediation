@@ -19,7 +19,8 @@ spec:
     singular: selfnoderemediationtemplate
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - deprecated: true
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: SelfNodeRemediationTemplate is the Schema for the selfnoderemediationtemplates
@@ -57,6 +58,60 @@ spec:
                         enum:
                         - ResourceDeletion
                         - NodeDeletion
+                        type: string
+                    type: object
+                required:
+                - spec
+                type: object
+            required:
+            - template
+            type: object
+          status:
+            description: SelfNodeRemediationTemplateStatus defines the observed state
+              of SelfNodeRemediationTemplate
+            type: object
+        type: object
+    served: true
+    storage: false
+    subresources:
+      status: {}
+  - name: v1alpha2
+    schema:
+      openAPIV3Schema:
+        description: SelfNodeRemediationTemplate is the Schema for the selfnoderemediationtemplates
+          API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: SelfNodeRemediationTemplateSpec defines the desired state
+              of SelfNodeRemediationTemplate
+            properties:
+              template:
+                description: Template defines the desired state of SelfNodeRemediationTemplate
+                properties:
+                  spec:
+                    description: SelfNodeRemediationSpec defines the desired state
+                      of SelfNodeRemediation
+                    properties:
+                      remediationStrategy:
+                        default: ResourceDeletion
+                        description: RemediationStrategy is the remediation method
+                          for unhealthy nodes currently only option is "ResourceDeletion"
+                          it will iterate over all pods and volume attachments related
+                          to the unhealthy node and delete them
+                        enum:
+                        - ResourceDeletion
                         type: string
                     type: object
                 required:

@@ -36,4 +36,31 @@ resources:
   webhooks:
     validation: true
     webhookVersion: v1
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: medik8s.io
+  group: self-node-remediation
+  kind: SelfNodeRemediation
+  path: github.com/medik8s/self-node-remediation/api/v1alpha2
+  version: v1alpha2
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: medik8s.io
+  group: self-node-remediation
+  kind: SelfNodeRemediationTemplate
+  path: github.com/medik8s/self-node-remediation/api/v1alpha2
+  version: v1alpha2
+- api:
+    crdVersion: v1
+    namespaced: true
+  domain: medik8s.io
+  group: self-node-remediation
+  kind: SelfNodeRemediationConfig
+  path: github.com/medik8s/self-node-remediation/api/v1alpha2
+  version: v1alpha2
+  webhooks:
+    validation: true
+    webhookVersion: v1
 version: "3"

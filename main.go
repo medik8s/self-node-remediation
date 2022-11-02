@@ -42,6 +42,7 @@ import (
 	machinev1beta1 "github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1"
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
+	selfnoderemediationv1alpha2 "github.com/medik8s/self-node-remediation/api/v1alpha2"
 	"github.com/medik8s/self-node-remediation/controllers"
 	"github.com/medik8s/self-node-remediation/pkg/apicheck"
 	"github.com/medik8s/self-node-remediation/pkg/certificates"
@@ -68,8 +69,10 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(selfnoderemediationv1alpha1.AddToScheme(scheme))
-	utilruntime.Must(machinev1beta1.AddToScheme(scheme))
+	utilruntime.Must(selfnoderemediationv1alpha2.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
+
+	utilruntime.Must(machinev1beta1.AddToScheme(scheme))
 }
 
 func main() {
@@ -133,7 +136,7 @@ func main() {
 func initSelfNodeRemediationManager(mgr manager.Manager) {
 	setupLog.Info("Starting as a manager that installs the daemonset")
 
-	if err := (&selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}).SetupWebhookWithManager(mgr); err != nil {
+	if err := (&selfnoderemediationv1alpha2.SelfNodeRemediationConfig{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "SelfNodeRemediationConfig")
 		os.Exit(1)
 	}

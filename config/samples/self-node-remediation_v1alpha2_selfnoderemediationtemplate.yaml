@@ -1,0 +1,13 @@
+apiVersion: self-node-remediation.medik8s.io/v1alpha2
+kind: SelfNodeRemediationTemplate
+metadata:
+  labels:
+    app.kubernetes.io/name: selfnoderemediationtemplate
+    app.kubernetes.io/instance: selfnoderemediationtemplate-sample
+    app.kubernetes.io/part-of: self-node-remediation
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: self-node-remediation
+  name: selfnoderemediationtemplate-sample
+spec:
+  template:
+    spec: {}

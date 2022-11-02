@@ -5,8 +5,8 @@ metadata:
     alm-examples: '[]'
     capabilities: Basic Install
     categories: OpenShift Optional
-    containerImage: quay.io/medik8s/self-node-remediation-operator:latest
-    createdAt: "2022-09-11 12:36:32"
+    containerImage: quay.io/medik8s/self-node-remediation-operator:v0.5.0-test
+    createdAt: "2022-11-02 17:08:03"
     description: Self Node Remediation Operator for remediate itself in case of a
       failure.
     olm.skipRange: '>=0.1.0 <0.4.0'
@@ -26,8 +26,44 @@ spec:
       resources:
       - kind: SelfNodeRemediationConfig
         name: selfnoderemediationconfigs
+        version: v1alpha2
+      version: v1alpha2
+    - description: SelfNodeRemediationConfig is the Schema for the selfnoderemediationconfigs
+        API in which a user can configure the self node remediation agents
+      displayName: Self Node Remediation Config
+      kind: SelfNodeRemediationConfig
+      name: selfnoderemediationconfigs.self-node-remediation.medik8s.io
+      resources:
+      - kind: SelfNodeRemediationConfig
+        name: selfnoderemediationconfigs
         version: v1alpha1
       version: v1alpha1
+    - description: SelfNodeRemediation is the Schema for the selfnoderemediations
+        API
+      displayName: Self Node Remediation
+      kind: SelfNodeRemediation
+      name: selfnoderemediations.self-node-remediation.medik8s.io
+      resources:
+      - kind: SelfNodeRemediation
+        name: selfnoderemediations
+        version: v1alpha2
+      statusDescriptors:
+      - description: LastError captures the last error that occurred during remediation.
+          If no error occurred it would be empty
+        displayName: Last Error
+        path: lastError
+      - description: NodeBackup is the node object that is going to be deleted as
+          part of the remediation process
+        displayName: Node Backup
+        path: nodeBackup
+      - description: 'Phase represents the current phase of remediation, One of: TBD'
+        displayName: Phase
+        path: phase
+      - description: TimeAssumedRebooted is the time by then the unhealthy node assumed
+          to be rebooted
+        displayName: Time Assumed Rebooted
+        path: timeAssumedRebooted
+      version: v1alpha2
     - description: SelfNodeRemediation is the Schema for the selfnoderemediations
         API
       displayName: Self Node Remediation
@@ -54,6 +90,20 @@ spec:
         displayName: Time Assumed Rebooted
         path: timeAssumedRebooted
       version: v1alpha1
+    - description: SelfNodeRemediationTemplate is the Schema for the selfnoderemediationtemplates
+        API
+      displayName: Self Node Remediation Template
+      kind: SelfNodeRemediationTemplate
+      name: selfnoderemediationtemplates.self-node-remediation.medik8s.io
+      resources:
+      - kind: SelfNodeRemediationTemplate
+        name: selfnoderemediationtemplates
+        version: v1alpha2
+      specDescriptors:
+      - description: Template defines the desired state of SelfNodeRemediationTemplate
+        displayName: Template
+        path: template
+      version: v1alpha2
     - description: SelfNodeRemediationTemplate is the Schema for the selfnoderemediationtemplates
         API
       displayName: Self Node Remediation Template

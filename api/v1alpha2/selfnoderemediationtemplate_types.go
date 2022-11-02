@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1alpha2
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -46,10 +46,10 @@ type SelfNodeRemediationTemplateStatus struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:shortName=snrt;snremediationtemplate;snrtemplate
-//+kubebuilder:deprecatedversion
+//+kubebuilder:storageversion
 
 // SelfNodeRemediationTemplate is the Schema for the selfnoderemediationtemplates API
-// +operator-sdk:csv:customresourcedefinitions:resources={{"SelfNodeRemediationTemplate","v1alpha1","selfnoderemediationtemplates"}}
+// +operator-sdk:csv:customresourcedefinitions:resources={{"SelfNodeRemediationTemplate","v1alpha2","selfnoderemediationtemplates"}}
 type SelfNodeRemediationTemplate struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

@@ -1,0 +1,12 @@
+apiVersion: self-node-remediation.medik8s.io/v1alpha2
+kind: SelfNodeRemediation
+metadata:
+  labels:
+    app.kubernetes.io/name: selfnoderemediation
+    app.kubernetes.io/instance: selfnoderemediation-sample
+    app.kubernetes.io/part-of: self-node-remediation
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: self-node-remediation
+  name: selfnoderemediation-sample
+spec:
+  # TODO(user): Add fields here

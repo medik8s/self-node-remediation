@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1alpha2
 
 import (
 	v1 "k8s.io/api/core/v1"
@@ -37,7 +37,7 @@ type SelfNodeRemediationSpec struct {
 	//currently only option is "ResourceDeletion"
 	//it will iterate over all pods and volume attachments related to the unhealthy node and delete them
 	// +kubebuilder:default:="ResourceDeletion"
-	// +kubebuilder:validation:Enum=ResourceDeletion;NodeDeletion
+	// +kubebuilder:validation:Enum=ResourceDeletion
 	RemediationStrategy RemediationStrategyType `json:"remediationStrategy,omitempty"`
 }
 
@@ -71,10 +71,10 @@ type SelfNodeRemediationStatus struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:shortName=snr;snremediation
-//+kubebuilder:deprecatedversion
+//+kubebuilder:storageversion
 
 // SelfNodeRemediation is the Schema for the selfnoderemediations API
-// +operator-sdk:csv:customresourcedefinitions:resources={{"SelfNodeRemediation","v1alpha1","selfnoderemediations"}}
+// +operator-sdk:csv:customresourcedefinitions:resources={{"SelfNodeRemediation","v1alpha2","selfnoderemediations"}}
 type SelfNodeRemediation struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

@@ -5,26 +5,16 @@ metadata:
     alm-examples: |-
       [
         {
-          "apiVersion": "self-node-remediation.medik8s.io/v1alpha1",
-          "kind": "SelfNodeRemediation",
-          "metadata": {
-            "name": "selfnoderemediation-sample"
-          },
-          "spec": {}
-        },
-        {
-          "apiVersion": "self-node-remediation.medik8s.io/v1alpha1",
-          "kind": "SelfNodeRemediationConfig",
-          "metadata": {
-            "name": "self-node-remediation-config",
-            "namespace": "self-node-remediation"
-          },
-          "spec": {}
-        },
-        {
-          "apiVersion": "self-node-remediation.medik8s.io/v1alpha1",
+          "apiVersion": "self-node-remediation.medik8s.io/v1alpha2",
           "kind": "SelfNodeRemediationTemplate",
           "metadata": {
+            "labels": {
+              "app.kubernetes.io/created-by": "self-node-remediation",
+              "app.kubernetes.io/instance": "selfnoderemediationtemplate-sample",
+              "app.kubernetes.io/managed-by": "kustomize",
+              "app.kubernetes.io/name": "selfnoderemediationtemplate",
+              "app.kubernetes.io/part-of": "self-node-remediation"
+            },
             "name": "selfnoderemediationtemplate-sample"
           },
           "spec": {
@@ -36,8 +26,8 @@ metadata:
       ]
     capabilities: Basic Install
     categories: OpenShift Optional
-    containerImage: quay.io/medik8s/self-node-remediation-operator:0.4.0
-    createdAt: "2022-04-28 21:46:09"
+    containerImage: quay.io/medik8s/self-node-remediation-operator:v0.5.0-test
+    createdAt: "2022-11-02 17:08:03"
     description: Self Node Remediation Operator for remediate itself in case of a
       failure.
     olm.skipRange: '>=0.1.0 <0.4.0'
@@ -45,7 +35,7 @@ metadata:
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v3
     repository: https://github.com/medik8s/self-node-remediation
     support: Medik8s
-  name: self-node-remediation.v0.4.0
+  name: self-node-remediation.v0.5.0-test
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -61,6 +51,16 @@ spec:
         name: selfnoderemediationconfigs
         version: v1alpha1
       version: v1alpha1
+    - description: SelfNodeRemediationConfig is the Schema for the selfnoderemediationconfigs
+        API in which a user can configure the self node remediation agents
+      displayName: Self Node Remediation Config
+      kind: SelfNodeRemediationConfig
+      name: selfnoderemediationconfigs.self-node-remediation.medik8s.io
+      resources:
+      - kind: SelfNodeRemediationConfig
+        name: selfnoderemediationconfigs
+        version: v1alpha2
+      version: v1alpha2
     - description: SelfNodeRemediation is the Schema for the selfnoderemediations
         API
       displayName: Self Node Remediation
@@ -87,6 +87,32 @@ spec:
         displayName: Time Assumed Rebooted
         path: timeAssumedRebooted
       version: v1alpha1
+    - description: SelfNodeRemediation is the Schema for the selfnoderemediations
+        API
+      displayName: Self Node Remediation
+      kind: SelfNodeRemediation
+      name: selfnoderemediations.self-node-remediation.medik8s.io
+      resources:
+      - kind: SelfNodeRemediation
+        name: selfnoderemediations
+        version: v1alpha2
+      statusDescriptors:
+      - description: LastError captures the last error that occurred during remediation.
+          If no error occurred it would be empty
+        displayName: Last Error
+        path: lastError
+      - description: NodeBackup is the node object that is going to be deleted as
+          part of the remediation process
+        displayName: Node Backup
+        path: nodeBackup
+      - description: 'Phase represents the current phase of remediation, One of: TBD'
+        displayName: Phase
+        path: phase
+      - description: TimeAssumedRebooted is the time by then the unhealthy node assumed
+          to be rebooted
+        displayName: Time Assumed Rebooted
+        path: timeAssumedRebooted
+      version: v1alpha2
     - description: SelfNodeRemediationTemplate is the Schema for the selfnoderemediationtemplates
         API
       displayName: Self Node Remediation Template
@@ -101,6 +127,20 @@ spec:
         displayName: Template
         path: template
       version: v1alpha1
+    - description: SelfNodeRemediationTemplate is the Schema for the selfnoderemediationtemplates
+        API
+      displayName: Self Node Remediation Template
+      kind: SelfNodeRemediationTemplate
+      name: selfnoderemediationtemplates.self-node-remediation.medik8s.io
+      resources:
+      - kind: SelfNodeRemediationTemplate
+        name: selfnoderemediationtemplates
+        version: v1alpha2
+      specDescriptors:
+      - description: Template defines the desired state of SelfNodeRemediationTemplate
+        displayName: Template
+        path: template
+      version: v1alpha2
   description: This self node remediation operator is using an alternate mechanism
     for a node in a cluster to detect its health status and take actions to remediate
     itself in case of a failure. While not all remediation events can result in the
@@ -336,12 +376,12 @@ spec:
                     fieldRef:
                       fieldPath: spec.nodeName
                 - name: SELF_NODE_REMEDIATION_IMAGE
-                  value: quay.io/medik8s/self-node-remediation-operator:0.4.0
+                  value: quay.io/medik8s/self-node-remediation-operator:v0.5.0-test
                 - name: DEPLOYMENT_NAMESPACE
                   valueFrom:
                     fieldRef:
                       fieldPath: metadata.namespace
-                image: quay.io/medik8s/self-node-remediation-operator:0.4.0
+                image: quay.io/medik8s/self-node-remediation-operator:v0.5.0-test
                 livenessProbe:
                   httpGet:
                     path: /healthz
@@ -425,11 +465,10 @@ spec:
   provider:
     name: medik8s
     url: https://www.medik8s.io/
-  version: 0.4.0
+  version: 0.5.0-test
   webhookdefinitions:
   - admissionReviewVersions:
     - v1
-    - v1beta1
     containerPort: 443
     deploymentName: self-node-remediation-controller-manager
     failurePolicy: Fail
@@ -439,6 +478,7 @@ spec:
       - self-node-remediation.medik8s.io
       apiVersions:
       - v1alpha1
+      - v1alpha2
       operations:
       - CREATE
       - UPDATE
@@ -447,4 +487,4 @@ spec:
     sideEffects: None
     targetPort: 9443
     type: ValidatingAdmissionWebhook
-    webhookPath: /validate-self-node-remediation-medik8s-io-v1alpha1-selfnoderemediationconfig
+    webhookPath: /validate-self-node-remediation-medik8s-io-v1alpha2-selfnoderemediationconfig

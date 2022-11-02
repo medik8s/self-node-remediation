@@ -7,12 +7,11 @@ metadata:
 webhooks:
 - admissionReviewVersions:
   - v1
-  - v1beta1
   clientConfig:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-self-node-remediation-medik8s-io-v1alpha1-selfnoderemediationconfig
+      path: /validate-self-node-remediation-medik8s-io-v1alpha2-selfnoderemediationconfig
   failurePolicy: Fail
   name: vselfnoderemediationconfig.kb.io
   rules:
@@ -20,6 +19,7 @@ webhooks:
     - self-node-remediation.medik8s.io
     apiVersions:
     - v1alpha1
+    - v1alpha2
     operations:
     - CREATE
     - UPDATE

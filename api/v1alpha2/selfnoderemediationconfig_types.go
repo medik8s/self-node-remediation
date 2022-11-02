@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1alpha2
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -116,10 +116,10 @@ type SelfNodeRemediationConfigStatus struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:shortName=snrc;snrconfig
-//+kubebuilder:deprecatedversion
+//+kubebuilder:storageversion
 
 // SelfNodeRemediationConfig is the Schema for the selfnoderemediationconfigs API in which a user can configure the self node remediation agents
-// +operator-sdk:csv:customresourcedefinitions:resources={{"SelfNodeRemediationConfig","v1alpha1","selfnoderemediationconfigs"}}
+// +operator-sdk:csv:customresourcedefinitions:resources={{"SelfNodeRemediationConfig","v1alpha2","selfnoderemediationconfigs"}}
 type SelfNodeRemediationConfig struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

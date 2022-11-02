@@ -1,6 +1,4 @@
 ## Append samples you want in your CSV to this file as resources ##
 resources:
-- self-node-remediation_v1alpha1_selfnoderemediation.yaml
-- self-node-remediation_v1alpha1_selfnoderemediationtemplate.yaml
-- self-node-remediation_v1alpha1_selfnoderemediationconfig.yaml
+- self-node-remediation_v1alpha2_selfnoderemediationtemplate.yaml
 #+kubebuilder:scaffold:manifestskustomizesamples
