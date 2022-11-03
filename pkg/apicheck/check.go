@@ -194,7 +194,7 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 func (c *ApiConnectivityCheck) canOtherControlPlanesBeReached() bool {
 	nodesToAsk := c.config.Peers.GetPeersAddresses(peers.ControlPlane)
 	numOfControlPlanePeers := len(nodesToAsk)
-	if nodesToAsk == nil || numOfControlPlanePeers == 0 {
+	if numOfControlPlanePeers == 0 {
 		c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, other control planes can't be reached")
 		return false
 	}
