@@ -57,13 +57,13 @@ func (manager *Manager) IsControlPlane() bool {
 	return manager.nodeRole == peers.ControlPlane
 }
 
-func (manager *Manager) IsControlPlaneHealthy(workerPeerResponse peers.Response, canOtherMastersBeReached bool) bool {
+func (manager *Manager) IsControlPlaneHealthy(workerPeerResponse peers.Response, canOtherControlPlanesBeReached bool) bool {
 	switch workerPeerResponse.Reason {
 	//reported unhealthy by worker peers
 	case peers.UnHealthyBecausePeersResponse:
 		return false
 	case peers.UnHealthyBecauseNodeIsIsolated:
-		return canOtherMastersBeReached
+		return canOtherControlPlanesBeReached
 	//reported healthy by worker peers
 	case peers.HealthyBecauseErrorsThresholdNotReached, peers.HealthyBecauseCRNotFound:
 		return true
@@ -71,7 +71,7 @@ func (manager *Manager) IsControlPlaneHealthy(workerPeerResponse peers.Response,
 	case peers.HealthyBecauseMostPeersCantAccessAPIServer:
 		return manager.isDiagnosticsPassed()
 	case peers.HealthyBecauseNoPeersWereFound:
-		return manager.isDiagnosticsPassed() && canOtherMastersBeReached
+		return manager.isDiagnosticsPassed() && canOtherControlPlanesBeReached
 
 	default:
 		errorText := "node is considered unhealthy by worker peers for an unknown reason"
