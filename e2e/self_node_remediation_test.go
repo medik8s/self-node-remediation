@@ -125,19 +125,6 @@ var _ = Describe("Self Node Remediation E2E", func() {
 					})
 				})
 
-				Context("Node Deletion Strategy", func() {
-					BeforeEach(func() {
-						remediationStrategy = v1alpha1.NodeDeletionRemediationStrategy
-					})
-
-					It("should reboot and re-create node", func() {
-						// order matters
-						// - because the 2nd check has a small timeout only
-						checkNodeRecreate(node, oldUID)
-						checkReboot(node, oldBootTime)
-						checkNoExecuteTaintRemoved(node)
-					})
-				})
 			})
 		})
 
@@ -179,10 +166,14 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				//    - verify node does reboot and and is deleted / re-created
 
 				var snr *v1alpha1.SelfNodeRemediation
+				var va *storagev1.VolumeAttachment
+				var oldPodCreationTime time.Time
 
 				BeforeEach(func() {
 					killApiConnection(node, apiIPs, false)
-					snr = createSNR(node, v1alpha1.NodeDeletionRemediationStrategy)
+					snr = createSNR(node, v1alpha1.ResourceDeletionRemediationStrategy)
+					oldPodCreationTime = findSnrPod(node).CreationTimestamp.Time
+					va = createVolumeAttachment(node)
 				})
 
 				AfterEach(func() {
@@ -191,12 +182,13 @@ var _ = Describe("Self Node Remediation E2E", func() {
 					}
 				})
 
-				It("should reboot and re-create node", func() {
+				It("should reboot and delete node resources", func() {
 					// order matters
 					// - because node check works while api is disconnected from node, reboot check not
 					// - because the 2nd check has a small timeout only
-					checkNodeRecreate(node, oldUID)
 					checkReboot(node, oldBootTime)
+					checkPodRecreated(node, oldPodCreationTime)
+					checkVaDeleted(va)
 
 					// we can't check logs of unhealthy node anymore, check peer logs
 					peer := &workers.Items[1]
@@ -429,24 +421,6 @@ func getBootTime(node *v1.Node) (*time.Time, error) {
 	return &bootTime, nil
 }
 
-func checkNodeRecreate(node *v1.Node, oldUID types.UID) {
-	By("checking if node was recreated")
-	logger.Info("UID", "old", oldUID)
-	EventuallyWithOffset(1, func() types.UID {
-		key := client.ObjectKey{
-			Name: node.GetName(),
-		}
-		newNode := &v1.Node{}
-		if err := k8sClient.Get(context.Background(), key, newNode); err != nil {
-			logger.Error(err, "error getting node")
-			return oldUID
-		}
-		newUID := newNode.GetUID()
-		logger.Info("UID", "new", newUID)
-		return newUID
-	}, 7*time.Minute, 10*time.Second).ShouldNot(Equal(oldUID))
-}
-
 func checkNoExecuteTaintRemoved(node *v1.Node) {
 	By("checking if NoExecute taint was removed")
 	EventuallyWithOffset(1, func() error {
@@ -480,7 +454,7 @@ func checkReboot(node *v1.Node, oldBootTime *time.Time) {
 		}
 		logger.Info("boot time", "new", newBootTime)
 		return *newBootTime
-	}, 2*time.Minute, 10*time.Second).Should(BeTemporally(">", *oldBootTime))
+	}, 7*time.Minute, 10*time.Second).Should(BeTemporally(">", *oldBootTime))
 }
 
 func killApiConnection(node *v1.Node, apiIPs []string, withReconnect bool) {
@@ -616,6 +590,7 @@ func restartSnrPods(nodes *v1.NodeList) {
 }
 
 func restartSnrPod(node *v1.Node) {
+	By("restarting snr pod for resetting logs")
 	pod := findSnrPod(node)
 	ExpectWithOffset(1, pod).ToNot(BeNil())
 	oldPodUID := pod.GetUID()

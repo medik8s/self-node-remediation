@@ -71,16 +71,6 @@ var _ = Describe("snr Controller", func() {
 			deleteSNR(snr)
 		})
 
-		Context("NodeDeletion strategy", func() {
-			BeforeEach(func() {
-				remediationStrategy = selfnoderemediationv1alpha1.NodeDeletionRemediationStrategy
-			})
-
-			It("snr should not have finalizers", func() {
-				testNoFinalizer()
-			})
-		})
-
 		Context("ResourceDeletion strategy", func() {
 			BeforeEach(func() {
 				remediationStrategy = selfnoderemediationv1alpha1.ResourceDeletionRemediationStrategy
@@ -103,7 +93,7 @@ var _ = Describe("snr Controller", func() {
 
 			BeforeEach(func() {
 				createSelfNodeRemediationPod()
-				createSNR(selfnoderemediationv1alpha1.NodeDeletionRemediationStrategy)
+				createSNR(selfnoderemediationv1alpha1.ResourceDeletionRemediationStrategy)
 			})
 
 			AfterEach(func() {
@@ -136,13 +126,11 @@ var _ = Describe("snr Controller", func() {
 	})
 
 	Context("Unhealthy node with api-server access", func() {
-		var beforeSNR time.Time
 		var remediationStrategy selfnoderemediationv1alpha1.RemediationStrategyType
 		var isSNRNeedsDeletion = true
 		JustBeforeEach(func() {
 			createSelfNodeRemediationPod()
 			updateIsRebootCapable("true")
-			beforeSNR = time.Now().Add(-time.Second)
 			createSNR(remediationStrategy)
 
 			By("make sure self node remediation exists with correct label")
@@ -154,62 +142,6 @@ var _ = Describe("snr Controller", func() {
 				deleteSNR(snr)
 			}
 			isSNRNeedsDeletion = true
-		})
-
-		Context("NodeDeletion strategy", func() {
-			BeforeEach(func() {
-				remediationStrategy = selfnoderemediationv1alpha1.NodeDeletionRemediationStrategy
-			})
-
-			AfterEach(func() {
-				deleteSelfNodeRemediationPod()
-			})
-
-			It("Remediation flow", func() {
-				node := verifyNodeIsUnschedulable()
-
-				addUnschedulableTaint(node)
-
-				verifyTimeHasBeenRebootedExists()
-
-				verifyNodeBackup()
-
-				verifyFinalizerExists()
-
-				verifyNoExecuteTaintExist()
-
-				verifyNoWatchdogFood()
-
-				verifyNodeDeletedAndRestored(beforeSNR)
-
-				verifyNodeIsSchedulable()
-
-				By("Verify that finalizer exists until node updates status")
-				Consistently(func() error {
-					verifyFinalizerExists()
-					return nil
-				}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
-
-				By("Update node's last hearbeat time")
-				//we simulate kubelet coming up, this is required to remove the finalizer
-				updateNodeFunc := func(node *v1.Node) {
-					node.Status.Conditions = make([]v1.NodeCondition, 1)
-					node.Status.Conditions[0].Status = v1.ConditionTrue
-					node.Status.Conditions[0].Type = v1.NodeReady
-					node.Status.Conditions[0].LastTransitionTime = metav1.Now()
-					node.Status.Conditions[0].LastHeartbeatTime = metav1.Now()
-					node.Status.Conditions[0].Reason = "foo"
-				}
-				eventuallyUpdateNode(updateNodeFunc, true)
-
-				removeUnschedulableTaint()
-
-				verifyNoExecuteTaintRemoved()
-
-				By("Verify that finalizer was removed and SNR can be deleted")
-				testNoFinalizer()
-
-			})
 		})
 
 		Context("ResourceDeletion strategy", func() {
@@ -265,7 +197,7 @@ var _ = Describe("snr Controller", func() {
 		BeforeEach(func() {
 			By("Simulate api-server failure")
 			k8sClient.ShouldSimulateFailure = true
-			createSNR(selfnoderemediationv1alpha1.NodeDeletionRemediationStrategy)
+			createSNR(selfnoderemediationv1alpha1.ResourceDeletionRemediationStrategy)
 		})
 
 		AfterEach(func() {
@@ -344,15 +276,6 @@ func verifyNodeIsSchedulable() {
 		err := k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)
 		return node.Spec.Unschedulable, err
 	}, 95*time.Second, 250*time.Millisecond).Should(BeFalse())
-}
-
-func verifyNodeDeletedAndRestored(beforeSNR time.Time) {
-	By("Verify that node has been deleted and restored")
-	node := &v1.Node{}
-	Eventually(func() (time.Time, error) {
-		err := k8sClient.Reader.Get(context.TODO(), unhealthyNodeNamespacedName, node)
-		return node.CreationTimestamp.Time, err
-	}, 10*time.Second, 200*time.Millisecond).Should(BeTemporally(">", beforeSNR))
 }
 
 func verifyNoWatchdogFood() {

@@ -22,8 +22,8 @@ import (
 )
 
 const (
-	NodeDeletionRemediationStrategy     = RemediationStrategyType("NodeDeletion")
-	ResourceDeletionRemediationStrategy = RemediationStrategyType("ResourceDeletion")
+	ResourceDeletionRemediationStrategy       = RemediationStrategyType("ResourceDeletion")
+	DeprecatedNodeDeletionRemediationStrategy = RemediationStrategyType("NodeDeletion")
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -34,11 +34,10 @@ type RemediationStrategyType string
 // SelfNodeRemediationSpec defines the desired state of SelfNodeRemediation
 type SelfNodeRemediationSpec struct {
 	//RemediationStrategy is the remediation method for unhealthy nodes
-	//could be either "NodeDeletion" or "ResourceDeletion"
-	//the first will delete the node to signal to the cluster that the node was fenced
-	//the latter will iterate over all pos and volumeattachments related to the unhealthy node and delete them
+	//currently "NodeDeletion" is deprecated and "ResourceDeletion" will always happen, regardless of which strategy is selected
+	//it will iterate over all pods and volume attachments related to the unhealthy node and delete them
 	// +kubebuilder:default:="ResourceDeletion"
-	// +kubebuilder:validation:Enum=NodeDeletion;ResourceDeletion
+	// +kubebuilder:validation:Enum=ResourceDeletion;NodeDeletion
 	RemediationStrategy RemediationStrategyType `json:"remediationStrategy,omitempty"`
 }
 

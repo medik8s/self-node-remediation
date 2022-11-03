@@ -167,6 +167,7 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 		setupLog.Error(err, "failed to create remediation templates")
 		os.Exit(1)
 	}
+
 }
 
 func getDurEnvVarOrDie(varName string) time.Duration {
@@ -295,6 +296,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		Client:                       mgr.GetClient(),
 		Log:                          ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
 		Scheme:                       mgr.GetScheme(),
+		Recorder:                     mgr.GetEventRecorderFor("SelfNodeRemediation"),
 		Rebooter:                     rebooter,
 		SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
 		MyNodeName:                   myNodeName,
