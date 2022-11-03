@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -43,6 +44,9 @@ import (
 const (
 	SNRFinalizer          = "self-node-remediation.medik8s.io/snr-finalizer"
 	fencingCompletedPhase = "Fencing-Completed"
+	//Event const
+	eventTypeWarning              = "Warning"
+	eventReasonDeprecatedStrategy = "Deprecated Strategy"
 )
 
 var (
@@ -91,6 +95,7 @@ type SelfNodeRemediationReconciler struct {
 	//logger is a logger that holds the CR name being reconciled
 	logger   logr.Logger
 	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 	Rebooter reboot.Rebooter
 	// note that this time must include the time for a unhealthy node without api-server access to reach the conclusion that it's unhealthy
 	// this should be at least worst-case time to reach a conclusion from the other peers * request context timeout + watchdog interval + maxFailuresThreshold * reconcileInterval + padding
@@ -144,9 +149,12 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	var err error
 
 	switch snr.Spec.RemediationStrategy {
-	case v1alpha1.NodeDeletionRemediationStrategy:
-		result, err = r.remediateWithNodeDeletion(snr)
-	case v1alpha1.ResourceDeletionRemediationStrategy:
+	case v1alpha1.ResourceDeletionRemediationStrategy, v1alpha1.DeprecatedNodeDeletionRemediationStrategy:
+		if snr.Spec.RemediationStrategy == v1alpha1.DeprecatedNodeDeletionRemediationStrategy {
+			msg := "`Node Deletion` remediation strategy is deprecated, using `Resource Deletion` remediation strategy instead"
+			r.logger.Info(msg)
+			r.Recorder.Eventf(snr, eventTypeWarning, eventReasonDeprecatedStrategy, msg)
+		}
 		result, err = r.remediateWithResourceDeletion(snr)
 	default:
 		//this should never happen since we enforce valid values with kubebuilder
@@ -301,110 +309,6 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alp
 	}
 
 	return ctrl.Result{}, nil
-}
-
-func (r *SelfNodeRemediationReconciler) remediateWithNodeDeletion(snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
-	node, err := r.getNodeFromSnr(snr)
-	if err != nil {
-		if apiErrors.IsNotFound(err) {
-			//as part of the remediation flow, we delete the node, and then we need to restore it
-			return r.handleDeletedNode(snr)
-		}
-		r.logger.Error(err, "failed to get node", "node name", snr.Name)
-		return ctrl.Result{}, err
-	}
-
-	if node.CreationTimestamp.After(snr.CreationTimestamp.Time) {
-		//this node was created after the node was reported as unhealthy
-		//we assume this is the new node after remediation and take no-op expecting the snr to be deleted
-		if snr.Status.NodeBackup != nil {
-			//TODO: this is an ugly hack. without it the api-server complains about
-			//missing apiVersion and Kind for the nodeBackup.
-			snr.Status.NodeBackup = nil
-			if err := r.Client.Status().Update(context.Background(), snr); err != nil {
-				if apiErrors.IsConflict(err) {
-					// conflicts are expected since all self node remediation deamonset pods are competing on the same requests
-					return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
-				}
-				r.logger.Error(err, "failed to remove node backup from snr")
-				return ctrl.Result{}, err
-			}
-			return ctrl.Result{Requeue: true}, nil
-		}
-
-		if controllerutil.ContainsFinalizer(snr, SNRFinalizer) {
-			readyCond := r.getReadyCond(node)
-			if readyCond == nil || readyCond.Status != v1.ConditionTrue {
-				//don't remove finalizer until the node is back online
-				//this helps to prevent remediation loops
-				//note that it means we block snr deletion forever for node that were not remediated
-				//todo consider add some timeout, should be quite long to allow bm reboot (at least 10 minutes)
-				r.logger.Info("waiting for node to become ready before removing snr finalizer")
-				return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
-			}
-
-			if err := r.removeNoExecuteTaint(node); err != nil {
-				return ctrl.Result{}, err
-			}
-
-			if err := r.removeFinalizer(snr); err != nil {
-				return ctrl.Result{}, err
-			}
-		}
-
-		r.logger.Info("node has been restored", "node name", node.Name)
-
-		//todo this means we only allow one remediation attempt per snr. we could add some config to
-		//snr which states max remediation attempts, and the timeout to consider a remediation failed.
-		return ctrl.Result{}, nil
-	}
-
-	if !r.isNodeRebootCapable(node) {
-		return ctrl.Result{}, errors.New("Node is not capable to reboot itself")
-	}
-
-	if !controllerutil.ContainsFinalizer(snr, SNRFinalizer) {
-		return r.addFinalizer(snr)
-	}
-
-	if err = r.addNoExecuteTaint(node); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if !node.Spec.Unschedulable || !utils.TaintExists(node.Spec.Taints, NodeUnschedulableTaint) {
-		return r.markNodeAsUnschedulable(node)
-	}
-
-	if snr.Status.NodeBackup == nil || snr.Status.TimeAssumedRebooted.IsZero() {
-		return r.updateSnrStatus(node, snr)
-	}
-
-	if r.MyNodeName == node.Name {
-		// we have a problem on this node, reboot!
-		return r.rebootIfNeeded(snr)
-	}
-
-	wasRebooted, timeLeft := r.wasNodeRebooted(snr)
-	if !wasRebooted {
-		return ctrl.Result{RequeueAfter: timeLeft}, nil
-	}
-
-	r.logger.Info("TimeAssumedRebooted is old. The unhealthy node assumed to been rebooted", "node name", node.Name)
-
-	if !node.DeletionTimestamp.IsZero() {
-		return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
-	}
-
-	r.logger.Info("deleting unhealthy node", "node name", node.Name)
-
-	if err := r.Client.Delete(context.Background(), node); err != nil {
-		if !apiErrors.IsNotFound(err) {
-			r.logger.Error(err, "failed to delete the unhealthy node")
-			return ctrl.Result{}, err
-		}
-	}
-
-	return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 }
 
 // rebootIfNeeded reboots the node if no reboot was performed so far
