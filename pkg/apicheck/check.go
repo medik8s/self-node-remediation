@@ -154,14 +154,7 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 		}
 
 		chosenNodesAddresses := c.popNodes(&nodesToAsk, nodesBatchCount)
-		nrAddresses := len(chosenNodesAddresses)
-		responsesChan := make(chan selfNodeRemediation.HealthCheckResponseCode, nrAddresses)
-
-		for _, address := range chosenNodesAddresses {
-			go c.getHealthStatusFromPeer(address, responsesChan)
-		}
-
-		healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.sumPeersResponses(nrAddresses, responsesChan)
+		healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenNodesAddresses)
 
 		if healthyResponses > 0 {
 			c.config.Log.Info("Peer told me I'm healthy.")
@@ -198,24 +191,11 @@ func (c *ApiConnectivityCheck) canOtherControlPlanesBeReached() bool {
 		c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, other control planes can't be reached")
 		return false
 	}
+
 	chosenNodesAddresses := c.popNodes(&nodesToAsk, numOfControlPlanePeers)
+	_, _, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenNodesAddresses)
 
-	nrAddresses := len(chosenNodesAddresses)
-	responsesChan := make(chan selfNodeRemediation.HealthCheckResponseCode, nrAddresses)
-	var wg sync.WaitGroup
-	wg.Add(len(chosenNodesAddresses))
-	for _, address := range chosenNodesAddresses {
-		tmpAddress := address
-		go func() {
-			defer wg.Done()
-			c.getHealthStatusFromPeer(tmpAddress, responsesChan)
-		}()
-
-	}
-	wg.Wait()
 	//We are not expecting API Server connectivity at this stage, however an API Error is an indication to communication with the peer (peer is communicating with current node that it was unable to reach the API server)
-	_, _, apiErrorsResponses, _ := c.sumPeersResponses(nrAddresses, responsesChan)
-
 	return apiErrorsResponses > 0
 }
 
@@ -243,6 +223,17 @@ func (c *ApiConnectivityCheck) popNodes(nodes *[][]v1.NodeAddress, count int) []
 	*nodes = (*nodes)[count:] //remove popped nodes from the list
 
 	return addresses
+}
+
+func (c *ApiConnectivityCheck) getHealthStatusFromPeers(addresses []string) (int, int, int, int) {
+	nrAddresses := len(addresses)
+	responsesChan := make(chan selfNodeRemediation.HealthCheckResponseCode, nrAddresses)
+
+	for _, address := range addresses {
+		go c.getHealthStatusFromPeer(address, responsesChan)
+	}
+
+	return c.sumPeersResponses(nrAddresses, responsesChan)
 }
 
 //getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer into the given channel
