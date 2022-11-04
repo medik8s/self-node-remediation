@@ -193,10 +193,10 @@ func (c *ApiConnectivityCheck) canOtherControlPlanesBeReached() bool {
 	}
 
 	chosenNodesAddresses := c.popNodes(&nodesToAsk, numOfControlPlanePeers)
-	_, _, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenNodesAddresses)
+	healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenNodesAddresses)
 
-	//We are not expecting API Server connectivity at this stage, however an API Error is an indication to communication with the peer (peer is communicating with current node that it was unable to reach the API server)
-	return apiErrorsResponses > 0
+	// Any response is an indication of communication with a peer
+	return (healthyResponses + unhealthyResponses + apiErrorsResponses) > 0
 }
 
 func (c *ApiConnectivityCheck) popNodes(nodes *[][]v1.NodeAddress, count int) []string {
