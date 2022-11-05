@@ -18,6 +18,7 @@ import (
 
 	selfNodeRemediation "github.com/medik8s/self-node-remediation/api"
 	"github.com/medik8s/self-node-remediation/pkg/certificates"
+	"github.com/medik8s/self-node-remediation/pkg/controlplane"
 	"github.com/medik8s/self-node-remediation/pkg/peerhealth"
 	"github.com/medik8s/self-node-remediation/pkg/peers"
 	"github.com/medik8s/self-node-remediation/pkg/reboot"
@@ -25,10 +26,11 @@ import (
 
 type ApiConnectivityCheck struct {
 	client.Reader
-	config      *ApiConnectivityCheckConfig
-	errorCount  int
-	clientCreds credentials.TransportCredentials
-	mutex       sync.Mutex
+	config              *ApiConnectivityCheckConfig
+	errorCount          int
+	clientCreds         credentials.TransportCredentials
+	mutex               sync.Mutex
+	controlPlaneManager *controlplane.Manager
 }
 
 type ApiConnectivityCheckConfig struct {
@@ -46,10 +48,11 @@ type ApiConnectivityCheckConfig struct {
 	PeerHealthPort     int
 }
 
-func New(config *ApiConnectivityCheckConfig) *ApiConnectivityCheck {
+func New(config *ApiConnectivityCheckConfig, controlPlaneManager *controlplane.Manager) *ApiConnectivityCheck {
 	return &ApiConnectivityCheck{
-		config: config,
-		mutex:  sync.Mutex{},
+		config:              config,
+		mutex:               sync.Mutex{},
+		controlPlaneManager: controlPlaneManager,
 	}
 }
 
@@ -79,7 +82,7 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 		}
 		if failure != "" {
 			c.config.Log.Error(fmt.Errorf(failure), "failed to check api server")
-			if isHealthy := c.handleError(); !isHealthy {
+			if isHealthy := c.isConsideredHealthy(); !isHealthy {
 				// we have a problem on this node
 				c.config.Log.Error(err, "we are unhealthy, triggering a reboot")
 				if err := c.config.Rebooter.Reboot(); err != nil {
@@ -102,22 +105,32 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 	return nil
 }
 
-// HandleError keeps track of the number of errors reported, and when a certain amount of error occur within a certain
+// isConsideredHealthy keeps track of the number of errors reported, and when a certain amount of error occur within a certain
 // time, ask peers if this node is healthy. Returns if the node is considered to be healthy or not.
-func (c *ApiConnectivityCheck) handleError() bool {
+func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
+	workerPeersResponse := c.getWorkerPeersResponse()
+	isWorkerNode := c.controlPlaneManager == nil || !c.controlPlaneManager.IsControlPlane()
+	if isWorkerNode {
+		return workerPeersResponse.IsHealthy
+	} else {
+		return c.controlPlaneManager.IsControlPlaneHealthy(workerPeersResponse, c.canOtherControlPlanesBeReached())
+	}
 
+}
+
+func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 	c.errorCount++
 	if c.errorCount < c.config.MaxErrorsThreshold {
 		c.config.Log.Info("Ignoring api-server error, error count below threshold", "current count", c.errorCount, "threshold", c.config.MaxErrorsThreshold)
-		return true
+		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseErrorsThresholdNotReached}
 	}
 
 	c.config.Log.Info("Error count exceeds threshold, trying to ask other nodes if I'm healthy")
-	nodesToAsk := c.config.Peers.GetPeersAddresses()
+	nodesToAsk := c.config.Peers.GetPeersAddresses(peers.Worker)
 	if nodesToAsk == nil || len(nodesToAsk) == 0 {
 		c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, nothing we can do, so consider the node being healthy")
 		//todo maybe we need to check if this happens too much and reboot
-		return true
+		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseNoPeersWereFound}
 	}
 
 	apiErrorsResponsesSum := 0
@@ -141,24 +154,17 @@ func (c *ApiConnectivityCheck) handleError() bool {
 		}
 
 		chosenNodesAddresses := c.popNodes(&nodesToAsk, nodesBatchCount)
-		nrAddresses := len(chosenNodesAddresses)
-		responsesChan := make(chan selfNodeRemediation.HealthCheckResponseCode, nrAddresses)
-
-		for _, address := range chosenNodesAddresses {
-			go c.getHealthStatusFromPeer(address, responsesChan)
-		}
-
-		healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.sumPeersResponses(nrAddresses, responsesChan)
+		healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenNodesAddresses)
 
 		if healthyResponses > 0 {
 			c.config.Log.Info("Peer told me I'm healthy.")
 			c.errorCount = 0
-			return true
+			return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseCRNotFound}
 		}
 
 		if unhealthyResponses > 0 {
 			c.config.Log.Info("Peer told me I'm unhealthy!")
-			return false
+			return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecausePeersResponse}
 		}
 
 		if apiErrorsResponses > 0 {
@@ -167,7 +173,7 @@ func (c *ApiConnectivityCheck) handleError() bool {
 			if apiErrorsResponsesSum > nrAllNodes/2 { //already reached more than 50% of the nodes and all of them returned api error
 				//assuming this is a control plane failure as others can't access api-server as well
 				c.config.Log.Info("More than 50% of the nodes couldn't access the api-server, assuming this is a control plane failure")
-				return true
+				return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseMostPeersCantAccessAPIServer}
 			}
 		}
 
@@ -175,7 +181,22 @@ func (c *ApiConnectivityCheck) handleError() bool {
 
 	//we asked all peers
 	c.config.Log.Error(fmt.Errorf("failed health check"), "Failed to get health status peers. Assuming unhealthy")
-	return false
+	return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecauseNodeIsIsolated}
+}
+
+func (c *ApiConnectivityCheck) canOtherControlPlanesBeReached() bool {
+	nodesToAsk := c.config.Peers.GetPeersAddresses(peers.ControlPlane)
+	numOfControlPlanePeers := len(nodesToAsk)
+	if numOfControlPlanePeers == 0 {
+		c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, other control planes can't be reached")
+		return false
+	}
+
+	chosenNodesAddresses := c.popNodes(&nodesToAsk, numOfControlPlanePeers)
+	healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenNodesAddresses)
+
+	// Any response is an indication of communication with a peer
+	return (healthyResponses + unhealthyResponses + apiErrorsResponses) > 0
 }
 
 func (c *ApiConnectivityCheck) popNodes(nodes *[][]v1.NodeAddress, count int) []string {
@@ -202,6 +223,17 @@ func (c *ApiConnectivityCheck) popNodes(nodes *[][]v1.NodeAddress, count int) []
 	*nodes = (*nodes)[count:] //remove popped nodes from the list
 
 	return addresses
+}
+
+func (c *ApiConnectivityCheck) getHealthStatusFromPeers(addresses []string) (int, int, int, int) {
+	nrAddresses := len(addresses)
+	responsesChan := make(chan selfNodeRemediation.HealthCheckResponseCode, nrAddresses)
+
+	for _, address := range addresses {
+		go c.getHealthStatusFromPeer(address, responsesChan)
+	}
+
+	return c.sumPeersResponses(nrAddresses, responsesChan)
 }
 
 //getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer into the given channel

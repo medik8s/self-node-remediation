@@ -16,7 +16,7 @@ import (
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
 )
 
-var _ = Describe("ppc controller Test", func() {
+var _ = Describe("snrc controller Test", func() {
 	dsName := "self-node-remediation-ds"
 
 	Context("DS installation", func() {
@@ -77,7 +77,7 @@ var _ = Describe("ppc controller Test", func() {
 		})
 	})
 
-	Context("PPC defaults", func() {
+	Context("SNRC defaults", func() {
 		config := &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}
 		config.Kind = "SelfNodeRemediationConfig"
 		config.APIVersion = "self-node-remediation.medik8s.io/v1alpha1"

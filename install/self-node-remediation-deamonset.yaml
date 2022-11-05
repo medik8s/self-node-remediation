@@ -58,6 +58,8 @@ spec:
             value: "{{.MaxApiErrorThreshold}}"
           - name: IS_SOFTWARE_REBOOT_ENABLED
             value: {{.IsSoftwareRebootEnabled}}
+          - name: END_POINT_HEALTH_CHECK_URL
+            value: {{.EndpointHealthCheckUrl}}
         image: {{.Image}}
         imagePullPolicy: Always
         volumeMounts:
@@ -88,3 +90,9 @@ spec:
           operator: "Equal"
           value: "self-node-remediation"
           effect: "NoExecute"
+        - key: "node-role.kubernetes.io/master"
+          operator: "Equal"
+          effect: "NoSchedule"
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Equal"
+          effect: "NoSchedule"

@@ -24,6 +24,7 @@ import (
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/controllers"
 	"github.com/medik8s/self-node-remediation/e2e/utils"
+	labelUtils "github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
 const (
@@ -35,231 +36,318 @@ const (
 
 var _ = Describe("Self Node Remediation E2E", func() {
 
-	var node *v1.Node
-	workers := &v1.NodeList{}
-	var oldBootTime *time.Time
-	var oldUID types.UID
-	var apiIPs []string
+	Describe("Workers Remediation", func() {
+		var node *v1.Node
+		workers := &v1.NodeList{}
+		var oldBootTime *time.Time
+		var oldUID types.UID
+		var apiIPs []string
 
-	BeforeEach(func() {
+		BeforeEach(func() {
 
-		// get all things that doesn't change once only
-		if node == nil {
-			// get worker node(s)
-			selector := labels.NewSelector()
-			req, _ := labels.NewRequirement("node-role.kubernetes.io/worker", selection.Exists, []string{})
-			selector = selector.Add(*req)
-			Expect(k8sClient.List(context.Background(), workers, &client.ListOptions{LabelSelector: selector})).ToNot(HaveOccurred())
-			Expect(len(workers.Items)).To(BeNumerically(">=", 2))
+			// get all things that doesn't change once only
+			if node == nil {
+				// get worker node(s)
+				selector := labels.NewSelector()
+				req, _ := labels.NewRequirement(labelUtils.WorkerLabelName, selection.Exists, []string{})
+				selector = selector.Add(*req)
+				Expect(k8sClient.List(context.Background(), workers, &client.ListOptions{LabelSelector: selector})).ToNot(HaveOccurred())
+				Expect(len(workers.Items)).To(BeNumerically(">=", 2))
 
-			node = &workers.Items[0]
-			oldUID = node.GetUID()
+				node = &workers.Items[0]
+				oldUID = node.GetUID()
 
-			apiIPs = getApiIPs()
-		} else {
-			// just update the node for getting the current UID
-			Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(node), node)).ToNot(HaveOccurred())
-			oldUID = node.GetUID()
-		}
+				apiIPs = getApiIPs()
+			} else {
+				// just update the node for getting the current UID
+				Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(node), node)).ToNot(HaveOccurred())
+				oldUID = node.GetUID()
+			}
 
-		var err error
-		oldBootTime, err = getBootTime(node)
-		Expect(err).ToNot(HaveOccurred())
+			var err error
+			oldBootTime, err = getBootTime(node)
+			Expect(err).ToNot(HaveOccurred())
 
-		ensureSnrRunning(workers)
-	})
+			ensureSnrRunning(workers)
+		})
 
-	AfterEach(func() {
-		// restart pp pods for resetting logs...
-		restartPPPods(workers)
-	})
+		AfterEach(func() {
+			// restart snr pods for resetting logs...
+			restartSnrPods(workers)
+		})
 
-	JustAfterEach(func() {
-		By("printing self node remediation log of healthy node")
-		healthyNode := &workers.Items[1]
-		pod := findPPPod(healthyNode)
-		logs, err := utils.GetLogs(k8sClientSet, pod)
-		Expect(err).ToNot(HaveOccurred())
-		logger.Info("logs of healthy self-node-remediation pod", "logs", logs)
-	})
+		JustAfterEach(func() {
+			By("printing self node remediation log of healthy node")
+			healthyNode := &workers.Items[1]
+			pod := findSnrPod(healthyNode)
+			logs, err := utils.GetLogs(k8sClientSet, pod)
+			Expect(err).ToNot(HaveOccurred())
+			logger.Info("logs of healthy self-node-remediation pod", "logs", logs)
+		})
 
-	Describe("With API connectivity", func() {
-		Context("creating a SNR", func() {
-			// normal remediation
-			// - create SNR
-			// - node should reboot
-			// - node should be deleted and re-created
+		Describe("With API connectivity", func() {
+			Context("creating a SNR", func() {
+				// normal remediation
+				// - create SNR
+				// - node should reboot
+				// - node should be deleted and re-created
 
-			var snr *v1alpha1.SelfNodeRemediation
-			var remediationStrategy v1alpha1.RemediationStrategyType
-			JustBeforeEach(func() {
-				snr = createSNR(node, remediationStrategy)
+				var snr *v1alpha1.SelfNodeRemediation
+				var remediationStrategy v1alpha1.RemediationStrategyType
+				JustBeforeEach(func() {
+					snr = createSNR(node, remediationStrategy)
+				})
+
+				AfterEach(func() {
+					if snr != nil {
+						deleteAndWait(snr)
+					}
+				})
+
+				Context("Resource Deletion Strategy", func() {
+					var oldPodCreationTime time.Time
+					var va *storagev1.VolumeAttachment
+
+					BeforeEach(func() {
+						remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
+						oldPodCreationTime = findSnrPod(node).CreationTimestamp.Time
+						va = createVolumeAttachment(node)
+					})
+
+					It("should delete pods and volume attachments", func() {
+						checkPodRecreated(node, oldPodCreationTime)
+						checkVaDeleted(va)
+						//Simulate NHC trying to delete SNR
+						deleteAndWait(snr)
+						snr = nil
+
+						checkNoExecuteTaintRemoved(node)
+					})
+				})
+
 			})
+		})
 
-			AfterEach(func() {
-				if snr != nil {
-					deleteAndWait(snr)
-				}
-			})
+		Describe("Without API connectivity", func() {
+			Context("Healthy node (no SNR)", func() {
 
-			Context("Resource Deletion Strategy", func() {
-				var oldPodCreationTime time.Time
-				var va *storagev1.VolumeAttachment
+				// no api connectivity
+				// a) healthy
+				//    - kill connectivity on one node
+				//    - wait until connection restored
+				//    - verify node did not reboot and wasn't deleted
+				//    - verify peer check did happen
 
 				BeforeEach(func() {
-					remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
-					oldPodCreationTime = findPPPod(node).CreationTimestamp.Time
+					killApiConnection(node, apiIPs, true)
+				})
+
+				AfterEach(func() {
+					// nothing to do
+				})
+
+				It("should not reboot and not re-create node", func() {
+					// order matters
+					// - because the 2nd check has a small timeout only
+					checkNoNodeRecreate(node, oldUID)
+					checkNoReboot(node, oldBootTime)
+
+					// check logs to make sure that the actual peer health check did run
+					checkSnrLogs(node, []string{"failed to check api server", "Peer told me I'm healthy."})
+				})
+			})
+
+			Context("Unhealthy node (with SNR)", func() {
+
+				// no api connectivity
+				// b) unhealthy
+				//    - kill connectivity on one node
+				//    - create SNR
+				//    - verify node does reboot and and is deleted / re-created
+
+				var snr *v1alpha1.SelfNodeRemediation
+				var va *storagev1.VolumeAttachment
+				var oldPodCreationTime time.Time
+
+				BeforeEach(func() {
+					killApiConnection(node, apiIPs, false)
+					snr = createSNR(node, v1alpha1.ResourceDeletionRemediationStrategy)
+					oldPodCreationTime = findSnrPod(node).CreationTimestamp.Time
 					va = createVolumeAttachment(node)
 				})
 
-				It("should delete pods and volume attachments", func() {
+				AfterEach(func() {
+					if snr != nil {
+						deleteAndWait(snr)
+					}
+				})
+
+				It("should reboot and delete node resources", func() {
+					// order matters
+					// - because node check works while api is disconnected from node, reboot check not
+					// - because the 2nd check has a small timeout only
+					checkReboot(node, oldBootTime)
 					checkPodRecreated(node, oldPodCreationTime)
 					checkVaDeleted(va)
-					//Simulate NHC trying to delete SNR
-					deleteAndWait(snr)
-					snr = nil
 
-					checkNoExecuteTaintRemoved(node)
+					// we can't check logs of unhealthy node anymore, check peer logs
+					peer := &workers.Items[1]
+					checkSnrLogs(peer, []string{node.GetName(), "node is unhealthy"})
 				})
+
 			})
 
+			Context("All nodes (no API connection for all)", func() {
+
+				// no api connectivity
+				// c) api issue
+				//    - kill connectivity on all nodes
+				//    - verify node does not reboot and isn't deleted
+
+				uids := make(map[string]types.UID)
+				bootTimes := make(map[string]*time.Time)
+
+				BeforeEach(func() {
+					wg := sync.WaitGroup{}
+					for i := range workers.Items {
+						wg.Add(1)
+						worker := &workers.Items[i]
+
+						// save old UID first
+						Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(worker), worker)).ToNot(HaveOccurred())
+						uids[worker.GetName()] = worker.GetUID()
+
+						// and the lat boot time
+						t, err := getBootTime(worker)
+						Expect(err).ToNot(HaveOccurred())
+						bootTimes[worker.GetName()] = t
+
+						go func() {
+							defer GinkgoRecover()
+							defer wg.Done()
+							killApiConnection(worker, apiIPs, true)
+						}()
+					}
+					wg.Wait()
+					// give things a bit time to settle after API connection is restored
+					time.Sleep(10 * time.Second)
+				})
+
+				AfterEach(func() {
+					// nothing to do
+				})
+
+				It("should not have rebooted and not be re-created", func() {
+
+					// all nodes should satisfy this test
+					wg := sync.WaitGroup{}
+					for i := range workers.Items {
+						wg.Add(1)
+						worker := &workers.Items[i]
+						go func() {
+							defer GinkgoRecover()
+							defer wg.Done()
+
+							// order matters
+							// - because the 2nd check has a small timeout only
+							checkNoNodeRecreate(worker, uids[worker.GetName()])
+							checkNoReboot(worker, bootTimes[worker.GetName()])
+
+							// check logs to make sure that the actual peer health check did run
+							checkSnrLogs(worker, []string{"failed to check api server", "nodes couldn't access the api-server"})
+						}()
+					}
+					wg.Wait()
+
+				})
+			})
 		})
 	})
 
-	Describe("Without API connectivity", func() {
-		Context("Healthy node (no SNR)", func() {
+	Describe("Control Plane Remediation", func() {
+		controlPlaneNodes := &v1.NodeList{}
+		var controlPlaneNode *v1.Node
 
-			// no api connectivity
-			// a) healthy
-			//    - kill connectivity on one node
-			//    - wait until connection restored
-			//    - verify node did not reboot and wasn't deleted
-			//    - verify peer check did happen
+		BeforeEach(func() {
 
-			BeforeEach(func() {
-				killApiConnection(node, apiIPs, true)
-			})
+			// get all things that doesn't change once only
+			if controlPlaneNode == nil {
+				// get worker node(s)
+				selector := labels.NewSelector()
+				req, _ := labels.NewRequirement(labelUtils.MasterLabelName, selection.Exists, []string{})
+				selector = selector.Add(*req)
+				if err := k8sClient.List(context.Background(), controlPlaneNodes, &client.ListOptions{LabelSelector: selector}); err != nil && errors.IsNotFound(err) {
+					selector = labels.NewSelector()
+					req, _ = labels.NewRequirement(labelUtils.ControlPlaneLabelName, selection.Exists, []string{})
+					selector = selector.Add(*req)
+					Expect(k8sClient.List(context.Background(), controlPlaneNodes, &client.ListOptions{LabelSelector: selector})).ToNot(HaveOccurred())
+				}
+				Expect(len(controlPlaneNodes.Items)).To(BeNumerically(">=", 2))
 
-			AfterEach(func() {
-				// nothing to do
-			})
+				controlPlaneNode = &controlPlaneNodes.Items[0]
 
-			It("should not reboot and not re-create node", func() {
-				// order matters
-				// - because the 2nd check has a small timeout only
-				checkNoNodeRecreate(node, oldUID)
-				checkNoReboot(node, oldBootTime)
+			}
 
-				// check logs to make sure that the actual peer health check did run
-				checkPPLogs(node, []string{"failed to check api server", "Peer told me I'm healthy."})
+			ensureSnrRunning(controlPlaneNodes)
+		})
+
+		AfterEach(func() {
+			// restart snr pods for resetting logs...
+			restartSnrPods(controlPlaneNodes)
+		})
+
+		JustAfterEach(func() {
+			By("printing self node remediation log of healthy node")
+			healthyNode := &controlPlaneNodes.Items[1]
+			pod := findSnrPod(healthyNode)
+			logs, err := utils.GetLogs(k8sClientSet, pod)
+			Expect(err).ToNot(HaveOccurred())
+			logger.Info("logs of healthy self-node-remediation pod", "logs", logs)
+		})
+
+		Describe("With API connectivity", func() {
+			Context("creating a SNR", func() {
+				// normal remediation
+				// - create SNR
+				// - node should reboot
+				// - node should be deleted and re-created
+
+				var snr *v1alpha1.SelfNodeRemediation
+				var remediationStrategy v1alpha1.RemediationStrategyType
+				JustBeforeEach(func() {
+					snr = createSNR(controlPlaneNode, remediationStrategy)
+				})
+
+				AfterEach(func() {
+					if snr != nil {
+						deleteAndWait(snr)
+					}
+				})
+
+				Context("Resource Deletion Strategy", func() {
+					var oldPodCreationTime time.Time
+					var va *storagev1.VolumeAttachment
+
+					BeforeEach(func() {
+						remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
+						oldPodCreationTime = findSnrPod(controlPlaneNode).CreationTimestamp.Time
+						va = createVolumeAttachment(controlPlaneNode)
+					})
+
+					It("should delete pods and volume attachments", func() {
+						checkPodRecreated(controlPlaneNode, oldPodCreationTime)
+						checkVaDeleted(va)
+						//Simulate NHC trying to delete SNR
+						deleteAndWait(snr)
+						snr = nil
+
+						checkNoExecuteTaintRemoved(controlPlaneNode)
+					})
+				})
+
 			})
 		})
 
-		Context("Unhealthy node (with SNR)", func() {
-
-			// no api connectivity
-			// b) unhealthy
-			//    - kill connectivity on one node
-			//    - create SNR
-			//    - verify node does reboot and and is deleted / re-created
-
-			var snr *v1alpha1.SelfNodeRemediation
-			var va *storagev1.VolumeAttachment
-			var oldPodCreationTime time.Time
-
-			BeforeEach(func() {
-				killApiConnection(node, apiIPs, false)
-				snr = createSNR(node, v1alpha1.ResourceDeletionRemediationStrategy)
-				oldPodCreationTime = findPPPod(node).CreationTimestamp.Time
-				va = createVolumeAttachment(node)
-			})
-
-			AfterEach(func() {
-				if snr != nil {
-					deleteAndWait(snr)
-				}
-			})
-
-			It("should reboot and delete node resources", func() {
-				// order matters
-				// - because node check works while api is disconnected from node, reboot check not
-				// - because the 2nd check has a small timeout only
-
-				checkReboot(node, oldBootTime)
-				checkPodRecreated(node, oldPodCreationTime)
-				checkVaDeleted(va)
-
-				// we can't check logs of unhealthy node anymore, check peer logs
-				peer := &workers.Items[1]
-				checkPPLogs(peer, []string{node.GetName(), "node is unhealthy"})
-			})
-
-		})
-
-		Context("All nodes (no API connection for all)", func() {
-
-			// no api connectivity
-			// c) api issue
-			//    - kill connectivity on all nodes
-			//    - verify node does not reboot and isn't deleted
-
-			uids := make(map[string]types.UID)
-			bootTimes := make(map[string]*time.Time)
-
-			BeforeEach(func() {
-				wg := sync.WaitGroup{}
-				for i := range workers.Items {
-					wg.Add(1)
-					worker := &workers.Items[i]
-
-					// save old UID first
-					Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(worker), worker)).ToNot(HaveOccurred())
-					uids[worker.GetName()] = worker.GetUID()
-
-					// and the lat boot time
-					t, err := getBootTime(worker)
-					Expect(err).ToNot(HaveOccurred())
-					bootTimes[worker.GetName()] = t
-
-					go func() {
-						defer GinkgoRecover()
-						defer wg.Done()
-						killApiConnection(worker, apiIPs, true)
-					}()
-				}
-				wg.Wait()
-				// give things a bit time to settle after API connection is restored
-				time.Sleep(10 * time.Second)
-			})
-
-			AfterEach(func() {
-				// nothing to do
-			})
-
-			It("should not have rebooted and not be re-created", func() {
-
-				// all nodes should satisfy this test
-				wg := sync.WaitGroup{}
-				for i := range workers.Items {
-					wg.Add(1)
-					worker := &workers.Items[i]
-					go func() {
-						defer GinkgoRecover()
-						defer wg.Done()
-
-						// order matters
-						// - because the 2nd check has a small timeout only
-						checkNoNodeRecreate(worker, uids[worker.GetName()])
-						checkNoReboot(worker, bootTimes[worker.GetName()])
-
-						// check logs to make sure that the actual peer health check did run
-						checkPPLogs(worker, []string{"failed to check api server", "nodes couldn't access the api-server"})
-					}()
-				}
-				wg.Wait()
-
-			})
-		})
 	})
 })
 
@@ -293,7 +381,7 @@ func createVolumeAttachment(node *v1.Node) *storagev1.VolumeAttachment {
 
 func checkPodRecreated(node *v1.Node, oldPodCreationTime time.Time) bool {
 	return EventuallyWithOffset(1, func() time.Time {
-		pod := findPPPod(node)
+		pod := findSnrPod(node)
 		return pod.CreationTimestamp.Time
 
 	}, 7*time.Minute, 10*time.Second).Should(BeTemporally(">", oldPodCreationTime))
@@ -444,9 +532,9 @@ func checkNoReboot(node *v1.Node, oldBootTime *time.Time) {
 	}, 1*time.Minute, 10*time.Second).Should(BeTemporally("==", *oldBootTime))
 }
 
-func checkPPLogs(node *v1.Node, expected []string) {
+func checkSnrLogs(node *v1.Node, expected []string) {
 	By("checking logs")
-	pod := findPPPod(node)
+	pod := findSnrPod(node)
 	ExpectWithOffset(1, pod).ToNot(BeNil())
 
 	var matchers []gomegatypes.GomegaMatcher
@@ -465,9 +553,9 @@ func checkPPLogs(node *v1.Node, expected []string) {
 	}, 6*time.Minute, 10*time.Second).Should(And(matchers...), "logs don't contain expected strings")
 }
 
-func findPPPod(node *v1.Node) *v1.Pod {
-	// long timeout, after deployment of PP it takes some time until it is up and running
-	var ppPod *v1.Pod
+func findSnrPod(node *v1.Node) *v1.Pod {
+	// long timeout, after deployment of SNR it takes some time until it is up and running
+	var snrPod *v1.Pod
 	EventuallyWithOffset(2, func() bool {
 		pods := &v1.PodList{}
 		err := k8sClient.List(context.Background(), pods)
@@ -478,16 +566,16 @@ func findPPPod(node *v1.Node) *v1.Pod {
 		for i := range pods.Items {
 			pod := pods.Items[i]
 			if strings.HasPrefix(pod.GetName(), "self-node-remediation-ds") && pod.Spec.NodeName == node.GetName() {
-				ppPod = &pod
+				snrPod = &pod
 				return true
 			}
 		}
 		return false
-	}, 9*time.Minute, 10*time.Second).Should(BeTrue(), "didn't find PP pod")
-	return ppPod
+	}, 9*time.Minute, 10*time.Second).Should(BeTrue(), "didn't find SNR pod")
+	return snrPod
 }
 
-func restartPPPods(nodes *v1.NodeList) {
+func restartSnrPods(nodes *v1.NodeList) {
 	wg := sync.WaitGroup{}
 	for i := range nodes.Items {
 		wg.Add(1)
@@ -495,15 +583,15 @@ func restartPPPods(nodes *v1.NodeList) {
 		go func() {
 			defer GinkgoRecover()
 			defer wg.Done()
-			restartPPPod(node)
+			restartSnrPod(node)
 		}()
 	}
 	wg.Wait()
 }
 
-func restartPPPod(node *v1.Node) {
-	By("restarting pp pod for resetting logs")
-	pod := findPPPod(node)
+func restartSnrPod(node *v1.Node) {
+	By("restarting snr pod for resetting logs")
+	pod := findSnrPod(node)
 	ExpectWithOffset(1, pod).ToNot(BeNil())
 	oldPodUID := pod.GetUID()
 
@@ -512,7 +600,7 @@ func restartPPPod(node *v1.Node) {
 	// wait for restart
 	var newPod *v1.Pod
 	EventuallyWithOffset(1, func() types.UID {
-		newPod = findPPPod(node)
+		newPod = findSnrPod(node)
 		if newPod == nil {
 			return oldPodUID
 		}
@@ -563,7 +651,7 @@ func ensureSnrRunning(nodes *v1.NodeList) {
 		go func() {
 			defer GinkgoRecover()
 			defer wg.Done()
-			pod := findPPPod(node)
+			pod := findSnrPod(node)
 			utils.WaitForPodReady(k8sClient, pod)
 		}()
 	}

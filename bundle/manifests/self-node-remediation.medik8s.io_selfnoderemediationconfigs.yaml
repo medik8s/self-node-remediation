@@ -54,6 +54,13 @@ spec:
                   each api-connectivity check
                 pattern: ^(0|([0-9]+(\.[0-9]+)?(ms|s|m|h)))$
                 type: string
+              endpointHealthCheckUrl:
+                description: EndpointHealthCheckUrl is an url that self node remediation
+                  agents which run on control-plane node will try to access when they
+                  can't contact their peers. This is a part of self diagnostics which
+                  will decide whether the node should be remediated or not. It will
+                  be ignored when empty (which is the default).
+                type: string
               isSoftwareRebootEnabled:
                 default: true
                 description: IsSoftwareRebootEnabled indicates whether self node remediation
