@@ -168,6 +168,7 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 		}
 
 		if apiErrorsResponses > 0 {
+			c.config.Log.Info("Peer can't access the api-server")
 			apiErrorsResponsesSum += apiErrorsResponses
 			//todo consider using [m|n]hc.spec.maxUnhealthy instead of 50%
 			if apiErrorsResponsesSum > nrAllNodes/2 { //already reached more than 50% of the nodes and all of them returned api error
