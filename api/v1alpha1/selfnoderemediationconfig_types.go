@@ -40,9 +40,10 @@ type SelfNodeRemediationConfigSpec struct {
 	WatchdogFilePath string `json:"watchdogFilePath,omitempty"`
 
 	// SafeTimeToAssumeNodeRebootedSeconds is the time after which the healthy self node remediation
-	// agents will assume the unhealthy node has been rebooted and it is safe to remove the node
-	// from the cluster. This is extremely important. Deleting a node while the workload is still
+	// agents will assume the unhealthy node has been rebooted, and it is safe to remediate the node.
+	// This is extremely important. Remediating a node while the workload is still
 	// running there might lead to data corruption and violation of run-once semantic.
+	// Note that remediation time is affected by other factors as well, therefor modifying this field will not necessarily affect it.
 	// +kubebuilder:validation:Minimum=0
 	// +kubebuilder:default=180
 	SafeTimeToAssumeNodeRebootedSeconds int `json:"safeTimeToAssumeNodeRebootedSeconds,omitempty"`
