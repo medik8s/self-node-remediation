@@ -24,13 +24,16 @@ import (
 	"github.com/medik8s/self-node-remediation/pkg/reboot"
 )
 
+const maxTimeForNoPeersResponse = 60 * time.Second
+
 type ApiConnectivityCheck struct {
 	client.Reader
-	config              *ApiConnectivityCheckConfig
-	errorCount          int
-	clientCreds         credentials.TransportCredentials
-	mutex               sync.Mutex
-	controlPlaneManager *controlplane.Manager
+	config                 *ApiConnectivityCheckConfig
+	errorCount             int
+	timeOfLastPeerResponse time.Time
+	clientCreds            credentials.TransportCredentials
+	mutex                  sync.Mutex
+	controlPlaneManager    *controlplane.Manager
 }
 
 type ApiConnectivityCheckConfig struct {
@@ -50,9 +53,10 @@ type ApiConnectivityCheckConfig struct {
 
 func New(config *ApiConnectivityCheckConfig, controlPlaneManager *controlplane.Manager) *ApiConnectivityCheck {
 	return &ApiConnectivityCheck{
-		config:              config,
-		mutex:               sync.Mutex{},
-		controlPlaneManager: controlPlaneManager,
+		config:                 config,
+		mutex:                  sync.Mutex{},
+		controlPlaneManager:    controlPlaneManager,
+		timeOfLastPeerResponse: time.Now(),
 	}
 }
 
@@ -155,6 +159,9 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 
 		chosenNodesAddresses := c.popNodes(&nodesToAsk, nodesBatchCount)
 		healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenNodesAddresses)
+		if healthyResponses+unhealthyResponses+apiErrorsResponses > 0 {
+			c.timeOfLastPeerResponse = time.Now()
+		}
 
 		if healthyResponses > 0 {
 			c.config.Log.Info("Peer told me I'm healthy.")
@@ -181,8 +188,15 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 	}
 
 	//we asked all peers
-	c.config.Log.Error(fmt.Errorf("failed health check"), "Failed to get health status peers. Assuming unhealthy")
-	return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecauseNodeIsIsolated}
+	now := time.Now()
+	if now.After(c.timeOfLastPeerResponse.Add(maxTimeForNoPeersResponse)) {
+		c.config.Log.Error(fmt.Errorf("failed health check"), "Failed to get health status peers. Assuming unhealthy")
+		return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecauseNodeIsIsolated}
+	} else {
+		c.config.Log.Info("Ignoring no peers response error, time is below threshold for no peers response", "time without peers response (seconds)", now.Sub(c.timeOfLastPeerResponse).Seconds(), "threshold (seconds)", maxTimeForNoPeersResponse.Seconds())
+		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseNoPeersResponseNotReachedMaxAttempts}
+	}
+
 }
 
 func (c *ApiConnectivityCheck) canOtherControlPlanesBeReached() bool {
