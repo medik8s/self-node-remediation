@@ -300,3 +300,9 @@ container-push: ## Push containers (NOTE: catalog can't be build before bundle w
 .PHONY: test-mutation-ci
 test-mutation-ci: fetch-mutation ## Run mutation tests as part of auto build process.
 	./hack/test-mutation.sh 
+
+.PHONY:verify-vendor
+verify-vendor:
+	go mod tidy
+	go mod vendor
+	./hack/verify-diff.sh
