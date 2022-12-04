@@ -57,7 +57,8 @@ import (
 
 const (
 	nodeNameEnvVar        = "MY_NODE_NAME"
-	peerHealthDefaultPort = 30001
+	peerHealthDefaultPort     = 30001
+	maxTimeForNoPeersResponse = 60 * time.Second
 )
 
 var (
@@ -244,18 +245,19 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	certReader := certificates.NewSecretCertStorage(mgr.GetClient(), ctrl.Log.WithName("SecretCertStorage"), ns)
 
 	apiConnectivityCheckConfig := &apicheck.ApiConnectivityCheckConfig{
-		Log:                ctrl.Log.WithName("api-check"),
-		MyNodeName:         myNodeName,
-		CheckInterval:      apiCheckInterval,
-		MaxErrorsThreshold: maxErrorThreshold,
-		Peers:              myPeers,
-		Rebooter:           rebooter,
-		Cfg:                mgr.GetConfig(),
-		CertReader:         certReader,
-		ApiServerTimeout:   apiServerTimeout,
-		PeerDialTimeout:    peerDialTimeout,
-		PeerRequestTimeout: peerRequestTimeout,
-		PeerHealthPort:     peerHealthDefaultPort,
+		Log:                       ctrl.Log.WithName("api-check"),
+		MyNodeName:                myNodeName,
+		CheckInterval:             apiCheckInterval,
+		MaxErrorsThreshold:        maxErrorThreshold,
+		Peers:                     myPeers,
+		Rebooter:                  rebooter,
+		Cfg:                       mgr.GetConfig(),
+		CertReader:                certReader,
+		ApiServerTimeout:          apiServerTimeout,
+		PeerDialTimeout:           peerDialTimeout,
+		PeerRequestTimeout:        peerRequestTimeout,
+		PeerHealthPort:            peerHealthDefaultPort,
+		MaxTimeForNoPeersResponse: maxTimeForNoPeersResponse,
 	}
 
 	controlPlaneManager := controlplane.NewManager(myNodeName, mgr.GetClient())

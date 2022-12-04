@@ -24,8 +24,6 @@ import (
 	"github.com/medik8s/self-node-remediation/pkg/reboot"
 )
 
-const maxTimeForNoPeersResponse = 60 * time.Second
-
 type ApiConnectivityCheck struct {
 	client.Reader
 	config                 *ApiConnectivityCheckConfig
@@ -37,18 +35,19 @@ type ApiConnectivityCheck struct {
 }
 
 type ApiConnectivityCheckConfig struct {
-	Log                logr.Logger
-	MyNodeName         string
-	CheckInterval      time.Duration
-	MaxErrorsThreshold int
-	Peers              *peers.Peers
-	Rebooter           reboot.Rebooter
-	Cfg                *rest.Config
-	CertReader         certificates.CertStorageReader
-	ApiServerTimeout   time.Duration
-	PeerDialTimeout    time.Duration
-	PeerRequestTimeout time.Duration
-	PeerHealthPort     int
+	Log                       logr.Logger
+	MyNodeName                string
+	CheckInterval             time.Duration
+	MaxErrorsThreshold        int
+	Peers                     *peers.Peers
+	Rebooter                  reboot.Rebooter
+	Cfg                       *rest.Config
+	CertReader                certificates.CertStorageReader
+	ApiServerTimeout          time.Duration
+	PeerDialTimeout           time.Duration
+	PeerRequestTimeout        time.Duration
+	PeerHealthPort            int
+	MaxTimeForNoPeersResponse time.Duration
 }
 
 func New(config *ApiConnectivityCheckConfig, controlPlaneManager *controlplane.Manager) *ApiConnectivityCheck {
@@ -189,11 +188,11 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 
 	//we asked all peers
 	now := time.Now()
-	if now.After(c.timeOfLastPeerResponse.Add(maxTimeForNoPeersResponse)) {
+	if now.After(c.timeOfLastPeerResponse.Add(c.config.MaxTimeForNoPeersResponse)) {
 		c.config.Log.Error(fmt.Errorf("failed health check"), "Failed to get health status peers. Assuming unhealthy")
 		return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecauseNodeIsIsolated}
 	} else {
-		c.config.Log.Info("Ignoring no peers response error, time is below threshold for no peers response", "time without peers response (seconds)", now.Sub(c.timeOfLastPeerResponse).Seconds(), "threshold (seconds)", maxTimeForNoPeersResponse.Seconds())
+		c.config.Log.Info("Ignoring no peers response error, time is below threshold for no peers response", "time without peers response (seconds)", now.Sub(c.timeOfLastPeerResponse).Seconds(), "threshold (seconds)", c.config.MaxTimeForNoPeersResponse.Seconds())
 		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseNoPeersResponseNotReachedMaxAttempts}
 	}
 
