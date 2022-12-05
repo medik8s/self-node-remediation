@@ -102,8 +102,10 @@ spec:
                   is extremely important. Remediating a node while the workload is
                   still running there might lead to data corruption and violation
                   of run-once semantic. Note that remediation time is affected by
-                  other factors as well, therefore modifying this field will not necessarily
-                  affect it.
+                  other fields as well such as ApiCheckInterval, ApiServerTimeout
+                  ,MaxApiErrorThreshold, PeerDialTimeout and PeerRequestTimeout. Modifying
+                  SafeTimeToAssumeNodeRebootedSeconds without considering those fields
+                  will not necessarily affect the remediation time.
                 minimum: 0
                 type: integer
               watchdogFilePath:
