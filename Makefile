@@ -5,7 +5,7 @@ CONTROLLER_GEN_VERSION = v0.8.0
 ENVTEST_K8S_VERSION = 1.23
 
 # versions at https://github.com/operator-framework/operator-sdk/releases
-OPERATOR_SDK_VERSION = v1.19.0
+OPERATOR_SDK_VERSION = v1.25.3
 
 # versions at https://github.com/operator-framework/operator-registry/releases
 OPM_VERSION = v1.26.2
