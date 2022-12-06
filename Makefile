@@ -244,7 +244,7 @@ e2e-test:
 	go test ./e2e -ginkgo.v -ginkgo.progress -test.v -timeout 60m -count=1
 
 .PHONY: operator-sdk
-OPERATOR_SDK_VERSION = v1.19.0
+OPERATOR_SDK_VERSION = v1.25.0
 OPERATOR_SDK_BIN_FOLDER = ./bin/operator-sdk
 OPERATOR_SDK = $(OPERATOR_SDK_BIN_FOLDER)/$(OPERATOR_SDK_VERSION)/operator-sdk
 operator-sdk: ## Download operator-sdk locally if necessary.
