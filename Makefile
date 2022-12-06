@@ -1,3 +1,13 @@
+# versions at  https://github.com/kubernetes-sigs/controller-tools/tags
+CONTROLLER_GEN_VERSION = v0.8.0
+
+# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
+ENVTEST_K8S_VERSION = 1.23
+
+# versions at https://github.com/operator-framework/operator-sdk/releases
+OPERATOR_SDK_VERSION = v1.19.0
+
+
 # SHELL defines bash so all the inline scripts here will work as expected.
 SHELL := /bin/bash
 
@@ -65,9 +75,6 @@ CATALOG_IMG ?= $(IMAGE_TAG_BASE)-operator-catalog:$(IMAGE_TAG)
 
 # Image URL to use all building/pushing image targets
 export IMG ?= $(IMAGE_TAG_BASE)-operator:$(IMAGE_TAG)
-
-# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.23
 
 # Get the currently used golang install path (in GOPATH/bin.old, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -168,7 +175,7 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete -f -
 
-CONTROLLER_GEN_VERSION = v0.8.0
+
 CONTROLLER_GEN_BIN_FOLDER = $(shell pwd)/bin/controller-gen
 CONTROLLER_GEN = $(CONTROLLER_GEN_BIN_FOLDER)/$(CONTROLLER_GEN_VERSION)/controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
@@ -244,7 +251,6 @@ e2e-test:
 	go test ./e2e -ginkgo.v -ginkgo.progress -test.v -timeout 60m -count=1
 
 .PHONY: operator-sdk
-OPERATOR_SDK_VERSION = v1.19.0
 OPERATOR_SDK_BIN_FOLDER = ./bin/operator-sdk
 OPERATOR_SDK = $(OPERATOR_SDK_BIN_FOLDER)/$(OPERATOR_SDK_VERSION)/operator-sdk
 operator-sdk: ## Download operator-sdk locally if necessary.
