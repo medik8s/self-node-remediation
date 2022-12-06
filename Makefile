@@ -118,9 +118,6 @@ vet: ## Run go vet against code.
 verify-no-changes: ## verify there are no un-staged changes
 	./hack/verify-diff.sh
 
-fetch-mutation: ## fetch mutation package.
-	GO111MODULE=off go get -t -v github.com/mshitrit/go-mutesting/...
-
 # CI uses a non-writable home dir, make sure .cache is writable
 ifeq ("${HOME}", "/")
 HOME=/tmp
@@ -132,10 +129,6 @@ ENVTEST = $(shell pwd)/bin/setup-envtest
 
 test: envtest manifests generate fmt vet ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path --bin-dir $(PROJECT_DIR)/testbin)" go test ./api/... ./controllers/... ./pkg/... -coverprofile cover.out -v
-
-test-mutation: verify-no-changes fetch-mutation ## Run mutation tests in manual mode.
-	echo -e "## Verifying diff ## \n##Mutations tests actually changes the code while running - this is a safeguard in order to be able to easily revert mutation tests changes (in case mutation tests have not completed properly)##"
-	./hack/test-mutation.sh
 
 ##@ Build
 
@@ -296,10 +289,6 @@ container-build: ## Build containers
 .PHONY: container-push
 container-push: ## Push containers (NOTE: catalog can't be build before bundle was pushed)
 	make docker-push bundle-push catalog-build catalog-push
-
-.PHONY: test-mutation-ci
-test-mutation-ci: fetch-mutation ## Run mutation tests as part of auto build process.
-	./hack/test-mutation.sh 
 
 .PHONY:verify-vendor
 verify-vendor:

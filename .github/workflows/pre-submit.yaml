@@ -30,7 +30,3 @@ jobs:
 
     - name: Test container build
       run: make container-build
-
-    - name: TestMutations
-      run: make test-mutation-ci
-
