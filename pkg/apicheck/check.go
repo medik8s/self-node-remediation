@@ -236,7 +236,7 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeers(addresses []string) (int
 	return c.sumPeersResponses(nrAddresses, responsesChan)
 }
 
-//getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer into the given channel
+// getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer into the given channel
 func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, results chan<- selfNodeRemediation.HealthCheckResponseCode) {
 
 	logger := c.config.Log.WithValues("IP", endpointIp)

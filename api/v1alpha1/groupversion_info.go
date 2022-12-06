@@ -15,8 +15,8 @@ limitations under the License.
 */
 
 // Package v1alpha1 contains API Schema definitions for the self-node-remediation v1alpha1 API group
-//+kubebuilder:object:generate=true
-//+groupName=self-node-remediation.medik8s.io
+// +kubebuilder:object:generate=true
+// +groupName=self-node-remediation.medik8s.io
 package v1alpha1
 
 import (
