@@ -10,6 +10,9 @@ OPERATOR_SDK_VERSION = v1.19.0
 # versions at https://github.com/operator-framework/operator-registry/releases
 OPM_VERSION = v1.26.2
 
+# versions at https://github.com/kubernetes-sigs/kustomize/releases
+KUSTOMIZE_VERSION = v4.5.7
+
 # SHELL defines bash so all the inline scripts here will work as expected.
 SHELL := /bin/bash
 
@@ -189,9 +192,16 @@ ifeq (,$(wildcard $(CONTROLLER_GEN)))
 	}
 endif
 
-KUSTOMIZE = $(shell pwd)/bin/kustomize
+KUSTOMIZE_BIN_FOLDER = $(shell pwd)/bin/kustomize
+KUSTOMIZE = $(KUSTOMIZE_BIN_FOLDER)/$(KUSTOMIZE_VERSION)/kustomize
 kustomize: ## Download kustomize locally if necessary.
-	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v4@v4.5.4)
+ifeq (,$(wildcard $(KUSTOMIZE)))
+	@{ \
+	rm -rf $(KUSTOMIZE_BIN_FOLDER) ;\
+	mkdir -p $(dir $(KUSTOMIZE)) ;\
+	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v4@${KUSTOMIZE_VERSION}) ;\
+	}
+endif
 
 .PHONY: envtest
 envtest: ## Download envtest-setup locally if necessary.
