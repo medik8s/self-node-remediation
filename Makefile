@@ -7,6 +7,8 @@ ENVTEST_K8S_VERSION = 1.23
 # versions at https://github.com/operator-framework/operator-sdk/releases
 OPERATOR_SDK_VERSION = v1.19.0
 
+# versions at https://github.com/operator-framework/operator-registry/releases
+OPM_VERSION = v1.26.2
 
 # SHELL defines bash so all the inline scripts here will work as expected.
 SHELL := /bin/bash
@@ -266,14 +268,16 @@ ifeq (,$(wildcard $(OPERATOR_SDK)))
 endif
 
 .PHONY: opm
-OPM = ./bin/opm
+OPM_BIN_FOLDER = ./bin/opm
+OPM = $(OPM_BIN_FOLDER)/$(OPM_VERSION)/opm
 opm: ## Download opm locally if necessary.
 ifeq (,$(wildcard $(OPM)))
 	@{ \
 	set -e ;\
+	rm -rf $(OPM_BIN_FOLDER) ;\
 	mkdir -p $(dir $(OPM)) ;\
 	OS=linux && ARCH=amd64 && \
-	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/v1.23.0/$${OS}-$${ARCH}-opm ;\
+	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/$(OPM_VERSION)/$${OS}-$${ARCH}-opm ;\
 	chmod +x $(OPM) ;\
 	}
 endif
