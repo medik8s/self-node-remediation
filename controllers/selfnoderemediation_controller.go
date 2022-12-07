@@ -73,15 +73,15 @@ func (e *UnreconcilableError) Error() string {
 	return e.msg
 }
 
-//GetLastSeenSnrNamespace returns the namespace of the last reconciled SNR
+// GetLastSeenSnrNamespace returns the namespace of the last reconciled SNR
 func (r *SelfNodeRemediationReconciler) GetLastSeenSnrNamespace() string {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	return lastSeenSnrNamespace
 }
 
-//WasLastSeenSnrMachine returns the a boolean indicating if the last reconcile SNR
-//was pointing an unhealthy machine or a node
+// WasLastSeenSnrMachine returns the a boolean indicating if the last reconcile SNR
+// was pointing an unhealthy machine or a node
 func (r *SelfNodeRemediationReconciler) WasLastSeenSnrMachine() bool {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
@@ -350,8 +350,8 @@ func (r *SelfNodeRemediationReconciler) didIRebootMyself(snr *v1alpha1.SelfNodeR
 	return uptime < time.Since(snr.CreationTimestamp.Time), nil
 }
 
-//isNodeRebootCapable checks if the node is capable to reboot itself when it becomes unhealthy
-//this boils down to check if it has an assigned self node remediation pod, and the reboot-capable annotation
+// isNodeRebootCapable checks if the node is capable to reboot itself when it becomes unhealthy
+// this boils down to check if it has an assigned self node remediation pod, and the reboot-capable annotation
 func (r *SelfNodeRemediationReconciler) isNodeRebootCapable(node *v1.Node) bool {
 	//make sure that the unhealthy node has self node remediation pod on it which can reboot it
 	if _, err := utils.GetSelfNodeRemediationAgentPod(node.Name, r.Client); err != nil {
@@ -410,7 +410,7 @@ func (r *SelfNodeRemediationReconciler) addFinalizer(snr *v1alpha1.SelfNodeRemed
 	return ctrl.Result{Requeue: true}, nil
 }
 
-//returns the lastHeartbeatTime of the first condition, if exists. Otherwise returns the zero value
+// returns the lastHeartbeatTime of the first condition, if exists. Otherwise returns the zero value
 func (r *SelfNodeRemediationReconciler) getLastHeartbeatTime(node *v1.Node) time.Time {
 	var lastHeartbeat metav1.Time
 	if node.Status.Conditions != nil && len(node.Status.Conditions) > 0 {
@@ -510,10 +510,10 @@ func (r *SelfNodeRemediationReconciler) getNodeFromMachine(ref metav1.OwnerRefer
 	return node, nil
 }
 
-//the unhealthy node might reboot itself and take new workloads
-//since we're going to delete the node eventually, we must make sure the node is deleted only
-//when there's no running workload there. Hence we mark it as unschedulable.
-//markNodeAsUnschedulable sets node.Spec.Unschedulable which triggers node controller to add the taint
+// the unhealthy node might reboot itself and take new workloads
+// since we're going to delete the node eventually, we must make sure the node is deleted only
+// when there's no running workload there. Hence we mark it as unschedulable.
+// markNodeAsUnschedulable sets node.Spec.Unschedulable which triggers node controller to add the taint
 func (r *SelfNodeRemediationReconciler) markNodeAsUnschedulable(node *v1.Node) (ctrl.Result, error) {
 	if node.Spec.Unschedulable {
 		r.logger.Info("waiting for unschedulable taint to appear", "node name", node.Name)

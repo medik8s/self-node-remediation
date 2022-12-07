@@ -25,7 +25,7 @@ const (
 	kubeletPort = "10250"
 )
 
-//Manager contains logic and info needed to fence and remediate controlplane nodes
+// Manager contains logic and info needed to fence and remediate controlplane nodes
 type Manager struct {
 	nodeName                     string
 	nodeRole                     peers.Role
@@ -35,7 +35,7 @@ type Manager struct {
 	log                          logr.Logger
 }
 
-//NewManager inits a new Manager return nil if init fails
+// NewManager inits a new Manager return nil if init fails
 func NewManager(nodeName string, myClient client.Client) *Manager {
 	return &Manager{
 		nodeName:                     nodeName,

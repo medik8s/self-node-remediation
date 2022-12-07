@@ -470,7 +470,7 @@ func deleteIsRebootCapableAnnotation() {
 	ExpectWithOffset(1, k8sClient.Client.Patch(context.Background(), unhealthyNode, patch)).To(Succeed())
 }
 
-//testNoFinalizer checks that snr doesn't have finalizer
+// testNoFinalizer checks that snr doesn't have finalizer
 func testNoFinalizer() {
 	snr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
 	snrKey := client.ObjectKey{
