@@ -1,3 +1,18 @@
+# versions at  https://github.com/kubernetes-sigs/controller-tools/tags
+CONTROLLER_GEN_VERSION = v0.8.0
+
+# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
+ENVTEST_K8S_VERSION = 1.23
+
+# versions at https://github.com/operator-framework/operator-sdk/releases
+OPERATOR_SDK_VERSION = v1.25.3
+
+# versions at https://github.com/operator-framework/operator-registry/releases
+OPM_VERSION = v1.26.2
+
+# versions at https://github.com/kubernetes-sigs/kustomize/releases
+KUSTOMIZE_VERSION = v4.5.7
+
 # SHELL defines bash so all the inline scripts here will work as expected.
 SHELL := /bin/bash
 
@@ -65,9 +80,6 @@ CATALOG_IMG ?= $(IMAGE_TAG_BASE)-operator-catalog:$(IMAGE_TAG)
 
 # Image URL to use all building/pushing image targets
 export IMG ?= $(IMAGE_TAG_BASE)-operator:$(IMAGE_TAG)
-
-# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.23
 
 # Get the currently used golang install path (in GOPATH/bin.old, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -161,7 +173,7 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete -f -
 
-CONTROLLER_GEN_VERSION = v0.8.0
+
 CONTROLLER_GEN_BIN_FOLDER = $(shell pwd)/bin/controller-gen
 CONTROLLER_GEN = $(CONTROLLER_GEN_BIN_FOLDER)/$(CONTROLLER_GEN_VERSION)/controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
@@ -173,9 +185,16 @@ ifeq (,$(wildcard $(CONTROLLER_GEN)))
 	}
 endif
 
-KUSTOMIZE = $(shell pwd)/bin/kustomize
+KUSTOMIZE_BIN_FOLDER = $(shell pwd)/bin/kustomize
+KUSTOMIZE = $(KUSTOMIZE_BIN_FOLDER)/$(KUSTOMIZE_VERSION)/kustomize
 kustomize: ## Download kustomize locally if necessary.
-	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v4@v4.5.4)
+ifeq (,$(wildcard $(KUSTOMIZE)))
+	@{ \
+	rm -rf $(KUSTOMIZE_BIN_FOLDER) ;\
+	mkdir -p $(dir $(KUSTOMIZE)) ;\
+	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v4@${KUSTOMIZE_VERSION}) ;\
+	}
+endif
 
 .PHONY: envtest
 envtest: ## Download envtest-setup locally if necessary.
@@ -237,7 +256,6 @@ e2e-test:
 	go test ./e2e -ginkgo.v -ginkgo.progress -test.v -timeout 60m -count=1
 
 .PHONY: operator-sdk
-OPERATOR_SDK_VERSION = v1.19.0
 OPERATOR_SDK_BIN_FOLDER = ./bin/operator-sdk
 OPERATOR_SDK = $(OPERATOR_SDK_BIN_FOLDER)/$(OPERATOR_SDK_VERSION)/operator-sdk
 operator-sdk: ## Download operator-sdk locally if necessary.
@@ -253,14 +271,16 @@ ifeq (,$(wildcard $(OPERATOR_SDK)))
 endif
 
 .PHONY: opm
-OPM = ./bin/opm
+OPM_BIN_FOLDER = ./bin/opm
+OPM = $(OPM_BIN_FOLDER)/$(OPM_VERSION)/opm
 opm: ## Download opm locally if necessary.
 ifeq (,$(wildcard $(OPM)))
 	@{ \
 	set -e ;\
+	rm -rf $(OPM_BIN_FOLDER) ;\
 	mkdir -p $(dir $(OPM)) ;\
 	OS=linux && ARCH=amd64 && \
-	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/v1.23.0/$${OS}-$${ARCH}-opm ;\
+	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/$(OPM_VERSION)/$${OS}-$${ARCH}-opm ;\
 	chmod +x $(OPM) ;\
 	}
 endif
