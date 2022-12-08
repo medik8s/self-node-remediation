@@ -422,11 +422,11 @@ spec:
     url: https://github.com/medik8s/self-node-remediation
   maintainers:
   - email: medik8s@googlegroups.com
-    name: medik8s team
+    name: Medik8s Team
   maturity: alpha
   minKubeVersion: 1.20.0
   provider:
-    name: medik8s
+    name: Medik8s
     url: https://www.medik8s.io/
   version: 0.5.0
   webhookdefinitions:
