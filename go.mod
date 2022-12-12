@@ -11,7 +11,7 @@ require (
 	github.com/openshift/machine-api-operator v0.2.1-0.20210104142355-8e6ae0acdfcf
 	github.com/openshift/machine-config-operator v0.0.1-0.20201023110058-6c8bd9b2915c
 	github.com/pkg/errors v0.9.1
-	golang.org/x/sys v0.0.0-20210630005230-0f9fa26af87c
+	golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f
 	google.golang.org/grpc v1.38.0
 	google.golang.org/protobuf v1.26.0
 	k8s.io/api v0.21.3
@@ -72,7 +72,7 @@ require (
 	golang.org/x/oauth2 v0.0.0-20200902213428-5d25da1a8d43 // indirect
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c // indirect
 	golang.org/x/term v0.0.0-20210220032956-6a3ed077a48d // indirect
-	golang.org/x/text v0.3.6 // indirect
+	golang.org/x/text v0.3.8 // indirect
 	golang.org/x/time v0.0.0-20210723032227-1f47c861a9ac // indirect
 	gomodules.xyz/jsonpatch/v2 v2.2.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
