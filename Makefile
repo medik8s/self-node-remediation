@@ -1,5 +1,5 @@
-# versions at  https://github.com/kubernetes-sigs/controller-tools/tags
-CONTROLLER_GEN_VERSION = v0.8.0
+# versions at  https://github.com/kubernetes-sigs/controller-tools/releases
+CONTROLLER_GEN_VERSION = v0.10.0
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.23
