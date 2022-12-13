@@ -56,8 +56,9 @@ import (
 )
 
 const (
-	nodeNameEnvVar        = "MY_NODE_NAME"
-	peerHealthDefaultPort = 30001
+	nodeNameEnvVar            = "MY_NODE_NAME"
+	peerHealthDefaultPort     = 30001
+	maxTimeForNoPeersResponse = 30 * time.Second
 )
 
 var (
@@ -244,18 +245,19 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	certReader := certificates.NewSecretCertStorage(mgr.GetClient(), ctrl.Log.WithName("SecretCertStorage"), ns)
 
 	apiConnectivityCheckConfig := &apicheck.ApiConnectivityCheckConfig{
-		Log:                ctrl.Log.WithName("api-check"),
-		MyNodeName:         myNodeName,
-		CheckInterval:      apiCheckInterval,
-		MaxErrorsThreshold: maxErrorThreshold,
-		Peers:              myPeers,
-		Rebooter:           rebooter,
-		Cfg:                mgr.GetConfig(),
-		CertReader:         certReader,
-		ApiServerTimeout:   apiServerTimeout,
-		PeerDialTimeout:    peerDialTimeout,
-		PeerRequestTimeout: peerRequestTimeout,
-		PeerHealthPort:     peerHealthDefaultPort,
+		Log:                       ctrl.Log.WithName("api-check"),
+		MyNodeName:                myNodeName,
+		CheckInterval:             apiCheckInterval,
+		MaxErrorsThreshold:        maxErrorThreshold,
+		Peers:                     myPeers,
+		Rebooter:                  rebooter,
+		Cfg:                       mgr.GetConfig(),
+		CertReader:                certReader,
+		ApiServerTimeout:          apiServerTimeout,
+		PeerDialTimeout:           peerDialTimeout,
+		PeerRequestTimeout:        peerRequestTimeout,
+		PeerHealthPort:            peerHealthDefaultPort,
+		MaxTimeForNoPeersResponse: maxTimeForNoPeersResponse,
 	}
 
 	controlPlaneManager := controlplane.NewManager(myNodeName, mgr.GetClient())
@@ -275,8 +277,8 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	timeToAssumeNodeRebooted := getDurEnvVarOrDie("TIME_TO_ASSUME_NODE_REBOOTED")
 
 	// but the reboot time needs be at least the time we know we need for determining a node issue and trigger the reboot!
-	// 1. time for determing node issue
-	minTimeToAssumeNodeRebooted := (apiCheckInterval + apiServerTimeout) * time.Duration(maxErrorThreshold)
+	// 1. time for determine node issue
+	minTimeToAssumeNodeRebooted := (apiCheckInterval + apiServerTimeout) * time.Duration(maxErrorThreshold) + maxTimeForNoPeersResponse
 	// 2. time for asking peers (10% batches + 1st smaller batch)
 	minTimeToAssumeNodeRebooted += (10 + 1) * (peerDialTimeout + peerRequestTimeout)
 	// 3. watchdog timeout
