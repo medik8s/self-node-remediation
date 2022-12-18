@@ -108,13 +108,13 @@ spec:
     the cluster to assume the node has reached a safe state so that it’s workloads
     can be automatically recovered. A prerequesuite for the Self Node Remediation
     operator is a functioning health detection system that implements the external
-    remediation API, such as Node Healthcheck Operator or Machine Healthcehck Controller
+    remediation API, such as Node Health Check Operator or Machine Health Check Controller
     (in OCP or Cluster-API based clusters). Once a node/machine is unhealthy, the
     detection system will create the SelfNodeRemediation CR, which triggers the Self
     Node Remediation Operator. For this the configuration of the heath detection system
     needs to refer to a SelfNodeRemediationTemplate CR. Such a template is created
     by default in the operator's namespace, for usage in other namespaces it needs
-    to be created manually. The Node Healtcheck Operator is configured to use Self
+    to be created manually. The Node Health Check Operator is configured to use Self
     Node Remediation by default.
   displayName: Self Node Remediation Operator
   icon:
