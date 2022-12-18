@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,10 +29,11 @@ import (
 )
 
 const (
-	disconnectCommand = "ip route add blackhole %s"
-	reconnectCommand  = "ip route delete blackhole %s"
-	nodeExecTimeout   = 20 * time.Second
-	reconnectInterval = 300 * time.Second
+	disconnectCommand  = "ip route add blackhole %s"
+	reconnectCommand   = "ip route delete blackhole %s"
+	nodeExecTimeout    = 20 * time.Second
+	reconnectInterval  = 300 * time.Second
+	skipLogsEnvVarName = "SKIP_LOG_VERIFICATION"
 )
 
 var _ = Describe("Self Node Remediation E2E", func() {
@@ -152,8 +154,10 @@ var _ = Describe("Self Node Remediation E2E", func() {
 					checkNoNodeRecreate(node, oldUID)
 					checkNoReboot(node, oldBootTime)
 
-					// check logs to make sure that the actual peer health check did run
-					checkSnrLogs(node, []string{"failed to check api server", "Peer told me I'm healthy."})
+					if _, isExist := os.LookupEnv(skipLogsEnvVarName); !isExist {
+						// check logs to make sure that the actual peer health check did run
+						checkSnrLogs(node, []string{"failed to check api server", "Peer told me I'm healthy."})
+					}
 				})
 			})
 
