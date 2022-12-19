@@ -592,6 +592,14 @@ func restartSnrPods(nodes *v1.NodeList) {
 func restartSnrPod(node *v1.Node) {
 	By("restarting snr pod for resetting logs")
 	pod := findSnrPod(node)
+
+	//no need to restart the pod
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == v1.PodReady && cond.Status == v1.ConditionTrue{
+			return
+		}
+	}
+
 	ExpectWithOffset(1, pod).ToNot(BeNil())
 	oldPodUID := pod.GetUID()
 
