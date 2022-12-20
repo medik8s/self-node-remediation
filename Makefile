@@ -320,8 +320,13 @@ container-build: ## Build containers
 container-push: ## Push containers (NOTE: catalog can't be build before bundle was pushed)
 	make docker-push bundle-push catalog-build catalog-push
 
-.PHONY:verify-vendor
-verify-vendor:
-	go mod tidy
+.PHONY:vendor
+vendor:
 	go mod vendor
-	./hack/verify-diff.sh
+
+.PHONY: tidy
+tidy:
+	go mod tidy
+
+.PHONY:verify-vendor
+verify-vendor:tidy vendor verify-no-changes
