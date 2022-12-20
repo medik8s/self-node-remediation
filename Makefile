@@ -23,13 +23,13 @@ export IMAGE_REGISTRY
 
 # When no version is set, use latest as image tags
 DEFAULT_VERSION := 0.0.1
-ifeq ($(origin VERSION), undefined)
-IMAGE_TAG = latest
-else ifeq ($(VERSION), $(DEFAULT_VERSION))
+
+ifeq ($(VERSION), $(DEFAULT_VERSION))
 IMAGE_TAG = latest
 else
 IMAGE_TAG = v$(VERSION)
 endif
+
 export IMAGE_TAG
 CHANNELS = stable
 export CHANNELS
