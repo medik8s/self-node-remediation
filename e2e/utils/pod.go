@@ -38,5 +38,5 @@ func WaitForPodReady(c client.Client, pod *corev1.Pod) {
 			}
 		}
 		return corev1.ConditionUnknown
-	}, 2*time.Minute, 10*time.Second).Should(Equal(corev1.ConditionTrue), "pod did not get ready in time")
+	}, 4*time.Minute, 10*time.Second).Should(Equal(corev1.ConditionTrue), "pod did not get ready in time")
 }
