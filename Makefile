@@ -328,5 +328,10 @@ vendor:
 tidy:
 	go mod tidy
 
+##Verifies vendor and tidy didn't cause changes
 .PHONY:verify-vendor
 verify-vendor:tidy vendor verify-no-changes
+
+##Verifies bundle and manifests didn't cause changes
+.PHONY:verify-bundle
+verify-bundle: manifests bundle verify-no-changes
