@@ -222,14 +222,24 @@ export ICON_BASE64 ?= ${DEFAULT_ICON_BASE64}
 bundle: manifests operator-sdk kustomize ## Generate bundle manifests and metadata, then validate generated files.
 	$(OPERATOR_SDK) generate kustomize manifests -q
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
-	sed -r -i "s|createdAt: \".*\"|createdAt: \"`date "+%Y-%m-%d %T" `\"|;" ./config/manifests/bases/$(OPERATOR_NAME).clusterserviceversion.yaml
-	sed -r -i "s|containerImage: .*|containerImage: ${IMG}|;" ./config/manifests/bases/$(OPERATOR_NAME).clusterserviceversion.yaml
-	sed -r -i "s|base64data:.*|base64data: ${ICON_BASE64}|;" ./config/manifests/bases/$(OPERATOR_NAME).clusterserviceversion.yaml
 	$(KUSTOMIZE) build config/manifests | envsubst | $(OPERATOR_SDK) generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
 	$(OPERATOR_SDK) bundle validate ./bundle
 
+.PHONY: bundle-update
+bundle-update:
+    # update container image in the metadata
+	sed -r -i "s|containerImage: .*|containerImage: ${IMG}|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+	# set creation date
+	sed -r -i "s|createdAt: \".*\"|createdAt: \"`date "+%Y-%m-%d %T" `\"|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+	# set skipRange
+	sed -r -i "s|olm.skipRange: .*|olm.skipRange: '>=0.4.0 <${VERSION}'|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+	# set icon (not version or build date related, but just to not having this huge data permanently in the CSV)
+	sed -r -i "s|base64data:.*|base64data: ${ICON_BASE64}|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+	$(OPERATOR_SDK) bundle validate ./bundle
+
+## Build the bundle image.
 .PHONY: bundle-build
-bundle-build: ## Build the bundle image.
+bundle-build: bundle bundle-update
 	docker build -f bundle.Dockerfile -t $(BUNDLE_IMG) .
 
 .PHONY: bundle-push
