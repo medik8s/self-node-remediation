@@ -5,8 +5,8 @@ metadata:
     alm-examples: '[]'
     capabilities: Basic Install
     categories: OpenShift Optional
-    containerImage: quay.io/medik8s/self-node-remediation-operator:latest
-    createdAt: "2022-11-06 08:57:52"
+    containerImage: quay.io/medik8s/self-node-remediation-operator:v0.5.0
+    createdAt: "2022-12-21 11:22:44"
     description: Self Node Remediation Operator for remediate itself in case of a
       failure.
     olm.skipRange: '>=0.4.0 <0.5.0'
