@@ -31,7 +31,7 @@ else
 IMAGE_TAG = v$(VERSION)
 endif
 export IMAGE_TAG
-CHANNELS = stable
+CHANNELS = stable,eus
 export CHANNELS
 DEFAULT_CHANNEL = stable
 export DEFAULT_CHANNEL
