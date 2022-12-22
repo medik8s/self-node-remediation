@@ -1,3 +1,6 @@
+# SHELL defines bash so all the inline scripts here will work as expected.
+SHELL := /bin/bash
+
 # versions at  https://github.com/kubernetes-sigs/controller-tools/releases
 CONTROLLER_GEN_VERSION = v0.10.0
 
@@ -13,37 +16,23 @@ OPM_VERSION = v1.26.2
 # versions at https://github.com/kubernetes-sigs/kustomize/releases
 KUSTOMIZE_VERSION = v4.5.7
 
-# SHELL defines bash so all the inline scripts here will work as expected.
-SHELL := /bin/bash
+OPERATOR_NAME ?= self-node-remediation
 
-# IMAGE_REGISTRY used to indicate the registery/group for the operator, bundle and catalog
-IMAGE_REGISTRY ?= quay.io/medik8s
-export IMAGE_REGISTRY
-
-
-# When no version is set, use latest as image tags
-DEFAULT_VERSION := 0.0.1
-ifeq ($(origin VERSION), undefined)
-IMAGE_TAG = latest
-else ifeq ($(VERSION), $(DEFAULT_VERSION))
-IMAGE_TAG = latest
-else
-IMAGE_TAG = v$(VERSION)
-endif
-export IMAGE_TAG
-CHANNELS = stable
-export CHANNELS
-DEFAULT_CHANNEL = stable
-export DEFAULT_CHANNEL
-# VERSION defines the project version for the bundle. 
+# VERSION defines the project version for the bundle.
 # Update this value when you upgrade the version of your project.
 # To re-generate a bundle for another specific version without changing the standard setup, you can:
 # - use the VERSION as arg of the bundle target (e.g make bundle VERSION=0.0.2)
 # - use environment variables to overwrite this value (e.g export VERSION=0.0.2)
+DEFAULT_VERSION := 0.0.1
 VERSION ?= $(DEFAULT_VERSION)
 export VERSION
 
-# CHANNELS define the bundle channels used in the bundle. 
+CHANNELS = stable
+export CHANNELS
+DEFAULT_CHANNEL = stable
+export DEFAULT_CHANNEL
+
+# CHANNELS define the bundle channels used in the bundle.
 # Add a new line here if you would like to change its default config. (E.g CHANNELS = "preview,fast,stable")
 # To re-generate a bundle for other specific channels without changing the standard setup, you can:
 # - use the CHANNELS as arg of the bundle target (e.g make bundle CHANNELS=preview,fast,stable)
@@ -62,7 +51,9 @@ BUNDLE_DEFAULT_CHANNEL := --default-channel=$(DEFAULT_CHANNEL)
 endif
 BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 
-OPERATOR_NAME ?= self-node-remediation
+# IMAGE_REGISTRY used to indicate the registery/group for the operator, bundle and catalog
+IMAGE_REGISTRY ?= quay.io/medik8s
+export IMAGE_REGISTRY
 
 # IMAGE_TAG_BASE defines the docker.io namespace and part of the image name for remote images.
 # This variable is used to construct full image tags for bundle and catalog images.
@@ -71,12 +62,20 @@ OPERATOR_NAME ?= self-node-remediation
 # medik8s/self-node-remediation-bundle:$(IMAGE_TAG) and medik8s/self-node-remediation-catalog:$(IMAGE_TAG).
 IMAGE_TAG_BASE ?= $(IMAGE_REGISTRY)/$(OPERATOR_NAME)
 
+# The image tag given to the resulting catalog image (e.g. make catalog-build CATALOG_IMG=example.com/operator-catalog:v0.2.0).
+CATALOG_IMG ?= $(IMAGE_TAG_BASE)-operator-catalog:$(IMAGE_TAG)
+
+# When no version is set, use latest as image tags
+ifeq ($(VERSION), $(DEFAULT_VERSION))
+IMAGE_TAG = latest
+else
+IMAGE_TAG = v$(VERSION)
+endif
+export IMAGE_TAG
+
 # BUNDLE_IMG defines the image:tag used for the bundle.
 # You can use it as an arg. (E.g make bundle-build BUNDLE_IMG=<some-registry>/<project-name-bundle>:<tag>)
 BUNDLE_IMG ?= $(IMAGE_TAG_BASE)-operator-bundle:$(IMAGE_TAG)
-
-# The image tag given to the resulting catalog image (e.g. make catalog-build CATALOG_IMG=example.com/operator-catalog:v0.2.0).
-CATALOG_IMG ?= $(IMAGE_TAG_BASE)-operator-catalog:$(IMAGE_TAG)
 
 # Image URL to use all building/pushing image targets
 export IMG ?= $(IMAGE_TAG_BASE)-operator:$(IMAGE_TAG)
@@ -222,14 +221,24 @@ export ICON_BASE64 ?= ${DEFAULT_ICON_BASE64}
 bundle: manifests operator-sdk kustomize ## Generate bundle manifests and metadata, then validate generated files.
 	$(OPERATOR_SDK) generate kustomize manifests -q
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
-	sed -r -i "s|createdAt: \".*\"|createdAt: \"`date "+%Y-%m-%d %T" `\"|;" ./config/manifests/bases/$(OPERATOR_NAME).clusterserviceversion.yaml
-	sed -r -i "s|containerImage: .*|containerImage: ${IMG}|;" ./config/manifests/bases/$(OPERATOR_NAME).clusterserviceversion.yaml
-	sed -r -i "s|base64data:.*|base64data: ${ICON_BASE64}|;" ./config/manifests/bases/$(OPERATOR_NAME).clusterserviceversion.yaml
 	$(KUSTOMIZE) build config/manifests | envsubst | $(OPERATOR_SDK) generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
 	$(OPERATOR_SDK) bundle validate ./bundle
 
+.PHONY: bundle-update
+bundle-update:
+    # update container image in the metadata
+	sed -r -i "s|containerImage: .*|containerImage: ${IMG}|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+	# set creation date
+	sed -r -i "s|createdAt: \".*\"|createdAt: \"`date "+%Y-%m-%d %T" `\"|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+	# set skipRange
+	sed -r -i "s|olm.skipRange: .*|olm.skipRange: '>=0.4.0 <${VERSION}'|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+	# set icon (not version or build date related, but just to not having this huge data permanently in the CSV)
+	sed -r -i "s|base64data:.*|base64data: ${ICON_BASE64}|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+	$(OPERATOR_SDK) bundle validate ./bundle
+
+
 .PHONY: bundle-build
-bundle-build: ## Build the bundle image.
+bundle-build: bundle bundle-update ## Build the bundle image.
 	docker build -f bundle.Dockerfile -t $(BUNDLE_IMG) .
 
 .PHONY: bundle-push
@@ -310,8 +319,18 @@ container-build: ## Build containers
 container-push: ## Push containers (NOTE: catalog can't be build before bundle was pushed)
 	make docker-push bundle-push catalog-build catalog-push
 
-.PHONY:verify-vendor
-verify-vendor:
-	go mod tidy
+.PHONY:vendor
+vendor: ## Runs go mod vendor
 	go mod vendor
-	./hack/verify-diff.sh
+
+.PHONY: tidy
+tidy: ## Runs go mod tidy
+	go mod tidy
+
+
+.PHONY:verify-vendor
+verify-vendor:tidy vendor verify-no-changes ##Verifies vendor and tidy didn't cause changes
+
+
+.PHONY:verify-bundle
+verify-bundle: manifests bundle verify-no-changes ##Verifies bundle and manifests didn't cause changes
