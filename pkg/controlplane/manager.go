@@ -65,7 +65,7 @@ func (manager *Manager) IsControlPlaneHealthy(workerPeerResponse peers.Response,
 	case peers.UnHealthyBecauseNodeIsIsolated:
 		return canOtherControlPlanesBeReached
 	//reported healthy by worker peers
-	case peers.HealthyBecauseErrorsThresholdNotReached, peers.HealthyBecauseCRNotFound:
+	case peers.HealthyBecauseErrorsThresholdNotReached, peers.HealthyBecauseCRNotFound, peers.HealthyBecauseNoPeersResponseNotReachedTimeout:
 		return true
 	//controlPlane node has connection to most workers, we assume it's not isolated (or at least that the controlPlane node that does not have worker peers quorum will reboot)
 	case peers.HealthyBecauseMostPeersCantAccessAPIServer:
