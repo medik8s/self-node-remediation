@@ -78,7 +78,7 @@ spec:
     API, such as Node Health Check Operator or Machine Health Check Controller (in
     OCP or Cluster-API based clusters). Once a node/machine is unhealthy, the detection
     system will create the SelfNodeRemediation CR, which triggers the Self Node Remediation
-    Operator. For this the configuration of the heath detection system needs to refer
+    Operator. For this the configuration of the health detection system needs to refer
     to a SelfNodeRemediationTemplate CR. Such a template is created by default in
     the operator's namespace, for usage in other namespaces it needs to be created
     manually. The Node Health Check Operator is configured to use Self Node Remediation
