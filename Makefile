@@ -237,9 +237,9 @@ bundle-update:
 	sed -r -i "s|base64data:.*|base64data: ${ICON_BASE64}|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
 	$(OPERATOR_SDK) bundle validate ./bundle
 
-## Build the bundle image.
+
 .PHONY: bundle-build
-bundle-build: bundle bundle-update
+bundle-build: bundle bundle-update ## Build the bundle image.
 	docker build -f bundle.Dockerfile -t $(BUNDLE_IMG) .
 
 .PHONY: bundle-push
@@ -321,17 +321,17 @@ container-push: ## Push containers (NOTE: catalog can't be build before bundle w
 	make docker-push bundle-push catalog-build catalog-push
 
 .PHONY:vendor
-vendor:
+vendor: ## Runs go mod vendor
 	go mod vendor
 
 .PHONY: tidy
-tidy:
+tidy: ## Runs go mod tidy
 	go mod tidy
 
-##Verifies vendor and tidy didn't cause changes
-.PHONY:verify-vendor
-verify-vendor:tidy vendor verify-no-changes
 
-##Verifies bundle and manifests didn't cause changes
+.PHONY:verify-vendor
+verify-vendor:tidy vendor verify-no-changes ##Verifies vendor and tidy didn't cause changes
+
+
 .PHONY:verify-bundle
-verify-bundle: manifests bundle verify-no-changes
+verify-bundle: manifests bundle verify-no-changes ##Verifies bundle and manifests didn't cause changes
