@@ -10,7 +10,7 @@ type reason string
 const (
 	HealthyBecauseCRNotFound                       reason = "CR Not found, node is considered healthy"
 	HealthyBecauseErrorsThresholdNotReached        reason = "Errors number hasn't reached threshold not querying peers yet, node is considered healthy"
-	HealthyBecauseNoPeersResponseNotReachedTimeout reason = "No response from peer hasn't passed the non responsive time threshold so still considered healthy"
+	HealthyBecauseNoPeersResponseNotReachedTimeout reason = "No response from peer. The duration of peer not responding hasn't passed the threshold so still considered healthy"
 	HealthyBecauseNoPeersWereFound                 reason = "No Peers where found, node is considered healthy"
 	HealthyBecauseMostPeersCantAccessAPIServer     reason = "Most peers couldn't access API server, node is considered healthy"
 
