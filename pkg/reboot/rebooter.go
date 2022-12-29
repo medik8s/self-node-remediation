@@ -36,6 +36,9 @@ func (r *WatchdogRebooter) Reboot() error {
 		r.log.Info("no watchdog is present on this host, trying software reboot")
 		//we couldn't init a watchdog so far but requested to be rebooted. we issue a software reboot
 		return r.softwareReboot()
+	} else if r.wd.Status() == watchdog.Malfunction {
+		r.log.Info("watchdog is malfunctioning on this host, trying software reboot")
+		return r.softwareReboot()
 	}
 
 	//Watch dog is rebooting, wait to make sure watchdog is rebooting properly otherwise intervene with software reboot
