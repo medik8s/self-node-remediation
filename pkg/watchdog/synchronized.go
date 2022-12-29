@@ -49,6 +49,7 @@ func (swd *synchronizedWatchdog) Start(ctx context.Context) error {
 	timeout, err := swd.impl.start()
 	if err != nil {
 		// TODO or return the error and fail the pod's start?
+
 		return nil
 	}
 	swd.timeout = *timeout
