@@ -16,29 +16,32 @@ type Rebooter interface {
 	Reboot() error
 }
 
-var _ Rebooter = &WatchdogRebooter{}
+var _ Rebooter = &watchdogRebooter{}
 
-// WatchdogRebooter uses a watchdog for triggering reboots
-type WatchdogRebooter struct {
-	wd  watchdog.Watchdog
-	log logr.Logger
+// watchdogRebooter uses a watchdog for triggering reboots
+type watchdogRebooter struct {
+	wd                 watchdog.Watchdog
+	log                logr.Logger
+	softwareRebootHook func() error
 }
 
 func NewWatchdogRebooter(wd watchdog.Watchdog, log logr.Logger) Rebooter {
-	return &WatchdogRebooter{
+	wdRebooter := &watchdogRebooter{
 		wd:  wd,
 		log: log,
 	}
+	wdRebooter.softwareRebootHook = wdRebooter.softwareReboot
+	return wdRebooter
 }
 
-func (r *WatchdogRebooter) Reboot() error {
+func (r *watchdogRebooter) Reboot() error {
 	if r.wd == nil {
 		r.log.Info("no watchdog is present on this host, trying software reboot")
 		//we couldn't init a watchdog so far but requested to be rebooted. we issue a software reboot
-		return r.softwareReboot()
+		return r.softwareRebootHook()
 	} else if r.wd.Status() == watchdog.Malfunction {
 		r.log.Info("watchdog is malfunctioning on this host, trying software reboot")
-		return r.softwareReboot()
+		return r.softwareRebootHook()
 	}
 
 	//Watch dog is rebooting, wait to make sure watchdog is rebooting properly otherwise intervene with software reboot
@@ -46,12 +49,12 @@ func (r *WatchdogRebooter) Reboot() error {
 	case watchdog.Triggered:
 		r.log.Info("watchdog is triggered, waiting for watchdog reboot to commence")
 		if r.isWatchdogRebootStuck() {
-			return r.softwareReboot()
+			return r.softwareRebootHook()
 		}
 		return nil
 	case watchdog.Disarmed:
 		r.log.Info("watchdog failed to start, trying software reboot")
-		return r.softwareReboot()
+		return r.softwareRebootHook()
 	case watchdog.Armed:
 		// we stop feeding the watchdog for a reboot
 		r.wd.Stop()
@@ -65,7 +68,7 @@ func (r *WatchdogRebooter) Reboot() error {
 }
 
 // softwareReboot performs software reboot by running systemctl reboot
-func (r *WatchdogRebooter) softwareReboot() error {
+func (r *watchdogRebooter) softwareReboot() error {
 	r.log.Info("about to try software reboot")
 	// hostPID: true and privileged:true required to run this
 	rebootCmd := exec.Command("/usr/bin/nsenter", "-m/proc/1/ns/mnt", "/bin/systemctl", "reboot", "--force", "--force")
@@ -77,7 +80,7 @@ func (r *WatchdogRebooter) softwareReboot() error {
 	return nil
 }
 
-func (r *WatchdogRebooter) isWatchdogRebootStuck() bool {
+func (r *watchdogRebooter) isWatchdogRebootStuck() bool {
 	lastFoodTime := r.wd.LastFoodTime()
 	timeElapsedSinceLastFeed := time.Now().Sub(lastFoodTime)
 	var isStuck bool

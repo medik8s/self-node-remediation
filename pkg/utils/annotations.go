@@ -13,7 +13,7 @@ import (
 const (
 	// IsRebootCapableAnnotation value is the key name for the node's annotation that will determine if node is reboot capable
 	IsRebootCapableAnnotation     = "is-reboot-capable.self-node-remediation.medik8s.io"
-	isSoftwareRebootEnabledEnvVar = "IS_SOFTWARE_REBOOT_ENABLED"
+	IsSoftwareRebootEnabledEnvVar = "IS_SOFTWARE_REBOOT_ENABLED"
 )
 
 // UpdateNodeWithIsRebootCapableAnnotation updates the is-reboot-capable node annotation to be true if any kind
@@ -34,7 +34,6 @@ func UpdateNodeWithIsRebootCapableAnnotation(watchdogInitiated bool, nodeName st
 		return err
 	}
 
-
 	if node.Annotations == nil {
 		node.Annotations = map[string]string{}
 	}
@@ -53,7 +52,7 @@ func UpdateNodeWithIsRebootCapableAnnotation(watchdogInitiated bool, nodeName st
 }
 
 func IsSoftwareRebootEnabled() (bool, error) {
-	softwareRebootEnabledEnv := os.Getenv(isSoftwareRebootEnabledEnvVar)
+	softwareRebootEnabledEnv := os.Getenv(IsSoftwareRebootEnabledEnvVar)
 	softwareRebootEnabled, err := strconv.ParseBool(softwareRebootEnabledEnv)
 	if err != nil {
 		return false, errors.Wrapf(err, "failed to convert IS_SOFTWARE_REBOOT_ENABLED env valueto boolean. value is: %s", softwareRebootEnabledEnv)
