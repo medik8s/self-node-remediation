@@ -15,6 +15,8 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	"github.com/go-logr/logr"
+
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
 )
 
@@ -27,7 +29,7 @@ const testNamespace = "self-node-remediation"
 var cfg *rest.Config
 var k8sClient client.Client
 var k8sClientSet *kubernetes.Clientset
-var logger *logf.DelegatingLogger
+var logger logr.Logger
 
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
