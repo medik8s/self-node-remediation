@@ -55,7 +55,7 @@ func IsSoftwareRebootEnabled() (bool, error) {
 	softwareRebootEnabledEnv := os.Getenv(IsSoftwareRebootEnabledEnvVar)
 	softwareRebootEnabled, err := strconv.ParseBool(softwareRebootEnabledEnv)
 	if err != nil {
-		return false, errors.Wrapf(err, "failed to convert IS_SOFTWARE_REBOOT_ENABLED env valueto boolean. value is: %s", softwareRebootEnabledEnv)
+		return false, errors.Wrapf(err, "failed to convert IS_SOFTWARE_REBOOT_ENABLED env value to boolean. value is: %s", softwareRebootEnabledEnv)
 	}
 	return softwareRebootEnabled, nil
 }
