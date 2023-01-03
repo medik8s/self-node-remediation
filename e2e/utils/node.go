@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/go-logr/logr"
 	"os/exec"
 	"strings"
 
@@ -25,7 +26,7 @@ const (
 	containerMachineConfigDaemon = "machine-config-daemon"
 )
 
-var logger *logf.DelegatingLogger
+var logger logr.Logger
 
 func init() {
 	logger = logf.Log

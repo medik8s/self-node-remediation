@@ -82,9 +82,10 @@ spec:
                     description: Spec defines the behavior of a node. https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status
                     properties:
                       configSource:
-                        description: If specified, the source to get node configuration
-                          from The DynamicKubeletConfig feature gate must be enabled
-                          for the Kubelet to use this field
+                        description: 'Deprecated: Previously used to specify the source
+                          of the node''s configuration for the DynamicKubeletConfig
+                          feature. This feature is removed from Kubelets as of 1.24
+                          and will be fully removed in 1.26.'
                         properties:
                           configMap:
                             description: ConfigMap is a reference to a Node's ConfigMap
@@ -449,7 +450,7 @@ spec:
                           properties:
                             names:
                               description: Names by which this image is known. e.g.
-                                ["k8s.gcr.io/hyperkube:v1.0.7", "dockerhub.io/google_containers/hyperkube:v1.0.7"]
+                                ["kubernetes.example/hyperkube:v1.0.7", "cloud-vendor.registry.example/cloud-vendor/hyperkube:v1.0.7"]
                               items:
                                 type: string
                               type: array
@@ -457,8 +458,6 @@ spec:
                               description: The size of the image in bytes.
                               format: int64
                               type: integer
-                          required:
-                          - names
                           type: object
                         type: array
                       nodeInfo:
@@ -473,7 +472,7 @@ spec:
                             type: string
                           containerRuntimeVersion:
                             description: ContainerRuntime Version reported by the
-                              node through runtime remote API (e.g. docker://1.5.0).
+                              node through runtime remote API (e.g. containerd://1.4.2).
                             type: string
                           kernelVersion:
                             description: Kernel Version reported by the node from
