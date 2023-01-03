@@ -15,10 +15,10 @@ import (
 
 var isSoftwareRebootCalled bool
 
-var _ = Describe("Watchdog tests", func() {
+var _ = Describe("Rebooter tests", func() {
 	var rebooter *watchdogRebooter
 
-	Context("Crash on start", func() {
+	Describe("Crash on start", func() {
 		BeforeEach(func() {
 			wd, _ := watchdog.NewFake(false)
 			rebooter = &watchdogRebooter{wd, ctrl.Log.WithName("fake rebooter"), fakeSoftwareReboot}
