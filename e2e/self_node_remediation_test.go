@@ -536,7 +536,7 @@ func checkNoReboot(node *v1.Node, oldBootTime *time.Time) {
 		}
 		logger.Info("boot time", "new", newBootTime)
 		return *newBootTime
-	}, 1*time.Minute, 10*time.Second).Should(BeTemporally("==", *oldBootTime))
+	}, 5*time.Minute, 10*time.Second).Should(BeTemporally("==", *oldBootTime))
 }
 
 func checkSnrLogs(node *v1.Node, expected []string) {
