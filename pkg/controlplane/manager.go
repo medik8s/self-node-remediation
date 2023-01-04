@@ -22,7 +22,8 @@ import (
 )
 
 const (
-	kubeletPort = "10250"
+	kubeletPort    = "10250"
+	etcdHealthPort = "9980"
 )
 
 // Manager contains logic and info needed to fence and remediate controlplane nodes
@@ -171,6 +172,23 @@ func (manager *Manager) isKubeletServiceRunning() bool {
 }
 
 func (manager *Manager) isEtcdRunning() bool {
-	//TODO mshitrit implement
+	url := fmt.Sprintf("https://%s:%s/healthz", manager.nodeName, etcdHealthPort)
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	httpClient := &http.Client{Transport: tr}
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		manager.log.Error(err, "failed to create an etcd health request", "node name", manager.nodeName)
+		return false
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		manager.log.Error(err, "etcd is down", "node name", manager.nodeName)
+		return false
+	}
+	defer resp.Body.Close()
 	return true
 }
