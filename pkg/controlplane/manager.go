@@ -83,6 +83,7 @@ func (manager *Manager) IsControlPlaneHealthy(workerPeerResponse peers.Response,
 }
 
 func (manager *Manager) isDiagnosticsPassed() bool {
+	manager.log.Info("Starting control-plane node diagnostics")
 	if manager.isEndpointAccessLost() {
 		return false
 	} else if !manager.isKubeletServiceRunning() {
@@ -90,6 +91,7 @@ func (manager *Manager) isDiagnosticsPassed() bool {
 	} else if !manager.isEtcdRunning() {
 		return false
 	}
+	manager.log.Info("Control-plane node diagnostics passed successfully")
 	return true
 }
 
