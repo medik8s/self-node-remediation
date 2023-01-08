@@ -59,7 +59,7 @@ func (r *SelfNodeRemediationTemplate) ValidateDelete() error {
 
 func ValidateStrategy(snrSpec SelfNodeRemediationSpec) error {
 	if snrSpec.RemediationStrategy == DeprecatedNodeDeletionRemediationStrategy {
-		return fmt.Errorf("%s is deprecated, please switch to %s", DeprecatedNodeDeletionRemediationStrategy, ResourceDeletionRemediationStrategy)
+		return fmt.Errorf("%s remediation strategy is deprecated, please switch to %s", DeprecatedNodeDeletionRemediationStrategy, ResourceDeletionRemediationStrategy)
 	} else if snrSpec.RemediationStrategy != ResourceDeletionRemediationStrategy {
 		return fmt.Errorf("invalid remediation strategy %s", snrSpec.RemediationStrategy)
 	}
