@@ -424,7 +424,7 @@ func getBootTime(node *v1.Node) (*time.Time, error) {
 			return err
 		}
 		return nil
-	}, 6*nodeExecTimeout, 10*time.Second).ShouldNot(HaveOccurred())
+	}, 6*time.Minute, 10*time.Second).ShouldNot(HaveOccurred())
 	return &bootTime, nil
 }
 
