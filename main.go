@@ -138,10 +138,6 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
-	if err := (&selfnoderemediationv1alpha1.SelfNodeRemediation{}).SetupWebhookWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "SelfNodeRemediation")
-		os.Exit(1)
-	}
 	if err := (&selfnoderemediationv1alpha1.SelfNodeRemediationTemplate{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "SelfNodeRemediationTemplate")
 		os.Exit(1)
@@ -285,7 +281,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 
 	// but the reboot time needs be at least the time we know we need for determining a node issue and trigger the reboot!
 	// 1. time for determine node issue
-	minTimeToAssumeNodeRebooted := (apiCheckInterval + apiServerTimeout) * time.Duration(maxErrorThreshold) + maxTimeForNoPeersResponse
+	minTimeToAssumeNodeRebooted := (apiCheckInterval+apiServerTimeout)*time.Duration(maxErrorThreshold) + maxTimeForNoPeersResponse
 	// 2. time for asking peers (10% batches + 1st smaller batch)
 	minTimeToAssumeNodeRebooted += (10 + 1) * (peerDialTimeout + peerRequestTimeout)
 	// 3. watchdog timeout

@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -52,5 +54,14 @@ func (r *SelfNodeRemediationTemplate) ValidateUpdate(old runtime.Object) error {
 func (r *SelfNodeRemediationTemplate) ValidateDelete() error {
 	// unused for now, add "delete" when needed to verbs in the kubebuilder annotation above
 	selfnoderemediationtemplatelog.Info("validate delete", "name", r.Name)
+	return nil
+}
+
+func ValidateStrategy(snrSpec SelfNodeRemediationSpec) error {
+	if snrSpec.RemediationStrategy == DeprecatedNodeDeletionRemediationStrategy {
+		return fmt.Errorf("%s is deprecated, please switch to %s", DeprecatedNodeDeletionRemediationStrategy, ResourceDeletionRemediationStrategy)
+	} else if snrSpec.RemediationStrategy != ResourceDeletionRemediationStrategy {
+		return fmt.Errorf("invalid remediation strategy %s", snrSpec.RemediationStrategy)
+	}
 	return nil
 }

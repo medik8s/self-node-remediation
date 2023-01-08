@@ -435,26 +435,6 @@ spec:
     containerPort: 443
     deploymentName: self-node-remediation-controller-manager
     failurePolicy: Fail
-    generateName: vselfnoderemediation.kb.io
-    rules:
-    - apiGroups:
-      - self-node-remediation.medik8s.io
-      apiVersions:
-      - v1alpha1
-      operations:
-      - CREATE
-      - UPDATE
-      resources:
-      - selfnoderemediations
-    sideEffects: None
-    targetPort: 9443
-    type: ValidatingAdmissionWebhook
-    webhookPath: /validate-self-node-remediation-medik8s-io-v1alpha1-selfnoderemediation
-  - admissionReviewVersions:
-    - v1
-    containerPort: 443
-    deploymentName: self-node-remediation-controller-manager
-    failurePolicy: Fail
     generateName: vselfnoderemediationconfig.kb.io
     rules:
     - apiGroups:

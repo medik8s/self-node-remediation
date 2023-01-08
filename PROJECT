@@ -16,9 +16,6 @@ resources:
   kind: SelfNodeRemediation
   path: github.com/medik8s/self-node-remediation/api/v1alpha1
   version: v1alpha1
-  webhooks:
-    validation: true
-    webhookVersion: v1
 - api:
     crdVersion: v1
     namespaced: true

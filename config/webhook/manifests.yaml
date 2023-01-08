@@ -11,26 +11,6 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-self-node-remediation-medik8s-io-v1alpha1-selfnoderemediation
-  failurePolicy: Fail
-  name: vselfnoderemediation.kb.io
-  rules:
-  - apiGroups:
-    - self-node-remediation.medik8s.io
-    apiVersions:
-    - v1alpha1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - selfnoderemediations
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: webhook-service
-      namespace: system
       path: /validate-self-node-remediation-medik8s-io-v1alpha1-selfnoderemediationconfig
   failurePolicy: Fail
   name: vselfnoderemediationconfig.kb.io

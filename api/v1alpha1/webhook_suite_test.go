@@ -103,9 +103,6 @@ var _ = BeforeSuite(func() {
 	err = (&SelfNodeRemediationConfig{}).SetupWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
-	err = (&SelfNodeRemediation{}).SetupWebhookWithManager(mgr)
-	Expect(err).NotTo(HaveOccurred())
-
 	err = (&SelfNodeRemediationTemplate{}).SetupWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
