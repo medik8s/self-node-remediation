@@ -17,7 +17,6 @@ limitations under the License.
 package main
 
 import (
-	"context"
 	"flag"
 	"os"
 	"strconv"
@@ -29,12 +28,10 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -50,6 +47,7 @@ import (
 	"github.com/medik8s/self-node-remediation/pkg/peers"
 	"github.com/medik8s/self-node-remediation/pkg/reboot"
 	"github.com/medik8s/self-node-remediation/pkg/snrconfighelper"
+	"github.com/medik8s/self-node-remediation/pkg/template"
 	"github.com/medik8s/self-node-remediation/pkg/utils"
 	"github.com/medik8s/self-node-remediation/pkg/watchdog"
 	//+kubebuilder:scaffold:imports
@@ -140,6 +138,11 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
+	if err := (&selfnoderemediationv1alpha1.SelfNodeRemediationTemplate{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "SelfNodeRemediationTemplate")
+		os.Exit(1)
+	}
+
 	ns, err := utils.GetDeploymentNamespace()
 	if err != nil {
 		setupLog.Error(err, "failed to get deployed namespace from env var")
@@ -164,11 +167,11 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
-	if err := newTemplatesIfNotExist(mgr.GetClient()); err != nil {
-		setupLog.Error(err, "failed to create remediation templates")
+	templateCreator := template.New(mgr.GetClient(), ctrl.Log.WithName("template creator"))
+	if err = mgr.Add(templateCreator); err != nil {
+		setupLog.Error(err, "failed to add template creator to the manager")
 		os.Exit(1)
 	}
-
 }
 
 func getDurEnvVarOrDie(varName string) time.Duration {
@@ -321,23 +324,4 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		setupLog.Error(err, "failed to add grpc server to the manager")
 		os.Exit(1)
 	}
-}
-
-// newTemplatesIfNotExist creates new SelfNodeRemediationTemplate objects
-func newTemplatesIfNotExist(c client.Client) error {
-	ns, err := utils.GetDeploymentNamespace()
-	if err != nil {
-		return errors.Wrap(err, "unable to get the deployment namespace")
-	}
-
-	templates := selfnoderemediationv1alpha1.NewRemediationTemplates()
-
-	for _, template := range templates {
-		template.SetNamespace(ns)
-		err = c.Create(context.Background(), template, &client.CreateOptions{})
-		if err != nil && !apierrors.IsAlreadyExists(err) {
-			return errors.Wrap(err, "failed to create self node remediation template CR")
-		}
-	}
-	return nil
 }
