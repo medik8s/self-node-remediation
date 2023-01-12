@@ -293,6 +293,8 @@ ifeq (,$(wildcard $(OPM)))
 	OS=linux && ARCH=amd64 && \
 	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/$(OPM_VERSION)/$${OS}-$${ARCH}-opm ;\
 	chmod +x $(OPM) ;\
+	mkdir ${OPM_BIN_FOLDER}/latest ;\
+	cp ${OPM} ${OPM_BIN_FOLDER}/latest ;\
 	}
 endif
 

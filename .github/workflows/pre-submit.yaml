@@ -49,7 +49,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v3
       with:
-        go-version: 1.18
+        go-version: 1.19
 
     - name: Configure insecure registry
       run: |
@@ -88,16 +88,16 @@ jobs:
     - name: Install OLM
       run: |
         curl -sL https://github.com/operator-framework/operator-lifecycle-manager/releases/download/v0.22.0/install.sh | bash -s v0.22.0
-    - name: Install NHC / SNR build script
+    - name: Install SNR with build script
       run: |
         curl https://raw.githubusercontent.com/medik8s/tools/main/scripts/${BUILD_SCRIPT} -o ${BUILD_SCRIPT}
         chmod +x ${BUILD_SCRIPT}
-    - name: Build NHC
+    - name: Build SNR
       run: |
         make container-build container-push
         # make opm findable...
-        cp ./bin/opm /usr/local/bin/
-    - name: Build and deploy NHC + SNR
+        cp ./bin/opm/latest/opm /usr/local/bin/
+    - name: Deploy SNR
       run: |
         # set version vars
         export NHC_VERSION=${VERSION}
@@ -106,7 +106,7 @@ jobs:
         # set deployment namespace
         export CATALOG_SOURCE_NAMESPACE=olm
         # build and push images, and deploy
-        ./${BUILD_SCRIPT} --skip-nhc --http
+        ./${BUILD_SCRIPT} --skip-nhc --skip-build --http
         # wait a bit for OLM creating CSV etc
         sleep 1m
     - name: OLM status
@@ -123,25 +123,16 @@ jobs:
         # give SNR some time to create the DS
         sleep 30s
         kubectl rollout status daemonset -n ${DEPLOY_NAMESPACE} self-node-remediation-ds --timeout 180s
-        kubectl wait deployment -n ${DEPLOY_NAMESPACE} node-healthcheck-controller-manager --for condition=Available=True --timeout=180s
-        # should be scaled down to zero by NHC on k8s
-        kubectl wait deployment -n ${DEPLOY_NAMESPACE} node-healthcheck-node-remediation-console-plugin --for condition=Available=True --timeout=30s
     - name: Deployment status
       if: ${{ always() }}
       run: |
         kubectl -n ${DEPLOY_NAMESPACE} get deployments,daemonsets,pods -o=wide
-    - name: Run NHC e2e
+    - name: Run SNR e2e
       run: |
-        OPERATOR_NS=${DEPLOY_NAMESPACE} SKIP_FOR_K8S=true make test-e2e
+        OPERATOR_NS=${DEPLOY_NAMESPACE} SKIP_FOR_K8S=true make e2e-test
     - name: Debug
       if: ${{ failure() }}
       run: |
-        # debug NHC
-        echo "Debugging NHC"
-        kubectl describe deployment -n ${DEPLOY_NAMESPACE} node-healthcheck-controller-manager
-        kubectl describe pod -n ${DEPLOY_NAMESPACE} --selector=app.kubernetes.io/name=node-healthcheck-operator,app.kubernetes.io/component=controller-manager
-        kubectl logs -n ${DEPLOY_NAMESPACE} -c manager --selector=app.kubernetes.io/name=node-healthcheck-operator,app.kubernetes.io/component=controller-manager --tail -1
-        
         echo "Debugging SNR operator"
         kubectl describe deployment -n ${DEPLOY_NAMESPACE} self-node-remediation-controller-manager
         kubectl describe pod -n ${DEPLOY_NAMESPACE} --selector=self-node-remediation-operator=,control-plane=controller-manager
