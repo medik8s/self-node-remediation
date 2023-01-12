@@ -8,8 +8,6 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -62,13 +60,6 @@ var _ = BeforeSuite(func() {
 		MetricsBindAddress: "0",
 	})
 	Expect(err).ToNot(HaveOccurred())
-	var ctx context.Context
-	ctx, cancelFunc = context.WithCancel(ctrl.SetupSignalHandler())
-	go func() {
-		defer GinkgoRecover()
-		err = k8sManager.Start(ctx)
-		Expect(err).ToNot(HaveOccurred())
-	}()
 
 	k8sClient = k8sManager.GetClient()
 	Expect(k8sClient).ToNot(BeNil())
@@ -82,13 +73,13 @@ var _ = BeforeSuite(func() {
 	err = pprr.SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
-	By("creating test node")
-	node := &v1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: nodeName,
-		},
-	}
-	Expect(k8sClient.Create(context.Background(), node)).ToNot(HaveOccurred())
+	var ctx context.Context
+	ctx, cancelFunc = context.WithCancel(ctrl.SetupSignalHandler())
+	go func() {
+		defer GinkgoRecover()
+		err = k8sManager.Start(ctx)
+		Expect(err).ToNot(HaveOccurred())
+	}()
 
 }, 60)
 
