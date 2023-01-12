@@ -7,6 +7,7 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"go.uber.org/zap/zapcore"
 
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -37,7 +38,11 @@ var pprr *controllers.SelfNodeRemediationReconciler
 var cancelFunc context.CancelFunc
 
 var _ = BeforeSuite(func() {
-	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+	opts := zap.Options{
+		Development: true,
+		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
+	}
+	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseFlagOptions(&opts)))
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
@@ -57,6 +62,7 @@ var _ = BeforeSuite(func() {
 
 	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:             scheme.Scheme,
+		LeaderElection:     false,
 		MetricsBindAddress: "0",
 	})
 	Expect(err).ToNot(HaveOccurred())
