@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -60,10 +61,13 @@ var _ = BeforeSuite(func() {
 
 	//+kubebuilder:scaffold:scheme
 
+	gracefulShutdown := 0 * time.Second
+	Expect(err).ToNot(HaveOccurred())
 	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:             scheme.Scheme,
-		LeaderElection:     false,
-		MetricsBindAddress: "0",
+		Scheme:                  scheme.Scheme,
+		LeaderElection:          false,
+		MetricsBindAddress:      "0",
+		GracefulShutdownTimeout: &gracefulShutdown,
 	})
 	Expect(err).ToNot(HaveOccurred())
 
@@ -92,6 +96,5 @@ var _ = BeforeSuite(func() {
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
 	cancelFunc()
-	err := testEnv.Stop()
-	Expect(err).NotTo(HaveOccurred())
+	Expect(testEnv.Stop()).To(Succeed())
 })
