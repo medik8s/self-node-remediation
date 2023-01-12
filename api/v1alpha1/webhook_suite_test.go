@@ -107,7 +107,7 @@ var _ = BeforeSuite(func() {
 	//+kubebuilder:scaffold:webhook
 
 	var ctx context.Context
-	ctx, cancel = context.WithCancel(context.TODO())
+	ctx, cancel = context.WithCancel(ctrl.SetupSignalHandler())
 	go func() {
 		defer GinkgoRecover()
 		err = mgr.Start(ctx)
