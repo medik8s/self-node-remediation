@@ -139,7 +139,9 @@ ENVTEST_ASSETS_DIR = ${BIN_ASSETS_DIR}/setup-envtest
 ENVTEST = $(shell pwd)/bin/setup-envtest
 
 test: envtest manifests generate fmt vet ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path --bin-dir $(PROJECT_DIR)/testbin)" go test ./api/... ./controllers/... ./pkg/... -coverprofile cover.out -v
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path --bin-dir $(PROJECT_DIR)/testbin)" \
+		KUBEBUILDER_CONTROLPLANE_STOP_TIMEOUT="60s"\
+		go test ./api/... ./controllers/... ./pkg/... -coverprofile cover.out -v
 
 ##@ Build
 

@@ -4,12 +4,12 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"go.uber.org/zap/zapcore"
 
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -39,7 +39,11 @@ var pprr *controllers.SelfNodeRemediationReconciler
 var cancelFunc context.CancelFunc
 
 var _ = BeforeSuite(func() {
-	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+	opts := zap.Options{
+		Development: true,
+		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
+	}
+	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseFlagOptions(&opts)))
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
@@ -57,18 +61,15 @@ var _ = BeforeSuite(func() {
 
 	//+kubebuilder:scaffold:scheme
 
+	gracefulShutdown := 0 * time.Second
+	Expect(err).ToNot(HaveOccurred())
 	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:             scheme.Scheme,
-		MetricsBindAddress: "0",
+		Scheme:                  scheme.Scheme,
+		LeaderElection:          false,
+		MetricsBindAddress:      "0",
+		GracefulShutdownTimeout: &gracefulShutdown,
 	})
 	Expect(err).ToNot(HaveOccurred())
-	var ctx context.Context
-	ctx, cancelFunc = context.WithCancel(ctrl.SetupSignalHandler())
-	go func() {
-		defer GinkgoRecover()
-		err = k8sManager.Start(ctx)
-		Expect(err).ToNot(HaveOccurred())
-	}()
 
 	k8sClient = k8sManager.GetClient()
 	Expect(k8sClient).ToNot(BeNil())
@@ -82,19 +83,18 @@ var _ = BeforeSuite(func() {
 	err = pprr.SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
-	By("creating test node")
-	node := &v1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: nodeName,
-		},
-	}
-	Expect(k8sClient.Create(context.Background(), node)).ToNot(HaveOccurred())
+	var ctx context.Context
+	ctx, cancelFunc = context.WithCancel(ctrl.SetupSignalHandler())
+	go func() {
+		defer GinkgoRecover()
+		err = k8sManager.Start(ctx)
+		Expect(err).ToNot(HaveOccurred())
+	}()
 
 }, 60)
 
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
 	cancelFunc()
-	err := testEnv.Stop()
-	Expect(err).NotTo(HaveOccurred())
+	Expect(testEnv.Stop()).To(Succeed())
 })
