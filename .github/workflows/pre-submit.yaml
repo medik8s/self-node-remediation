@@ -53,7 +53,7 @@ jobs:
 
     - name: Configure insecure registry
       run: |
-        #sudo cat /etc/docker/daemon.json
+        #sudo cat /etc/docker/daemon.json 
         # allow insecure registry but keep original config!
         sudo bash -c "cat <<EOF >/etc/docker/daemon.json
         {
@@ -106,7 +106,7 @@ jobs:
         # set deployment namespace
         export CATALOG_SOURCE_NAMESPACE=olm
         # build and push images, and deploy
-        ./${BUILD_SCRIPT} --skip-nhc --skip-build --http
+        ./${BUILD_SCRIPT} --skip-snr --http
         # wait a bit for OLM creating CSV etc
         sleep 1m
     - name: OLM status
