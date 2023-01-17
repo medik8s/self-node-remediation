@@ -5,7 +5,6 @@ import (
 )
 
 const (
-	WorkerLabelName       = "node-role.kubernetes.io/worker"
 	MasterLabelName       = "node-role.kubernetes.io/master"
 	ControlPlaneLabelName = "node-role.kubernetes.io/control-plane" //replacing master label since k8s 1.25
 )
