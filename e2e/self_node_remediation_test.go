@@ -436,7 +436,7 @@ func getBootTimeOCP(node *v1.Node) (*time.Time, error) {
 }
 
 func getBootTimeK8s(node *v1.Node) (*time.Time, error) {
-	return utils.GetBootTime(k8sClientSet, testNamespace, node.Name)
+	return utils.GetBootTime(k8sClientSet, node.Name, testNamespace)
 }
 
 func checkNoExecuteTaintRemoved(node *v1.Node) {
