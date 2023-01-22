@@ -14,7 +14,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/remotecommand"
-	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
@@ -41,6 +40,7 @@ func RunCommandInCluster(c *kubernetes.Clientset, nodeName string, ns string, co
 	if err != nil {
 		return "", err
 	}
+	defer c.CoreV1().Pods(ns).Delete(context.Background(), generateDebugPodName(nodeName), metav1.DeleteOptions{})
 
 	err = waitForCondition(c, pod, corev1.PodReady, corev1.ConditionTrue, time.Minute)
 	if err != nil {
@@ -48,8 +48,8 @@ func RunCommandInCluster(c *kubernetes.Clientset, nodeName string, ns string, co
 	}
 
 	logger.Info("helper pod is running, going to execute command", "command", command)
-	cmd := []string{"sh", "-c", fmt.Sprintf("microdnf install procps -y >/dev/null 2>&1 && %s", command)}
-	outputBytes, err := waitForPodOutput(c, pod, cmd)
+	//cmd := []string{"sh", "-c", fmt.Sprintf("microdnf install procps -y >/dev/null 2>&1 && %s", command)}
+	outputBytes, err := waitForPodOutput(c, pod /*cmd*/, []string{command})
 	if err != nil {
 		return "", err
 	}
@@ -136,31 +136,25 @@ func waitForCondition(c *kubernetes.Clientset, pod *corev1.Pod, conditionType co
 	})
 }
 
+const debugPodName = "debug-pod"
+
+func generateDebugPodName(nodeName string) string {
+	return fmt.Sprintf("%s_%s", nodeName, debugPodName)
+}
+
 func getPod(nodeName string) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			GenerateName: "nhc-test-",
-			Labels: map[string]string{
-				"test": "",
-			},
+			Name: generateDebugPodName(nodeName),
 		},
 		Spec: corev1.PodSpec{
-			NodeName:    nodeName,
-			HostNetwork: true,
-			HostPID:     true,
-			SecurityContext: &corev1.PodSecurityContext{
-				RunAsUser:  pointer.Int64(0),
-				RunAsGroup: pointer.Int64(0),
-			},
+			NodeName:      nodeName,
 			RestartPolicy: corev1.RestartPolicyNever,
 			Containers: []corev1.Container{
 				{
-					Name:  "test",
-					Image: "registry.access.redhat.com/ubi8/ubi-minimal",
-					SecurityContext: &corev1.SecurityContext{
-						Privileged: pointer.Bool(true),
-					},
-					Command: []string{"sleep", "2m"},
+					Name:    debugPodName,
+					Image:   "ubuntu",
+					Command: []string{"/bin/bash", "-ec", "while :; do echo '.'; sleep 5 ; done"},
 				},
 			},
 		},
