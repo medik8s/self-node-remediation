@@ -17,6 +17,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
+const debugPodName = "debug-pod"
+
 // GetBootTime gets the boot time of the given node by running a pod on it executing uptime command
 func GetBootTime(c *kubernetes.Clientset, nodeName string, ns string) (*time.Time, error) {
 	output, err := RunCommandInCluster(c, nodeName, ns, "uptime -s")
@@ -136,10 +138,8 @@ func waitForCondition(c *kubernetes.Clientset, pod *corev1.Pod, conditionType co
 	})
 }
 
-const debugPodName = "debug-pod"
-
 func generateDebugPodName(nodeName string) string {
-	return fmt.Sprintf("%s_%s", nodeName, debugPodName)
+	return fmt.Sprintf("%s.%s", nodeName, debugPodName)
 }
 
 func getPod(nodeName string) *corev1.Pod {
