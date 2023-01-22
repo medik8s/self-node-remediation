@@ -166,7 +166,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				// b) unhealthy
 				//    - kill connectivity on one node
 				//    - create SNR
-				//    - verify node does reboot and and is deleted / re-created
+				//    - verify node does reboot and is deleted / re-created
 
 				var snr *v1alpha1.SelfNodeRemediation
 				var va *storagev1.VolumeAttachment
@@ -476,10 +476,6 @@ func checkReboot(node *v1.Node, oldBootTime *time.Time) {
 }
 
 func killApiConnection(node *v1.Node, apiIPs []string, withReconnect bool) {
-	killApiConnectionOCP(node, apiIPs, withReconnect)
-}
-
-func killApiConnectionOCP(node *v1.Node, apiIPs []string, withReconnect bool) {
 	By("killing api connectivity")
 
 	script := composeScript(disconnectCommand, apiIPs)
@@ -498,7 +494,13 @@ func killApiConnectionOCP(node *v1.Node, apiIPs []string, withReconnect bool) {
 		ctx, cancel = context.WithTimeout(context.Background(), nodeExecTimeout)
 	}
 	defer cancel()
-	_, err := utils.ExecCommandOnNode(k8sClient, command, node, ctx)
+
+	var err error
+	if isK8sRun {
+		err = killApiConnectionK8s(node, command, ctx)
+	} else {
+		err = killApiConnectionOCP(node, command, ctx)
+	}
 
 	if withReconnect {
 		//in case the sleep didn't work
@@ -517,6 +519,16 @@ func killApiConnectionOCP(node *v1.Node, apiIPs []string, withReconnect bool) {
 			),
 		),
 	)
+}
+
+func killApiConnectionOCP(node *v1.Node, command []string, ctx context.Context) error {
+	_, err := utils.ExecCommandOnNode(k8sClient, command, node, ctx)
+	return err
+}
+
+func killApiConnectionK8s(node *v1.Node, command []string, ctx context.Context) error {
+	_, err := utils.RunCommandInCluster(k8sClientSet, node.Name, testNamespace, strings.Join(command, ""))
+	return err
 }
 
 func composeScript(commandTemplate string, ips []string) string {
