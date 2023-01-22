@@ -8,7 +8,10 @@ import (
 	"strings"
 	"time"
 
+	. "github.com/onsi/gomega"
+
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
@@ -21,7 +24,7 @@ const debugPodName = "debug-pod"
 
 // GetBootTime gets the boot time of the given node by running a pod on it executing uptime command
 func GetBootTime(c *kubernetes.Clientset, nodeName string, ns string) (*time.Time, error) {
-	output, err := RunCommandInCluster(c, nodeName, ns, "uptime -s")
+	output, err := RunCommandInCluster(c, nodeName, ns, []string{"uptime", "-s"})
 	if err != nil {
 		return nil, err
 	}
@@ -35,14 +38,14 @@ func GetBootTime(c *kubernetes.Clientset, nodeName string, ns string) (*time.Tim
 }
 
 // RunCommandInCluster runs a command in a pod in the cluster and returns the output
-func RunCommandInCluster(c *kubernetes.Clientset, nodeName string, ns string, command string) (string, error) {
+func RunCommandInCluster(c *kubernetes.Clientset, nodeName string, ns string, command []string) (string, error) {
 	// create a pod and wait that it's running
 	pod := getPod(nodeName)
 	pod, err := c.CoreV1().Pods(ns).Create(context.Background(), pod, metav1.CreateOptions{})
 	if err != nil {
 		return "", err
 	}
-	defer c.CoreV1().Pods(ns).Delete(context.Background(), generateDebugPodName(nodeName), metav1.DeleteOptions{})
+	defer cleanUpDebugPod(c, nodeName, ns)
 
 	err = waitForCondition(c, pod, corev1.PodReady, corev1.ConditionTrue, time.Minute)
 	if err != nil {
@@ -51,11 +54,22 @@ func RunCommandInCluster(c *kubernetes.Clientset, nodeName string, ns string, co
 
 	logger.Info("helper pod is running, going to execute command", "command", command)
 	//cmd := []string{"sh", "-c", fmt.Sprintf("microdnf install procps -y >/dev/null 2>&1 && %s", command)}
-	outputBytes, err := waitForPodOutput(c, pod /*cmd*/, []string{command})
+	outputBytes, err := waitForPodOutput(c, pod /*cmd*/, command)
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(string(outputBytes)), nil
+}
+
+func cleanUpDebugPod(c *kubernetes.Clientset, nodeName string, ns string) {
+	err := c.CoreV1().Pods(ns).Delete(context.Background(), generateDebugPodName(nodeName), metav1.DeleteOptions{})
+	Expect(err).NotTo(HaveOccurred())
+	Eventually(func() bool {
+		_, err := c.CoreV1().Pods(ns).Get(context.Background(), nodeName, metav1.GetOptions{})
+		return errors.IsNotFound(err)
+
+	}, 6*time.Minute, 10*time.Second).Should(BeTrue())
+
 }
 
 func waitForPodOutput(c *kubernetes.Clientset, pod *corev1.Pod, command []string) ([]byte, error) {

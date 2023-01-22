@@ -527,7 +527,7 @@ func killApiConnectionOCP(node *v1.Node, command []string, ctx context.Context) 
 }
 
 func killApiConnectionK8s(node *v1.Node, command []string, ctx context.Context) error {
-	_, err := utils.RunCommandInCluster(k8sClientSet, node.Name, testNamespace, strings.Join(command, ""))
+	_, err := utils.RunCommandInCluster(k8sClientSet, node.Name, testNamespace, command)
 	return err
 }
 
