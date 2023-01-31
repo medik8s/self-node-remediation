@@ -245,7 +245,7 @@ bundle: manifests operator-sdk kustomize ## Generate bundle manifests and metada
 .PHONY: bundle-k8s
 bundle-k8s: bundle ## Generate bundle manifests and metadata customized to k8s community release, then validate generated files.
 	# Note that k8s 1.25+ needs PSA label
-	sed -r -i "s|by default\.|by default.\n    Note prior to installing SNR on a Kubernetes 1.25+ cluster, a user must manually set a [privileged PSA label](https://kubernetes.io/docs/tasks/configure-pod-container/enforce-standards-namespace-labels/) on SNR's namespace. It gives SNR's agents permissions to reboot the node (in case it needs to be remediated).|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+	sed -r -i "s|by default\.|by default.\n    Note that prior to installing SNR on a Kubernetes 1.25+ cluster, a user must manually set a [privileged PSA label](https://kubernetes.io/docs/tasks/configure-pod-container/enforce-standards-namespace-labels/) on SNR's namespace. It gives SNR's agents permissions to reboot the node (in case it needs to be remediated).|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
 
 
 .PHONY: bundle-update
