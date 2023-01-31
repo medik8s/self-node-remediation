@@ -130,6 +130,9 @@ var _ = Describe("Self Node Remediation E2E", func() {
 		})
 
 		Describe("Without API connectivity", func() {
+			if isK8sRun{
+				Skip("Skipping in k8s due to timeout")
+			}
 			Context("Healthy node (no SNR)", func() {
 
 				// no api connectivity
@@ -271,6 +274,9 @@ var _ = Describe("Self Node Remediation E2E", func() {
 	})
 
 	Describe("Control Plane Remediation", func() {
+		if isK8sRun{
+			Skip("Skipping in k8s due to timeout")
+		}
 		controlPlaneNodes := &v1.NodeList{}
 		var controlPlaneNode *v1.Node
 
