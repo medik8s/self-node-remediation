@@ -166,7 +166,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				// b) unhealthy
 				//    - kill connectivity on one node
 				//    - create SNR
-				//    - verify node does reboot and and is deleted / re-created
+				//    - verify node does reboot and is deleted / re-created
 
 				var snr *v1alpha1.SelfNodeRemediation
 				var va *storagev1.VolumeAttachment
@@ -409,6 +409,14 @@ func createSNR(node *v1.Node, remediationStrategy v1alpha1.RemediationStrategyTy
 }
 
 func getBootTime(node *v1.Node) (*time.Time, error) {
+	if isK8sRun {
+		return getBootTimeK8s(node)
+	} else {
+		return getBootTimeOCP(node)
+	}
+}
+
+func getBootTimeOCP(node *v1.Node) (*time.Time, error) {
 	bootTimeCommand := []string{"uptime", "-s"}
 	var bootTime time.Time
 	Eventually(func() error {
@@ -425,6 +433,10 @@ func getBootTime(node *v1.Node) (*time.Time, error) {
 		return nil
 	}, 6*time.Minute, 10*time.Second).ShouldNot(HaveOccurred())
 	return &bootTime, nil
+}
+
+func getBootTimeK8s(node *v1.Node) (*time.Time, error) {
+	return utils.GetBootTime(k8sClientSet, node.Name, testNamespace)
 }
 
 func checkNoExecuteTaintRemoved(node *v1.Node) {
@@ -482,7 +494,13 @@ func killApiConnection(node *v1.Node, apiIPs []string, withReconnect bool) {
 		ctx, cancel = context.WithTimeout(context.Background(), nodeExecTimeout)
 	}
 	defer cancel()
-	_, err := utils.ExecCommandOnNode(k8sClient, command, node, ctx)
+
+	var err error
+	if isK8sRun {
+		err = killApiConnectionK8s(node, command, ctx)
+	} else {
+		err = killApiConnectionOCP(node, command, ctx)
+	}
 
 	if withReconnect {
 		//in case the sleep didn't work
@@ -501,6 +519,16 @@ func killApiConnection(node *v1.Node, apiIPs []string, withReconnect bool) {
 			),
 		),
 	)
+}
+
+func killApiConnectionOCP(node *v1.Node, command []string, ctx context.Context) error {
+	_, err := utils.ExecCommandOnNode(k8sClient, command, node, ctx)
+	return err
+}
+
+func killApiConnectionK8s(node *v1.Node, command []string, ctx context.Context) error {
+	_, err := utils.RunCommandInCluster(k8sClientSet, node.Name, testNamespace, command)
+	return err
 }
 
 func composeScript(commandTemplate string, ips []string) string {

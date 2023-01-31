@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -23,21 +24,33 @@ import (
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
-// needs to match CI config!
-const testNamespace = "self-node-remediation"
+const (
+	k8sEnvVariableName string = "SKIP_FOR_K8S"
+	k8sNamespace              = "k8s-test"
+)
 
-var cfg *rest.Config
-var k8sClient client.Client
-var k8sClientSet *kubernetes.Clientset
-var logger logr.Logger
+var (
+	// needs to match CI config!
+	testNamespace = "self-node-remediation"
+	cfg           *rest.Config
+	k8sClient     client.Client
+	k8sClientSet  *kubernetes.Clientset
+	logger        logr.Logger
+	isK8sRun      = false
+)
 
 func TestE2E(t *testing.T) {
+	if _, isK8sRun = os.LookupEnv(k8sEnvVariableName); isK8sRun {
+		testNamespace = k8sNamespace
+	}
+
 	RegisterFailHandler(Fail)
 
 	RunSpecs(t, "E2E Suite")
 }
 
 var _ = BeforeSuite(func(ctx SpecContext) {
+
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 	logger = logf.Log
 
