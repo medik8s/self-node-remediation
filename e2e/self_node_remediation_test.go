@@ -503,7 +503,7 @@ func killApiConnection(node *v1.Node, apiIPs []string, withReconnect bool) {
 
 	var err error
 	if isK8sRun {
-		err = killApiConnectionK8s(node, command, ctx)
+		err = killApiConnectionK8s(node, command)
 	} else {
 		err = killApiConnectionOCP(node, command, ctx)
 	}
@@ -532,7 +532,7 @@ func killApiConnectionOCP(node *v1.Node, command []string, ctx context.Context) 
 	return err
 }
 
-func killApiConnectionK8s(node *v1.Node, command []string, ctx context.Context) error {
+func killApiConnectionK8s(node *v1.Node, command []string) error {
 	_, err := utils.RunCommandInCluster(k8sClientSet, node.Name, testNamespace, command)
 	return err
 }
