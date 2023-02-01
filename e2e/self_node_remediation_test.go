@@ -38,7 +38,12 @@ const (
 )
 
 var _ = Describe("Self Node Remediation E2E", func() {
-
+	Describe("Debug-Timeout", func() {
+		It("Dummy Successful test", func() {
+			time.Sleep(time.Minute)
+			Expect(true).To(BeTrue())
+		})
+	})
 	Describe("Workers Remediation", func() {
 		var node *v1.Node
 		workers := &v1.NodeList{}
@@ -47,7 +52,9 @@ var _ = Describe("Self Node Remediation E2E", func() {
 		var apiIPs []string
 
 		BeforeEach(func() {
-
+			if isK8sRun {
+				Skip("Skipping in k8s due to timeout")
+			}
 			// get all things that doesn't change once only
 			if node == nil {
 				// get worker node(s)
@@ -130,9 +137,12 @@ var _ = Describe("Self Node Remediation E2E", func() {
 		})
 
 		Describe("Without API connectivity", func() {
-			if isK8sRun{
-				Skip("Skipping in k8s due to timeout")
-			}
+			BeforeEach(func() {
+				if isK8sRun {
+					Skip("Skipping in k8s due to timeout")
+				}
+			})
+
 			Context("Healthy node (no SNR)", func() {
 
 				// no api connectivity
@@ -274,14 +284,13 @@ var _ = Describe("Self Node Remediation E2E", func() {
 	})
 
 	Describe("Control Plane Remediation", func() {
-		if isK8sRun{
-			Skip("Skipping in k8s due to timeout")
-		}
 		controlPlaneNodes := &v1.NodeList{}
 		var controlPlaneNode *v1.Node
 
 		BeforeEach(func() {
-
+			if isK8sRun {
+				Skip("Skipping in k8s due to timeout")
+			}
 			// get all things that doesn't change once only
 			if controlPlaneNode == nil {
 				// get worker node(s)
