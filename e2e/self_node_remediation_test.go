@@ -52,9 +52,6 @@ var _ = Describe("Self Node Remediation E2E", func() {
 		var apiIPs []string
 
 		BeforeEach(func() {
-			if isK8sRun {
-				Skip("Skipping in k8s due to timeout")
-			}
 			// get all things that doesn't change once only
 			if node == nil {
 				// get worker node(s)
@@ -123,6 +120,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 					})
 
 					It("should delete pods and volume attachments", func() {
+						skipK8sTest()
 						checkPodRecreated(node, oldPodCreationTime)
 						checkVaDeleted(va)
 						//Simulate NHC trying to delete SNR
@@ -137,11 +135,6 @@ var _ = Describe("Self Node Remediation E2E", func() {
 		})
 
 		Describe("Without API connectivity", func() {
-			BeforeEach(func() {
-				if isK8sRun {
-					Skip("Skipping in k8s due to timeout")
-				}
-			})
 
 			Context("Healthy node (no SNR)", func() {
 
@@ -161,6 +154,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				})
 
 				It("should not reboot and not re-create node", func() {
+					skipK8sTest()
 					// order matters
 					// - because the 2nd check has a small timeout only
 					checkNoNodeRecreate(node, oldUID)
@@ -199,6 +193,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				})
 
 				It("should reboot and delete node resources", func() {
+					skipK8sTest()
 					// order matters
 					// - because node check works while api is disconnected from node, reboot check not
 					// - because the 2nd check has a small timeout only
@@ -255,7 +250,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				})
 
 				It("should not have rebooted and not be re-created", func() {
-
+					skipK8sTest()
 					// all nodes should satisfy this test
 					wg := sync.WaitGroup{}
 					for i := range workers.Items {
@@ -288,9 +283,6 @@ var _ = Describe("Self Node Remediation E2E", func() {
 		var controlPlaneNode *v1.Node
 
 		BeforeEach(func() {
-			if isK8sRun {
-				Skip("Skipping in k8s due to timeout")
-			}
 			// get all things that doesn't change once only
 			if controlPlaneNode == nil {
 				// get worker node(s)
@@ -356,6 +348,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 					})
 
 					It("should delete pods and volume attachments", func() {
+						skipK8sTest()
 						checkPodRecreated(controlPlaneNode, oldPodCreationTime)
 						checkVaDeleted(va)
 						//Simulate NHC trying to delete SNR
@@ -371,6 +364,12 @@ var _ = Describe("Self Node Remediation E2E", func() {
 
 	})
 })
+
+func skipK8sTest() {
+	if isK8sRun {
+		Skip("Skipping in k8s due to timeout")
+	}
+}
 
 func checkVaDeleted(va *storagev1.VolumeAttachment) {
 	EventuallyWithOffset(1, func() bool {
