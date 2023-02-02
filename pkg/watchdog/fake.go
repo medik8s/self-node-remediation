@@ -1,25 +1,32 @@
 package watchdog
 
 import (
+	"errors"
 	"time"
 
-	"github.com/go-logr/logr"
+	ctrl "sigs.k8s.io/controller-runtime"
 )
 
 const (
 	fakeTimeout = 1 * time.Second
 )
 
-var _ watchdogImpl = &fakeWatchdog{}
+var FakeWD *fakeWatchdog
 
 // fakeWatchdog provides the fake implementation of the watchdogImpl interface for tests
-type fakeWatchdog struct{}
+type fakeWatchdog struct {
+	IsStartSuccessful bool
+}
 
-func NewFake(log logr.Logger) (Watchdog, error) {
-	return newSynced(log, &fakeWatchdog{}), nil
+func NewFake(isStartSuccessful bool) (Watchdog, error) {
+	FakeWD = &fakeWatchdog{IsStartSuccessful: isStartSuccessful}
+	return newSynced(ctrl.Log.WithName("fake watchdog"), FakeWD), nil
 }
 
 func (f *fakeWatchdog) start() (*time.Duration, error) {
+	if !f.IsStartSuccessful {
+		return nil, errors.New("fakeWatchdog crash on start")
+	}
 	t := fakeTimeout
 	return &t, nil
 }

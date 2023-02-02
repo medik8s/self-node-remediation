@@ -26,33 +26,36 @@ import (
 
 type ApiConnectivityCheck struct {
 	client.Reader
-	config              *ApiConnectivityCheckConfig
-	errorCount          int
-	clientCreds         credentials.TransportCredentials
-	mutex               sync.Mutex
-	controlPlaneManager *controlplane.Manager
+	config                 *ApiConnectivityCheckConfig
+	errorCount             int
+	timeOfLastPeerResponse time.Time
+	clientCreds            credentials.TransportCredentials
+	mutex                  sync.Mutex
+	controlPlaneManager    *controlplane.Manager
 }
 
 type ApiConnectivityCheckConfig struct {
-	Log                logr.Logger
-	MyNodeName         string
-	CheckInterval      time.Duration
-	MaxErrorsThreshold int
-	Peers              *peers.Peers
-	Rebooter           reboot.Rebooter
-	Cfg                *rest.Config
-	CertReader         certificates.CertStorageReader
-	ApiServerTimeout   time.Duration
-	PeerDialTimeout    time.Duration
-	PeerRequestTimeout time.Duration
-	PeerHealthPort     int
+	Log                       logr.Logger
+	MyNodeName                string
+	CheckInterval             time.Duration
+	MaxErrorsThreshold        int
+	Peers                     *peers.Peers
+	Rebooter                  reboot.Rebooter
+	Cfg                       *rest.Config
+	CertReader                certificates.CertStorageReader
+	ApiServerTimeout          time.Duration
+	PeerDialTimeout           time.Duration
+	PeerRequestTimeout        time.Duration
+	PeerHealthPort            int
+	MaxTimeForNoPeersResponse time.Duration
 }
 
 func New(config *ApiConnectivityCheckConfig, controlPlaneManager *controlplane.Manager) *ApiConnectivityCheck {
 	return &ApiConnectivityCheck{
-		config:              config,
-		mutex:               sync.Mutex{},
-		controlPlaneManager: controlPlaneManager,
+		config:                 config,
+		mutex:                  sync.Mutex{},
+		controlPlaneManager:    controlPlaneManager,
+		timeOfLastPeerResponse: time.Now(),
 	}
 }
 
@@ -155,6 +158,9 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 
 		chosenNodesAddresses := c.popNodes(&nodesToAsk, nodesBatchCount)
 		healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenNodesAddresses)
+		if healthyResponses+unhealthyResponses+apiErrorsResponses > 0 {
+			c.timeOfLastPeerResponse = time.Now()
+		}
 
 		if healthyResponses > 0 {
 			c.config.Log.Info("Peer told me I'm healthy.")
@@ -168,6 +174,7 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 		}
 
 		if apiErrorsResponses > 0 {
+			c.config.Log.Info("Peer can't access the api-server")
 			apiErrorsResponsesSum += apiErrorsResponses
 			//todo consider using [m|n]hc.spec.maxUnhealthy instead of 50%
 			if apiErrorsResponsesSum > nrAllNodes/2 { //already reached more than 50% of the nodes and all of them returned api error
@@ -180,8 +187,15 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 	}
 
 	//we asked all peers
-	c.config.Log.Error(fmt.Errorf("failed health check"), "Failed to get health status peers. Assuming unhealthy")
-	return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecauseNodeIsIsolated}
+	now := time.Now()
+	if now.After(c.timeOfLastPeerResponse.Add(c.config.MaxTimeForNoPeersResponse)) {
+		c.config.Log.Error(fmt.Errorf("failed health check"), "Failed to get health status peers. Assuming unhealthy")
+		return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecauseNodeIsIsolated}
+	} else {
+		c.config.Log.Info("Ignoring no peers response error, time is below threshold for no peers response", "time without peers response (seconds)", now.Sub(c.timeOfLastPeerResponse).Seconds(), "threshold (seconds)", c.config.MaxTimeForNoPeersResponse.Seconds())
+		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseNoPeersResponseNotReachedTimeout}
+	}
+
 }
 
 func (c *ApiConnectivityCheck) canOtherControlPlanesBeReached() bool {
@@ -236,7 +250,7 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeers(addresses []string) (int
 	return c.sumPeersResponses(nrAddresses, responsesChan)
 }
 
-//getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer into the given channel
+// getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer into the given channel
 func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, results chan<- selfNodeRemediation.HealthCheckResponseCode) {
 
 	logger := c.config.Log.WithValues("IP", endpointIp)

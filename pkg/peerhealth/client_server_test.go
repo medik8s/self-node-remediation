@@ -7,6 +7,8 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -22,6 +24,17 @@ var _ = Describe("Checking health using grpc client and server", func() {
 	var phClient *Client
 
 	BeforeEach(func() {
+
+		By("creating test node")
+		node := &v1.Node{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: nodeName,
+			},
+		}
+		err := k8sClient.Create(context.Background(), node)
+		if !errors.IsAlreadyExists(err) {
+			Expect(err).ToNot(HaveOccurred())
+		}
 
 		By("Creating certificates")
 		caPem, certPem, keyPem, err := certificates.CreateCerts()

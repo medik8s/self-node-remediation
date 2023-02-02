@@ -1,34 +1,41 @@
 # SHELL defines bash so all the inline scripts here will work as expected.
 SHELL := /bin/bash
 
-# IMAGE_REGISTRY used to indicate the registery/group for the operator, bundle and catalog
-IMAGE_REGISTRY ?= quay.io/medik8s
-export IMAGE_REGISTRY
+# versions at  https://github.com/kubernetes-sigs/controller-tools/releases
+CONTROLLER_GEN_VERSION = v0.10.0
 
+# GO_VERSION refers to the version of Golang to be downloaded when running dockerized version
+GO_VERSION = 1.19
 
-# When no version is set, use latest as image tags
-DEFAULT_VERSION := 0.0.1
-ifeq ($(origin VERSION), undefined)
-IMAGE_TAG = latest
-else ifeq ($(VERSION), $(DEFAULT_VERSION))
-IMAGE_TAG = latest
-else
-IMAGE_TAG = v$(VERSION)
-endif
-export IMAGE_TAG
-CHANNELS = stable
-export CHANNELS
-DEFAULT_CHANNEL = stable
-export DEFAULT_CHANNEL
-# VERSION defines the project version for the bundle. 
+# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
+ENVTEST_K8S_VERSION = 1.23
+
+# versions at https://github.com/operator-framework/operator-sdk/releases
+OPERATOR_SDK_VERSION = v1.25.3
+
+# versions at https://github.com/operator-framework/operator-registry/releases
+OPM_VERSION = v1.26.2
+
+# versions at https://github.com/kubernetes-sigs/kustomize/releases
+KUSTOMIZE_VERSION = v4.5.7
+
+OPERATOR_NAME ?= self-node-remediation
+
+# VERSION defines the project version for the bundle.
 # Update this value when you upgrade the version of your project.
 # To re-generate a bundle for another specific version without changing the standard setup, you can:
 # - use the VERSION as arg of the bundle target (e.g make bundle VERSION=0.0.2)
 # - use environment variables to overwrite this value (e.g export VERSION=0.0.2)
+DEFAULT_VERSION := 0.0.1
 VERSION ?= $(DEFAULT_VERSION)
 export VERSION
 
-# CHANNELS define the bundle channels used in the bundle. 
+CHANNELS = stable
+export CHANNELS
+DEFAULT_CHANNEL = stable
+export DEFAULT_CHANNEL
+
+# CHANNELS define the bundle channels used in the bundle.
 # Add a new line here if you would like to change its default config. (E.g CHANNELS = "preview,fast,stable")
 # To re-generate a bundle for other specific channels without changing the standard setup, you can:
 # - use the CHANNELS as arg of the bundle target (e.g make bundle CHANNELS=preview,fast,stable)
@@ -47,7 +54,9 @@ BUNDLE_DEFAULT_CHANNEL := --default-channel=$(DEFAULT_CHANNEL)
 endif
 BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 
-OPERATOR_NAME ?= self-node-remediation
+# IMAGE_REGISTRY used to indicate the registery/group for the operator, bundle and catalog
+IMAGE_REGISTRY ?= quay.io/medik8s
+export IMAGE_REGISTRY
 
 # IMAGE_TAG_BASE defines the docker.io namespace and part of the image name for remote images.
 # This variable is used to construct full image tags for bundle and catalog images.
@@ -56,18 +65,23 @@ OPERATOR_NAME ?= self-node-remediation
 # medik8s/self-node-remediation-bundle:$(IMAGE_TAG) and medik8s/self-node-remediation-catalog:$(IMAGE_TAG).
 IMAGE_TAG_BASE ?= $(IMAGE_REGISTRY)/$(OPERATOR_NAME)
 
+# The image tag given to the resulting catalog image (e.g. make catalog-build CATALOG_IMG=example.com/operator-catalog:v0.2.0).
+CATALOG_IMG ?= $(IMAGE_TAG_BASE)-operator-catalog:$(IMAGE_TAG)
+
+# When no version is set, use latest as image tags
+ifeq ($(VERSION), $(DEFAULT_VERSION))
+IMAGE_TAG = latest
+else
+IMAGE_TAG = v$(VERSION)
+endif
+export IMAGE_TAG
+
 # BUNDLE_IMG defines the image:tag used for the bundle.
 # You can use it as an arg. (E.g make bundle-build BUNDLE_IMG=<some-registry>/<project-name-bundle>:<tag>)
 BUNDLE_IMG ?= $(IMAGE_TAG_BASE)-operator-bundle:$(IMAGE_TAG)
 
-# The image tag given to the resulting catalog image (e.g. make catalog-build CATALOG_IMG=example.com/operator-catalog:v0.2.0).
-CATALOG_IMG ?= $(IMAGE_TAG_BASE)-operator-catalog:$(IMAGE_TAG)
-
 # Image URL to use all building/pushing image targets
 export IMG ?= $(IMAGE_TAG_BASE)-operator:$(IMAGE_TAG)
-
-# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.23
 
 # Get the currently used golang install path (in GOPATH/bin.old, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -81,6 +95,19 @@ KUBECTL = kubectl
 ifeq (,$(shell which kubectl))
 KUBECTL=oc
 endif
+
+# Run go in a container
+# --rm                                                          = remove container when stopped
+# -v $$(pwd):/home/go/src/github.com/medik8s/self-node-remediation-operator = bind mount current dir in container
+# -u $$(id -u)                                                  = use current user (else new / modified files will be owned by root)
+# -w /home/go/src/github.com/medik8s/self-node-remediation-operator         = working dir
+# -e ...                                                        = some env vars, especially set cache to a user writable dir
+# --entrypoint /bin bash ... -c                                 = run bash -c on start; that means the actual command(s) need be wrapped in double quotes, see e.g. check target which will run: bash -c "make test"
+export DOCKER_GO=docker run --rm -v $$(pwd):/home/go/src/github.com/medik8s/$(OPERATOR_NAME)-operator \
+	-u $$(id -u) -w /home/go/src/github.com/medik8s/$(OPERATOR_NAME)-operator \
+	-e "GOPATH=/go" -e "GOFLAGS=-mod=vendor" -e "XDG_CACHE_HOME=/tmp/.cache" \
+	-e "VERSION=$(VERSION)" -e "IMAGE_REGISTRY=$(IMAGE_REGISTRY)" \
+	--entrypoint /bin/bash golang:$(GO_VERSION) -c
 
 all: build
 
@@ -118,9 +145,6 @@ vet: ## Run go vet against code.
 verify-no-changes: ## verify there are no un-staged changes
 	./hack/verify-diff.sh
 
-fetch-mutation: ## fetch mutation package.
-	GO111MODULE=off go get -t -v github.com/mshitrit/go-mutesting/...
-
 # CI uses a non-writable home dir, make sure .cache is writable
 ifeq ("${HOME}", "/")
 HOME=/tmp
@@ -131,11 +155,9 @@ ENVTEST_ASSETS_DIR = ${BIN_ASSETS_DIR}/setup-envtest
 ENVTEST = $(shell pwd)/bin/setup-envtest
 
 test: envtest manifests generate fmt vet ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path --bin-dir $(PROJECT_DIR)/testbin)" go test ./api/... ./controllers/... ./pkg/... -coverprofile cover.out -v
-
-test-mutation: verify-no-changes fetch-mutation ## Run mutation tests in manual mode.
-	echo -e "## Verifying diff ## \n##Mutations tests actually changes the code while running - this is a safeguard in order to be able to easily revert mutation tests changes (in case mutation tests have not completed properly)##"
-	./hack/test-mutation.sh
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path --bin-dir $(PROJECT_DIR)/testbin)" \
+		KUBEBUILDER_CONTROLPLANE_STOP_TIMEOUT="60s"\
+		go test ./api/... ./controllers/... ./pkg/... -coverprofile cover.out -v
 
 ##@ Build
 
@@ -146,7 +168,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./main.go
 
 .PHONY: docker-build
-docker-build: test ## Build docker image with the manager.
+docker-build: check ## Build docker image with the manager.
 	docker build -t ${IMG} .
 
 .PHONY: docker-push
@@ -168,7 +190,7 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete -f -
 
-CONTROLLER_GEN_VERSION = v0.8.0
+
 CONTROLLER_GEN_BIN_FOLDER = $(shell pwd)/bin/controller-gen
 CONTROLLER_GEN = $(CONTROLLER_GEN_BIN_FOLDER)/$(CONTROLLER_GEN_VERSION)/controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
@@ -180,9 +202,16 @@ ifeq (,$(wildcard $(CONTROLLER_GEN)))
 	}
 endif
 
-KUSTOMIZE = $(shell pwd)/bin/kustomize
+KUSTOMIZE_BIN_FOLDER = $(shell pwd)/bin/kustomize
+KUSTOMIZE = $(KUSTOMIZE_BIN_FOLDER)/$(KUSTOMIZE_VERSION)/kustomize
 kustomize: ## Download kustomize locally if necessary.
-	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v4@v4.5.4)
+ifeq (,$(wildcard $(KUSTOMIZE)))
+	@{ \
+	rm -rf $(KUSTOMIZE_BIN_FOLDER) ;\
+	mkdir -p $(dir $(KUSTOMIZE)) ;\
+	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v4@${KUSTOMIZE_VERSION}) ;\
+	}
+endif
 
 .PHONY: envtest
 envtest: ## Download envtest-setup locally if necessary.
@@ -210,14 +239,30 @@ export ICON_BASE64 ?= ${DEFAULT_ICON_BASE64}
 bundle: manifests operator-sdk kustomize ## Generate bundle manifests and metadata, then validate generated files.
 	$(OPERATOR_SDK) generate kustomize manifests -q
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
-	sed -r -i "s|createdAt: \".*\"|createdAt: \"`date "+%Y-%m-%d %T" `\"|;" ./config/manifests/bases/$(OPERATOR_NAME).clusterserviceversion.yaml
-	sed -r -i "s|containerImage: .*|containerImage: ${IMG}|;" ./config/manifests/bases/$(OPERATOR_NAME).clusterserviceversion.yaml
-	sed -r -i "s|base64data:.*|base64data: ${ICON_BASE64}|;" ./config/manifests/bases/$(OPERATOR_NAME).clusterserviceversion.yaml
 	$(KUSTOMIZE) build config/manifests | envsubst | $(OPERATOR_SDK) generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
 	$(OPERATOR_SDK) bundle validate ./bundle
 
+.PHONY: bundle-k8s
+bundle-k8s: bundle ## Generate bundle manifests and metadata customized to k8s community release, then validate generated files.
+	# Note that k8s 1.25+ needs PSA label
+	sed -r -i "s|by default\.|by default.\n    Note that prior to installing SNR on a Kubernetes 1.25+ cluster, a user must manually set a [privileged PSA label](https://kubernetes.io/docs/tasks/configure-pod-container/enforce-standards-namespace-labels/) on SNR's namespace. It gives SNR's agents permissions to reboot the node (in case it needs to be remediated).|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+
+
+.PHONY: bundle-update
+bundle-update:
+    # update container image in the metadata
+	sed -r -i "s|containerImage: .*|containerImage: ${IMG}|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+	# set creation date
+	sed -r -i "s|createdAt: \".*\"|createdAt: \"`date "+%Y-%m-%d %T" `\"|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+	# set skipRange
+	sed -r -i "s|olm.skipRange: .*|olm.skipRange: '>=0.4.0 <${VERSION}'|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+	# set icon (not version or build date related, but just to not having this huge data permanently in the CSV)
+	sed -r -i "s|base64data:.*|base64data: ${ICON_BASE64}|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+	$(OPERATOR_SDK) bundle validate ./bundle
+
+
 .PHONY: bundle-build
-bundle-build: ## Build the bundle image.
+bundle-build: bundle bundle-update ## Build the bundle image.
 	docker build -f bundle.Dockerfile -t $(BUNDLE_IMG) .
 
 .PHONY: bundle-push
@@ -244,7 +289,6 @@ e2e-test:
 	go test ./e2e -ginkgo.v -ginkgo.progress -test.v -timeout 60m -count=1
 
 .PHONY: operator-sdk
-OPERATOR_SDK_VERSION = v1.19.0
 OPERATOR_SDK_BIN_FOLDER = ./bin/operator-sdk
 OPERATOR_SDK = $(OPERATOR_SDK_BIN_FOLDER)/$(OPERATOR_SDK_VERSION)/operator-sdk
 operator-sdk: ## Download operator-sdk locally if necessary.
@@ -260,14 +304,16 @@ ifeq (,$(wildcard $(OPERATOR_SDK)))
 endif
 
 .PHONY: opm
-OPM = ./bin/opm
+OPM_BIN_FOLDER = ./bin/opm
+OPM = $(OPM_BIN_FOLDER)/$(OPM_VERSION)/opm
 opm: ## Download opm locally if necessary.
 ifeq (,$(wildcard $(OPM)))
 	@{ \
 	set -e ;\
+	rm -rf $(OPM_BIN_FOLDER) ;\
 	mkdir -p $(dir $(OPM)) ;\
 	OS=linux && ARCH=amd64 && \
-	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/v1.23.0/$${OS}-$${ARCH}-opm ;\
+	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/$(OPM_VERSION)/$${OS}-$${ARCH}-opm ;\
 	chmod +x $(OPM) ;\
 	}
 endif
@@ -288,6 +334,9 @@ catalog-push: ## Push a catalog image.
 	$(MAKE) docker-push IMG=$(CATALOG_IMG)
 
 ##@ Targets used by CI
+.PHONY: check
+check: ## Dockerized version of make test
+	$(DOCKER_GO) "make test"
 
 .PHONY: container-build
 container-build: ## Build containers
@@ -297,12 +346,18 @@ container-build: ## Build containers
 container-push: ## Push containers (NOTE: catalog can't be build before bundle was pushed)
 	make docker-push bundle-push catalog-build catalog-push
 
-.PHONY: test-mutation-ci
-test-mutation-ci: fetch-mutation ## Run mutation tests as part of auto build process.
-	./hack/test-mutation.sh 
+.PHONY:vendor
+vendor: ## Runs go mod vendor
+	go mod vendor
+
+.PHONY: tidy
+tidy: ## Runs go mod tidy
+	go mod tidy
+
 
 .PHONY:verify-vendor
-verify-vendor:
-	go mod tidy
-	go mod vendor
-	./hack/verify-diff.sh
+verify-vendor:tidy vendor verify-no-changes ##Verifies vendor and tidy didn't cause changes
+
+
+.PHONY:verify-bundle
+verify-bundle: manifests bundle verify-no-changes ##Verifies bundle and manifests didn't cause changes

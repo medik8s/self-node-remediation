@@ -174,7 +174,7 @@ func (wd *linuxWatchdog) feed() error {
 	return err
 }
 
-//Disarm closes the LinuxWatchdog without triggering reboots, even if the LinuxWatchdog will not be fed any more
+// Disarm closes the LinuxWatchdog without triggering reboots, even if the LinuxWatchdog will not be fed any more
 func (wd *linuxWatchdog) disarm() error {
 	b := []byte("V") // "V" is a special char for signaling LinuxWatchdog disarm
 	_, err := Write(wd.fd, b)

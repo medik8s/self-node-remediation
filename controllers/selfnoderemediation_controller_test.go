@@ -2,23 +2,24 @@ package controllers_test
 
 import (
 	"context"
-	"github.com/medik8s/self-node-remediation/controllers"
-	"github.com/medik8s/self-node-remediation/pkg/utils"
+	"time"
+
+	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
-	v1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"github.com/medik8s/self-node-remediation/controllers"
+	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
 const (
@@ -449,7 +450,7 @@ func deleteIsRebootCapableAnnotation() {
 	ExpectWithOffset(1, k8sClient.Client.Patch(context.Background(), unhealthyNode, patch)).To(Succeed())
 }
 
-//testNoFinalizer checks that snr doesn't have finalizer
+// testNoFinalizer checks that snr doesn't have finalizer
 func testNoFinalizer() {
 	snr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
 	snrKey := client.ObjectKey{

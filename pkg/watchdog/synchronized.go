@@ -2,11 +2,12 @@ package watchdog
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/medik8s/self-node-remediation/pkg/utils"
+	"github.com/pkg/errors"
 
 	"k8s.io/apimachinery/pkg/util/wait"
 )
@@ -17,6 +18,7 @@ const (
 	Disarmed watchdogStatus = iota
 	Armed
 	Triggered
+	Malfunction
 )
 
 type watchdogStatus uint8
@@ -46,10 +48,16 @@ func (swd *synchronizedWatchdog) Start(ctx context.Context) error {
 	if swd.status != Disarmed {
 		return errors.New("watchdog was started more than once. This is likely to be caused by being added to a manager multiple times")
 	}
-	timeout, err := swd.impl.start()
-	if err != nil {
-		// TODO or return the error and fail the pod's start?
-		return nil
+	timeout, startErr := swd.impl.start()
+	if startErr != nil {
+		//In case can't use software reboot return an error
+		if isSoftwareRebootEnabled, err := utils.IsSoftwareRebootEnabled(); err != nil || !isSoftwareRebootEnabled {
+			return errors.Wrapf(err, "failed to start watchdog, can't default to software reboot")
+		} else {
+			swd.status = Malfunction
+			swd.log.Error(startErr, "error while starting watchdog, reverting to software reboot")
+			return nil
+		}
 	}
 	swd.timeout = *timeout
 	swd.status = Armed

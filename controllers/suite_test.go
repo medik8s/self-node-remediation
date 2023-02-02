@@ -151,7 +151,7 @@ var _ = BeforeSuite(func() {
 	peerNode = getNode(peerNodeName)
 	Expect(k8sClient.Create(context.Background(), peerNode)).To(Succeed(), "failed to create peer node")
 
-	dummyDog, err = watchdog.NewFake(ctrl.Log.WithName("fake watchdog"))
+	dummyDog, err = watchdog.NewFake(true)
 	Expect(err).ToNot(HaveOccurred())
 	err = k8sManager.Add(dummyDog)
 	Expect(err).ToNot(HaveOccurred())

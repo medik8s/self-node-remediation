@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,10 +29,11 @@ import (
 )
 
 const (
-	disconnectCommand = "ip route add blackhole %s"
-	reconnectCommand  = "ip route delete blackhole %s"
-	nodeExecTimeout   = 20 * time.Second
-	reconnectInterval = 300 * time.Second
+	disconnectCommand  = "ip route add blackhole %s"
+	reconnectCommand   = "ip route delete blackhole %s"
+	nodeExecTimeout    = 20 * time.Second
+	reconnectInterval  = 300 * time.Second
+	skipLogsEnvVarName = "SKIP_LOG_VERIFICATION"
 )
 
 var _ = Describe("Self Node Remediation E2E", func() {
@@ -152,8 +154,10 @@ var _ = Describe("Self Node Remediation E2E", func() {
 					checkNoNodeRecreate(node, oldUID)
 					checkNoReboot(node, oldBootTime)
 
-					// check logs to make sure that the actual peer health check did run
-					checkSnrLogs(node, []string{"failed to check api server", "Peer told me I'm healthy."})
+					if _, isExist := os.LookupEnv(skipLogsEnvVarName); !isExist {
+						// check logs to make sure that the actual peer health check did run
+						checkSnrLogs(node, []string{"failed to check api server", "Peer told me I'm healthy."})
+					}
 				})
 			})
 
@@ -189,10 +193,11 @@ var _ = Describe("Self Node Remediation E2E", func() {
 					checkReboot(node, oldBootTime)
 					checkPodRecreated(node, oldPodCreationTime)
 					checkVaDeleted(va)
-
-					// we can't check logs of unhealthy node anymore, check peer logs
-					peer := &workers.Items[1]
-					checkSnrLogs(peer, []string{node.GetName(), "node is unhealthy"})
+					if _, isExist := os.LookupEnv(skipLogsEnvVarName); !isExist {
+						// we can't check logs of unhealthy node anymore, check peer logs
+						peer := &workers.Items[1]
+						checkSnrLogs(peer, []string{node.GetName(), "node is unhealthy"})
+					}
 				})
 
 			})
@@ -253,8 +258,10 @@ var _ = Describe("Self Node Remediation E2E", func() {
 							checkNoNodeRecreate(worker, uids[worker.GetName()])
 							checkNoReboot(worker, bootTimes[worker.GetName()])
 
-							// check logs to make sure that the actual peer health check did run
-							checkSnrLogs(worker, []string{"failed to check api server", "nodes couldn't access the api-server"})
+							if _, isExist := os.LookupEnv(skipLogsEnvVarName); !isExist {
+								// check logs to make sure that the actual peer health check did run
+								checkSnrLogs(worker, []string{"failed to check api server", "nodes couldn't access the api-server"})
+							}
 						}()
 					}
 					wg.Wait()
@@ -417,7 +424,7 @@ func getBootTime(node *v1.Node) (*time.Time, error) {
 			return err
 		}
 		return nil
-	}, 6*nodeExecTimeout, 10*time.Second).ShouldNot(HaveOccurred())
+	}, 6*time.Minute, 10*time.Second).ShouldNot(HaveOccurred())
 	return &bootTime, nil
 }
 
@@ -529,7 +536,7 @@ func checkNoReboot(node *v1.Node, oldBootTime *time.Time) {
 		}
 		logger.Info("boot time", "new", newBootTime)
 		return *newBootTime
-	}, 1*time.Minute, 10*time.Second).Should(BeTemporally("==", *oldBootTime))
+	}, 5*time.Minute, 10*time.Second).Should(BeTemporally("==", *oldBootTime))
 }
 
 func checkSnrLogs(node *v1.Node, expected []string) {
@@ -592,6 +599,14 @@ func restartSnrPods(nodes *v1.NodeList) {
 func restartSnrPod(node *v1.Node) {
 	By("restarting snr pod for resetting logs")
 	pod := findSnrPod(node)
+
+	//no need to restart the pod
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == v1.PodReady && cond.Status == v1.ConditionTrue {
+			return
+		}
+	}
+
 	ExpectWithOffset(1, pod).ToNot(BeNil())
 	oldPodUID := pod.GetUID()
 

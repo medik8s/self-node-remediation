@@ -2,7 +2,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.8.0
+    controller-gen.kubebuilder.io/version: v0.10.0
   creationTimestamp: null
   labels:
     self-node-remediation-operator: ""
@@ -99,10 +99,13 @@ spec:
                 default: 180
                 description: SafeTimeToAssumeNodeRebootedSeconds is the time after
                   which the healthy self node remediation agents will assume the unhealthy
-                  node has been rebooted and it is safe to remove the node from the
-                  cluster. This is extremely important. Deleting a node while the
-                  workload is still running there might lead to data corruption and
-                  violation of run-once semantic.
+                  node has been rebooted, and it is safe to recover affected workloads.
+                  This is extremely important as starting replacement Pods while they
+                  are still running on the failed node will likely lead to data corruption
+                  and violation of run-once semantics. In an effort to prevent this,
+                  the operator ignores values lower than a minimum calculated from
+                  the ApiCheckInterval, ApiServerTimeout, MaxApiErrorThreshold, PeerDialTimeout,
+                  and PeerRequestTimeout fields.
                 minimum: 0
                 type: integer
               watchdogFilePath:
@@ -124,5 +127,5 @@ status:
   acceptedNames:
     kind: ""
     plural: ""
-  conditions: []
-  storedVersions: []
+  conditions: null
+  storedVersions: null

@@ -17,7 +17,6 @@ limitations under the License.
 package main
 
 import (
-	"context"
 	"flag"
 	"os"
 	"strconv"
@@ -29,12 +28,10 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -50,14 +47,16 @@ import (
 	"github.com/medik8s/self-node-remediation/pkg/peers"
 	"github.com/medik8s/self-node-remediation/pkg/reboot"
 	"github.com/medik8s/self-node-remediation/pkg/snrconfighelper"
+	"github.com/medik8s/self-node-remediation/pkg/template"
 	"github.com/medik8s/self-node-remediation/pkg/utils"
 	"github.com/medik8s/self-node-remediation/pkg/watchdog"
 	//+kubebuilder:scaffold:imports
 )
 
 const (
-	nodeNameEnvVar        = "MY_NODE_NAME"
-	peerHealthDefaultPort = 30001
+	nodeNameEnvVar            = "MY_NODE_NAME"
+	peerHealthDefaultPort     = 30001
+	maxTimeForNoPeersResponse = 30 * time.Second
 )
 
 var (
@@ -139,6 +138,11 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
+	if err := (&selfnoderemediationv1alpha1.SelfNodeRemediationTemplate{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "SelfNodeRemediationTemplate")
+		os.Exit(1)
+	}
+
 	ns, err := utils.GetDeploymentNamespace()
 	if err != nil {
 		setupLog.Error(err, "failed to get deployed namespace from env var")
@@ -163,11 +167,11 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
-	if err := newTemplatesIfNotExist(mgr.GetClient()); err != nil {
-		setupLog.Error(err, "failed to create remediation templates")
+	templateCreator := template.New(mgr.GetClient(), ctrl.Log.WithName("template creator"))
+	if err = mgr.Add(templateCreator); err != nil {
+		setupLog.Error(err, "failed to add template creator to the manager")
 		os.Exit(1)
 	}
-
 }
 
 func getDurEnvVarOrDie(varName string) time.Duration {
@@ -244,18 +248,19 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	certReader := certificates.NewSecretCertStorage(mgr.GetClient(), ctrl.Log.WithName("SecretCertStorage"), ns)
 
 	apiConnectivityCheckConfig := &apicheck.ApiConnectivityCheckConfig{
-		Log:                ctrl.Log.WithName("api-check"),
-		MyNodeName:         myNodeName,
-		CheckInterval:      apiCheckInterval,
-		MaxErrorsThreshold: maxErrorThreshold,
-		Peers:              myPeers,
-		Rebooter:           rebooter,
-		Cfg:                mgr.GetConfig(),
-		CertReader:         certReader,
-		ApiServerTimeout:   apiServerTimeout,
-		PeerDialTimeout:    peerDialTimeout,
-		PeerRequestTimeout: peerRequestTimeout,
-		PeerHealthPort:     peerHealthDefaultPort,
+		Log:                       ctrl.Log.WithName("api-check"),
+		MyNodeName:                myNodeName,
+		CheckInterval:             apiCheckInterval,
+		MaxErrorsThreshold:        maxErrorThreshold,
+		Peers:                     myPeers,
+		Rebooter:                  rebooter,
+		Cfg:                       mgr.GetConfig(),
+		CertReader:                certReader,
+		ApiServerTimeout:          apiServerTimeout,
+		PeerDialTimeout:           peerDialTimeout,
+		PeerRequestTimeout:        peerRequestTimeout,
+		PeerHealthPort:            peerHealthDefaultPort,
+		MaxTimeForNoPeersResponse: maxTimeForNoPeersResponse,
 	}
 
 	controlPlaneManager := controlplane.NewManager(myNodeName, mgr.GetClient())
@@ -275,8 +280,8 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	timeToAssumeNodeRebooted := getDurEnvVarOrDie("TIME_TO_ASSUME_NODE_REBOOTED")
 
 	// but the reboot time needs be at least the time we know we need for determining a node issue and trigger the reboot!
-	// 1. time for determing node issue
-	minTimeToAssumeNodeRebooted := (apiCheckInterval + apiServerTimeout) * time.Duration(maxErrorThreshold)
+	// 1. time for determine node issue
+	minTimeToAssumeNodeRebooted := (apiCheckInterval+apiServerTimeout)*time.Duration(maxErrorThreshold) + maxTimeForNoPeersResponse
 	// 2. time for asking peers (10% batches + 1st smaller batch)
 	minTimeToAssumeNodeRebooted += (10 + 1) * (peerDialTimeout + peerRequestTimeout)
 	// 3. watchdog timeout
@@ -319,23 +324,4 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		setupLog.Error(err, "failed to add grpc server to the manager")
 		os.Exit(1)
 	}
-}
-
-// newTemplatesIfNotExist creates new SelfNodeRemediationTemplate objects
-func newTemplatesIfNotExist(c client.Client) error {
-	ns, err := utils.GetDeploymentNamespace()
-	if err != nil {
-		return errors.Wrap(err, "unable to get the deployment namespace")
-	}
-
-	templates := selfnoderemediationv1alpha1.NewRemediationTemplates()
-
-	for _, template := range templates {
-		template.SetNamespace(ns)
-		err = c.Create(context.Background(), template, &client.CreateOptions{})
-		if err != nil && !apierrors.IsAlreadyExists(err) {
-			return errors.Wrap(err, "failed to create self node remediation template CR")
-		}
-	}
-	return nil
 }

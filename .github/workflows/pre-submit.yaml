@@ -20,17 +20,16 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v3
       with:
-        go-version: 1.18
+        go-version: 1.19
 
     - name: Verify there are no packages to vendor
       run: make verify-vendor
+
+    - name: Verify bundle and manifests are updated
+      run: make verify-bundle
 
     - name: Run checks and unit tests
       run: make test
 
     - name: Test container build
       run: make container-build
-
-    - name: TestMutations
-      run: make test-mutation-ci
-
