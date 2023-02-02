@@ -40,11 +40,15 @@ func GetBootTime(c *kubernetes.Clientset, nodeName string, ns string) (*time.Tim
 // RunCommandInCluster runs a command in a pod in the cluster and returns the output
 func RunCommandInCluster(c *kubernetes.Clientset, nodeName string, ns string, command []string) (string, error) {
 	// create a pod and wait that it's running
-	pod := getPod(nodeName)
-	pod, err := c.CoreV1().Pods(ns).Create(context.Background(), pod, metav1.CreateOptions{})
-	if err != nil {
-		return "", err
-	}
+	podSpec := getPod(nodeName)
+	var pod *corev1.Pod
+	var err error
+	Eventually(func() error {
+		pod, err = c.CoreV1().Pods(ns).Create(context.Background(), podSpec, metav1.CreateOptions{})
+		return err
+
+	}, 6*time.Minute, 10*time.Second).ShouldNot(HaveOccurred())
+
 	defer cleanUpDebugPod(c, nodeName, ns)
 
 	err = waitForCondition(c, pod, corev1.PodReady, corev1.ConditionTrue, time.Minute)
@@ -69,7 +73,7 @@ func cleanUpDebugPod(c *kubernetes.Clientset, nodeName string, ns string) {
 		return errors.IsNotFound(err)
 
 	}, 6*time.Minute, 10*time.Second).Should(BeTrue())
-
+	time.Sleep(30 * time.Second)
 }
 
 func waitForPodOutput(c *kubernetes.Clientset, pod *corev1.Pod, command []string) ([]byte, error) {
