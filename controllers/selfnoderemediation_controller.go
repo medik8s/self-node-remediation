@@ -45,9 +45,6 @@ const (
 	SNRFinalizer          = "self-node-remediation.medik8s.io/snr-finalizer"
 	fencingCompletedPhase = "Fencing-Completed"
 	nhcTimeOutAnnotation  = "remediation.medik8s.io/nhc-timed-out"
-	//Event const
-	eventTypeWarning              = "Warning"
-	eventReasonDeprecatedStrategy = "Deprecated Strategy"
 )
 
 var (
@@ -155,12 +152,7 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	var err error
 
 	switch snr.Spec.RemediationStrategy {
-	case v1alpha1.ResourceDeletionRemediationStrategy, v1alpha1.DeprecatedNodeDeletionRemediationStrategy:
-		if snr.Spec.RemediationStrategy == v1alpha1.DeprecatedNodeDeletionRemediationStrategy {
-			msg := "`Node Deletion` remediation strategy is deprecated, using `Resource Deletion` remediation strategy instead"
-			r.logger.Info(msg)
-			r.Recorder.Eventf(snr, eventTypeWarning, eventReasonDeprecatedStrategy, msg)
-		}
+	case v1alpha1.ResourceDeletionRemediationStrategy:
 		result, err = r.remediateWithResourceDeletion(snr)
 	default:
 		//this should never happen since we enforce valid values with kubebuilder
