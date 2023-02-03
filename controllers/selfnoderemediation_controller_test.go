@@ -164,8 +164,6 @@ var _ = Describe("snr Controller", func() {
 
 				verifyTimeHasBeenRebootedExists()
 
-				verifyNodeBackup()
-
 				verifyNoWatchdogFood()
 
 				verifySelfNodeRemediationPodDoesntExist()
@@ -317,25 +315,6 @@ func isNoExecuteTaintExist() (bool, error) {
 		}
 	}
 	return false, nil
-}
-
-// verifies that snr node backup equals to the actual node
-func verifyNodeBackup() {
-	By("Verify that node backup annotation matches the node")
-	newSnr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
-	snrNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: snrNamespace}
-
-	ExpectWithOffset(1, k8sClient.Client.Get(context.TODO(), snrNamespacedName, newSnr)).To(Succeed())
-	ExpectWithOffset(1, newSnr.Status.NodeBackup).ToNot(BeNil(), "node backup should exist")
-	nodeToRestore := newSnr.Status.NodeBackup
-
-	node := &v1.Node{}
-	ExpectWithOffset(1, k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)).To(Succeed())
-
-	//todo why do we need the following 2 lines? this might be a bug
-	nodeToRestore.TypeMeta.Kind = "Node"
-	nodeToRestore.TypeMeta.APIVersion = "v1"
-	ExpectWithOffset(1, nodeToRestore).To(Equal(node))
 }
 
 func verifyTimeHasBeenRebootedExists() {

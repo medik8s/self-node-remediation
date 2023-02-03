@@ -75,10 +75,6 @@ spec:
           If no error occurred it would be empty
         displayName: Last Error
         path: lastError
-      - description: NodeBackup is the node object that is going to be deleted as
-          part of the remediation process
-        displayName: Node Backup
-        path: nodeBackup
       - description: 'Phase represents the current phase of remediation, One of: TBD'
         displayName: Phase
         path: phase

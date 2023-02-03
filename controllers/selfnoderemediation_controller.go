@@ -433,7 +433,6 @@ func (r *SelfNodeRemediationReconciler) updateSnrStatus(node *v1.Node, snr *v1al
 	//we assume the unhealthy node will be rebooted by maxTimeNodeHasRebooted
 	maxTimeNodeHasRebooted := metav1.NewTime(metav1.Now().Add(r.SafeTimeToAssumeNodeRebooted))
 	snr.Status.TimeAssumedRebooted = &maxTimeNodeHasRebooted
-	snr.Status.NodeBackup = node
 
 	err := r.Client.Status().Update(context.Background(), snr)
 	if err != nil {
@@ -530,26 +529,6 @@ func (r *SelfNodeRemediationReconciler) markNodeAsUnschedulable(node *v1.Node) (
 		return ctrl.Result{}, err
 	}
 	return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
-}
-
-func (r *SelfNodeRemediationReconciler) handleDeletedNode(snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
-	if snr.Status.NodeBackup == nil {
-		// there is nothing we can do about it, stop reconciling
-		err := &UnreconcilableError{"unhealthy node doesn't exist and there's no backup node to restore"}
-		r.logger.Error(err, "remediation failed")
-		return ctrl.Result{}, err
-	}
-
-	//todo this assumes the node has been deleted on time, but this is not necessarily the case
-	minRestoreNodeTime := snr.Status.TimeAssumedRebooted.Add(r.RestoreNodeAfter)
-	if time.Now().Before(minRestoreNodeTime) {
-		//we wait some time before we restore the node to let the cluster realize that the node has been deleted
-		//so workloads can be rescheduled elsewhere
-		r.logger.Info("waiting some time before node restore")
-		return ctrl.Result{RequeueAfter: minRestoreNodeTime.Sub(time.Now()) + time.Second}, nil
-	}
-
-	return r.restoreNode(snr.Status.NodeBackup)
 }
 
 func (r *SelfNodeRemediationReconciler) restoreNode(nodeToRestore *v1.Node) (ctrl.Result, error) {

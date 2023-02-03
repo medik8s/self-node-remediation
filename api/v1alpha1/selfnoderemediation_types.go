@@ -17,7 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -42,14 +41,6 @@ type SelfNodeRemediationSpec struct {
 
 // SelfNodeRemediationStatus defines the observed state of SelfNodeRemediation
 type SelfNodeRemediationStatus struct {
-	//NodeBackup is the node object that is going to be deleted as part of the remediation process
-	// +optional
-	// +kubebuilder:validation:EmbeddedResource
-	// +kubebuilder:pruning:PreserveUnknownFields
-	// +nullable
-	//+operator-sdk:csv:customresourcedefinitions:type=status
-	NodeBackup *v1.Node `json:"nodeBackup,omitempty"`
-
 	//TimeAssumedRebooted is the time by then the unhealthy node assumed to be rebooted
 	// +optional
 	//+operator-sdk:csv:customresourcedefinitions:type=status
