@@ -3,7 +3,7 @@ package certificates
 import (
 	"bytes"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	ctrl "sigs.k8s.io/controller-runtime"
