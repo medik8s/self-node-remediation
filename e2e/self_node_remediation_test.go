@@ -100,13 +100,18 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				var snr *v1alpha1.SelfNodeRemediation
 				var remediationStrategy v1alpha1.RemediationStrategyType
 				JustBeforeEach(func() {
+					By("Resource Deletion Strategy- Start JustBeforeEach (createSNR)")
 					snr = createSNR(node, remediationStrategy)
+					By("Resource Deletion Strategy- Finish JustBeforeEach (createSNR)")
 				})
 
 				AfterEach(func() {
+					By("Resource Deletion Strategy- Start AfterEach")
 					if snr != nil {
+						By("Resource Deletion Strategy- AfterEach before deleteAndWait")
 						deleteAndWait(snr)
 					}
+					By("Resource Deletion Strategy- Finish AfterEach")
 				})
 
 				Context("Resource Deletion Strategy", func() {
@@ -114,20 +119,25 @@ var _ = Describe("Self Node Remediation E2E", func() {
 					var va *storagev1.VolumeAttachment
 
 					BeforeEach(func() {
-						skipK8sTest()
+						By("Resource Deletion Strategy- Start BeforeEach")
 						remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
 						oldPodCreationTime = findSnrPod(node).CreationTimestamp.Time
 						va = createVolumeAttachment(node)
+						By("Resource Deletion Strategy- Finish BeforeEach")
 					})
 
 					It("should delete pods and volume attachments", func() {
+						By("Resource Deletion Strategy- It  before checkPodRecreated")
 						checkPodRecreated(node, oldPodCreationTime)
+						By("Resource Deletion Strategy- It  before checkVaDeleted")
 						checkVaDeleted(va)
 						//Simulate NHC trying to delete SNR
+						By("Resource Deletion Strategy- It  before deleteAndWait")
 						deleteAndWait(snr)
 						snr = nil
-
+						By("Resource Deletion Strategy- It  before checkNoExecuteTaintRemoved")
 						checkNoExecuteTaintRemoved(node)
+						By("Resource Deletion Strategy- It  Finish")
 					})
 				})
 
