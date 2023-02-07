@@ -128,7 +128,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 
 					It("should delete pods and volume attachments", func() {
 						By("Resource Deletion Strategy- It  before checkPodRecreated")
-						checkPodRecreated(node, oldPodCreationTime)
+						checkPodRecreated2(node, oldPodCreationTime)
 						By("Resource Deletion Strategy- It  before checkVaDeleted")
 						checkVaDeleted(va)
 						//Simulate NHC trying to delete SNR
@@ -411,10 +411,43 @@ func createVolumeAttachment(node *v1.Node) *storagev1.VolumeAttachment {
 
 func checkPodRecreated(node *v1.Node, oldPodCreationTime time.Time) bool {
 	return EventuallyWithOffset(1, func() time.Time {
+		By(fmt.Sprintf("Resource Deletion Strategy- It  before findSnrPod, oldPodCreationTime %s", oldPodCreationTime))
 		pod := findSnrPod(node)
+		isDone := pod.CreationTimestamp.Time.Sub(oldPodCreationTime) > 0
+		By(fmt.Sprintf("Resource Deletion Strategy- It  after findSnrPod,  pod.CreationTimestamp.Time %s, isDone: %t", pod.CreationTimestamp.Time, isDone))
 		return pod.CreationTimestamp.Time
 
 	}, 7*time.Minute, 10*time.Second).Should(BeTemporally(">", oldPodCreationTime))
+}
+
+func checkPodRecreated2(node *v1.Node, oldPodCreationTime time.Time) bool {
+	return Eventually(func() bool {
+		By(fmt.Sprintf("checkPodRecreated2 Start oldPodCreationTime %s", oldPodCreationTime))
+		pods := &v1.PodList{}
+		err := k8sClient.List(context.Background(), pods)
+		if err != nil && !errors.IsNotFound(err) {
+			By("checkPodRecreated2  failed to list pods")
+			logger.Error(err, "failed to list pods")
+			return false
+		}
+
+		for i := range pods.Items {
+			pod := pods.Items[i]
+			if strings.HasPrefix(pod.GetName(), "self-node-remediation-ds") {
+				if pod.Spec.NodeName == node.GetName() {
+					By(fmt.Sprintf("checkPodRecreated2 - It  node name: %s pod creation:%s, pod name: %s, namespace:%s", node.GetName(), pod.CreationTimestamp.Time, pod.Name, pod.Namespace))
+					isPodRecreated := pod.CreationTimestamp.Time.Sub(oldPodCreationTime) > 0
+					if isPodRecreated {
+						By("Resource Deletion Strategy findSnrPod- It  pod Recreated")
+					}
+					return isPodRecreated
+
+				}
+			}
+		}
+		return false
+
+	}, 7*time.Minute, 10*time.Second).Should(BeTrue())
 }
 
 func createSNR(node *v1.Node, remediationStrategy v1alpha1.RemediationStrategyType) *v1alpha1.SelfNodeRemediation {
@@ -429,6 +462,7 @@ func createSNR(node *v1.Node, remediationStrategy v1alpha1.RemediationStrategyTy
 		},
 	}
 	ExpectWithOffset(1, k8sClient.Create(context.Background(), snr)).ToNot(HaveOccurred())
+	By(fmt.Sprintf("SNR Remediation was created in namespace: %s", testNamespace))
 	return snr
 }
 
