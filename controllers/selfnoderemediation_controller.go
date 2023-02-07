@@ -44,6 +44,7 @@ import (
 const (
 	SNRFinalizer          = "self-node-remediation.medik8s.io/snr-finalizer"
 	fencingCompletedPhase = "Fencing-Completed"
+	nhcTimeOutAnnotation  = "remediation.medik8s.io/nhc-timed-out"
 	//Event const
 	eventTypeWarning              = "Warning"
 	eventReasonDeprecatedStrategy = "Deprecated Strategy"
@@ -139,6 +140,11 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 		}
 		r.logger.Error(err, "failed to get SNR")
 		return ctrl.Result{}, err
+	}
+
+	if r.isStoppedByNHC(snr) {
+		r.logger.Info("SNR remediation was stopped by Node Healthcheck")
+		return ctrl.Result{}, nil
 	}
 
 	r.mutex.Lock()
@@ -624,4 +630,12 @@ func (r *SelfNodeRemediationReconciler) removeNoExecuteTaint(node *v1.Node) erro
 	}
 	r.logger.Info("NoExecute taint removed", "new taints", node.Spec.Taints)
 	return nil
+}
+
+func (r *SelfNodeRemediationReconciler) isStoppedByNHC(snr *v1alpha1.SelfNodeRemediation) bool {
+	if snr != nil && snr.Annotations != nil {
+		_, isTimeoutIssued := snr.Annotations[nhcTimeOutAnnotation]
+		return isTimeoutIssued
+	}
+	return false
 }
