@@ -101,7 +101,10 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				var remediationStrategy v1alpha1.RemediationStrategyType
 				JustBeforeEach(func() {
 					By("Resource Deletion Strategy- Start JustBeforeEach (createSNR)")
-					snr = createSNR(node, remediationStrategy)
+					go func() {
+						time.Sleep(time.Minute)
+						snr = createSNR(node, remediationStrategy)
+					}()
 					By("Resource Deletion Strategy- Finish JustBeforeEach (createSNR)")
 				})
 
