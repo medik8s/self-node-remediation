@@ -283,7 +283,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	// 1. time for determine node issue
 	minTimeToAssumeNodeRebooted := (apiCheckInterval+apiServerTimeout)*time.Duration(maxErrorThreshold) + maxTimeForNoPeersResponse
 	// 2. time for asking peers (10% batches + 1st smaller batch)
-	minTimeToAssumeNodeRebooted += (10 + 1) * (peerDialTimeout + peerRequestTimeout)
+	minTimeToAssumeNodeRebooted += calcNumOfBatches(myPeers) * (peerDialTimeout + peerRequestTimeout)
 	// 3. watchdog timeout
 	if wd != nil {
 		minTimeToAssumeNodeRebooted += wd.GetTimeout()
@@ -324,4 +324,16 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		setupLog.Error(err, "failed to add grpc server to the manager")
 		os.Exit(1)
 	}
+}
+
+func calcNumOfBatches(myPeers *peers.Peers) time.Duration {
+	// 2. time for asking peers (10% batches + 1st smaller batch)
+	numberOfBatches := 10
+	numOfWorkerPeers := len(myPeers.GetPeersAddresses(peers.Worker))
+	//in case there are less than 10 worker peers we can cover all of them with less than batches
+	if numOfWorkerPeers < numberOfBatches {
+		numberOfBatches = numOfWorkerPeers
+	}
+	numberOfBatches = numberOfBatches + 1
+	return time.Duration(numberOfBatches)
 }
