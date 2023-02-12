@@ -423,6 +423,18 @@ func checkPodRecreated(node *v1.Node, oldPodCreationTime time.Time) bool {
 func checkPodRecreated2(node *v1.Node, oldPodCreationTime time.Time) bool {
 	return Eventually(func() bool {
 		By(fmt.Sprintf("checkPodRecreated2 Start oldPodCreationTime %s", oldPodCreationTime))
+
+		key := client.ObjectKey{
+			Name:      node.GetName(),
+			Namespace: testNamespace,
+		}
+		snr := new(v1alpha1.SelfNodeRemediation)
+		if err := k8sClient.Get(context.Background(), key, snr); err != nil {
+			logger.Error(err, "failed to fetch snr")
+			return false
+		}
+		By(fmt.Sprintf("checkPodRecreated2 SNR  TimeAssumedRebooted %s", snr.Status.TimeAssumedRebooted))
+
 		pods := &v1.PodList{}
 		err := k8sClient.List(context.Background(), pods)
 		if err != nil && !errors.IsNotFound(err) {
@@ -447,7 +459,7 @@ func checkPodRecreated2(node *v1.Node, oldPodCreationTime time.Time) bool {
 		}
 		return false
 
-	}, 7*time.Minute, 10*time.Second).Should(BeTrue())
+	}, 7*time.Minute, 5*time.Second).Should(BeTrue())
 }
 
 func createSNR(node *v1.Node, remediationStrategy v1alpha1.RemediationStrategyType) *v1alpha1.SelfNodeRemediation {
