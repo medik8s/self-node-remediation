@@ -335,7 +335,8 @@ catalog-push: ## Push a catalog image.
 
 ##@ Targets used by CI
 .PHONY: check
-check: ## Dockerized version of make test
+# WORKAROUND: add "protoc" as dependency for downloading binary first, the golang image misses the needed "unzip"tool
+check: protoc ## Dockerized version of make test
 	$(DOCKER_GO) "make test"
 
 .PHONY: container-build
