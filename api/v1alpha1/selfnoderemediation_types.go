@@ -23,6 +23,9 @@ import (
 const (
 	ResourceDeletionRemediationStrategy       = RemediationStrategyType("ResourceDeletion")
 	DeprecatedNodeDeletionRemediationStrategy = RemediationStrategyType("NodeDeletion")
+
+	// SnrConditionProcessing is the condition type used to signal NHC the remediation status
+	SnrConditionProcessing = "Processing"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -56,6 +59,16 @@ type SelfNodeRemediationStatus struct {
 	// If no error occurred it would be empty
 	//+operator-sdk:csv:customresourcedefinitions:type=status
 	LastError string `json:"lastError,omitempty"`
+
+	// +operator-sdk:csv:customresourcedefinitions:type=status,displayName="conditions",xDescriptors="urn:alm:descriptor:com.tectonic.ui:conditions"
+	// Represents the observations of a SelfNodeRemediation's current state.
+	// Known .status.conditions.type are: "Processing"
+	// +patchMergeKey=type
+	// +patchStrategy=merge
+	// +listType=map
+	// +listMapKey=type
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 //+kubebuilder:object:root=true

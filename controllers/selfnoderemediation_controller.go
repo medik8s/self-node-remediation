@@ -28,6 +28,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -144,7 +145,11 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	if r.isStoppedByNHC(snr) {
 		r.logger.Info("SNR remediation was stopped by Node Healthcheck")
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, r.updateSnrProcessingCondition(metav1.ConditionFalse, snr)
+	}
+
+	if err := r.updateSnrProcessingCondition(metav1.ConditionTrue, snr); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	r.mutex.Lock()
@@ -169,6 +174,19 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	return result, r.updateSnrStatusLastError(snr, err)
+}
+
+func (r *SelfNodeRemediationReconciler) updateSnrProcessingCondition(conditionStatus metav1.ConditionStatus, snr *v1alpha1.SelfNodeRemediation) error {
+	meta.SetStatusCondition(&snr.Status.Conditions, metav1.Condition{
+		Type:   v1alpha1.SnrConditionProcessing,
+		Status: conditionStatus,
+	})
+	var err error
+	if err = r.Client.Status().Update(context.Background(), snr); err != nil {
+		r.logger.Error(err, "failed to update SNR condition status")
+	}
+
+	return err
 }
 
 func (r *SelfNodeRemediationReconciler) isFencingCompleted(snr *v1alpha1.SelfNodeRemediation) bool {
