@@ -14,6 +14,10 @@ const TimeToAssumeRebootHasStarted = time.Second * 30
 type Rebooter interface {
 	// Reboot triggers a node reboot
 	Reboot() error
+	// GetTimeToAssumeNodeRebooted returns the safe time to assume node was already rebooted
+	// note that this time must include the time for a unhealthy node without api-server access to reach the conclusion that it's unhealthy
+	// this should be at least worst-case time to reach a conclusion from the other peers * request context timeout + watchdog interval + maxFailuresThreshold * reconcileInterval + padding
+	GetTimeToAssumeNodeRebooted() time.Duration
 }
 
 var _ Rebooter = &watchdogRebooter{}
@@ -23,15 +27,21 @@ type watchdogRebooter struct {
 	wd                 watchdog.Watchdog
 	log                logr.Logger
 	softwareRebootHook func() error
+	safeTimeCalc       SafeTimeCalculator
 }
 
-func NewWatchdogRebooter(wd watchdog.Watchdog, log logr.Logger) Rebooter {
+func NewWatchdogRebooter(wd watchdog.Watchdog, log logr.Logger, safeTimeCalc SafeTimeCalculator) Rebooter {
 	wdRebooter := &watchdogRebooter{
-		wd:  wd,
-		log: log,
+		wd:           wd,
+		log:          log,
+		safeTimeCalc: safeTimeCalc,
 	}
 	wdRebooter.softwareRebootHook = wdRebooter.softwareReboot
 	return wdRebooter
+}
+
+func (r *watchdogRebooter) GetTimeToAssumeNodeRebooted() time.Duration {
+	return r.safeTimeCalc.GetTimeToAssumeNodeRebooted()
 }
 
 func (r *watchdogRebooter) Reboot() error {

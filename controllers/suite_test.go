@@ -159,7 +159,10 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	certReader = certificates.NewSecretCertStorage(k8sClient, ctrl.Log.WithName("SecretCertStorage"), namespace)
-	rebooter := reboot.NewWatchdogRebooter(dummyDog, ctrl.Log.WithName("rebooter"))
+	timeToAssumeNodeRebooted := time.Duration(maxErrorThreshold) * apiCheckInterval
+	timeToAssumeNodeRebooted += dummyDog.GetTimeout()
+	timeToAssumeNodeRebooted += 5 * time.Second
+	rebooter := reboot.NewWatchdogRebooter(dummyDog, ctrl.Log.WithName("rebooter"), &mockCalculator{mockTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted})
 	apiConnectivityCheckConfig := &apicheck.ApiConnectivityCheckConfig{
 		Log:                ctrl.Log.WithName("api-check"),
 		MyNodeName:         unhealthyNodeName,
@@ -174,30 +177,25 @@ var _ = BeforeSuite(func() {
 	err = k8sManager.Add(apiCheck)
 	Expect(err).ToNot(HaveOccurred())
 
-	timeToAssumeNodeRebooted := time.Duration(maxErrorThreshold) * apiCheckInterval
-	timeToAssumeNodeRebooted += dummyDog.GetTimeout()
-	timeToAssumeNodeRebooted += 5 * time.Second
-
 	restoreNodeAfter := 5 * time.Second
 
 	// reconciler for unhealthy node
 	err = (&controllers.SelfNodeRemediationReconciler{
-		Client:                       k8sClient,
-		Log:                          ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("unhealthy node"),
-		Rebooter:                     rebooter,
-		SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
-		MyNodeName:                   unhealthyNodeName,
-		RestoreNodeAfter:             restoreNodeAfter,
+		Client:           k8sClient,
+		Log:              ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("unhealthy node"),
+		Rebooter:         rebooter,
+		MyNodeName:       unhealthyNodeName,
+		RestoreNodeAfter: restoreNodeAfter,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	// reconciler for peer node
 	err = (&controllers.SelfNodeRemediationReconciler{
-		Client:                       k8sClient,
-		Log:                          ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
-		SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
-		MyNodeName:                   peerNodeName,
-		RestoreNodeAfter:             restoreNodeAfter,
+		Client:           k8sClient,
+		Log:              ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
+		MyNodeName:       peerNodeName,
+		Rebooter:         rebooter,
+		RestoreNodeAfter: restoreNodeAfter,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
@@ -228,3 +226,16 @@ var _ = AfterSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 })
+
+type mockCalculator struct {
+	mockTimeToAssumeNodeRebooted time.Duration
+}
+
+func (m *mockCalculator) GetTimeToAssumeNodeRebooted() time.Duration {
+	return m.mockTimeToAssumeNodeRebooted
+}
+
+//goland:noinspection GoUnusedParameter
+func (m *mockCalculator) Start(ctx context.Context) error {
+	return nil
+}

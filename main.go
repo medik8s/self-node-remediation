@@ -54,9 +54,8 @@ import (
 )
 
 const (
-	nodeNameEnvVar            = "MY_NODE_NAME"
-	peerHealthDefaultPort     = 30001
-	maxTimeForNoPeersResponse = 30 * time.Second
+	nodeNameEnvVar        = "MY_NODE_NAME"
+	peerHealthDefaultPort = 30001
 )
 
 var (
@@ -224,9 +223,6 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
-	// it's fine when the watchdog is nil!
-	rebooter := reboot.NewWatchdogRebooter(wd, ctrl.Log.WithName("rebooter"))
-
 	// TODO make the interval configurable
 	peerUpdateInterval := getDurEnvVarOrDie("PEER_UPDATE_INTERVAL")
 	peerApiServerTimeout := getDurEnvVarOrDie("PEER_API_SERVER_TIMEOUT")
@@ -243,6 +239,16 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	apiServerTimeout := getDurEnvVarOrDie("API_SERVER_TIMEOUT")       //timeout for each api-connectivity check
 	peerDialTimeout := getDurEnvVarOrDie("PEER_DIAL_TIMEOUT")         //timeout for establishing connection to peer
 	peerRequestTimeout := getDurEnvVarOrDie("PEER_REQUEST_TIMEOUT")   //timeout for each peer request
+	timeToAssumeNodeRebooted := getDurEnvVarOrDie("TIME_TO_ASSUME_NODE_REBOOTED")
+
+	safeRebootCalc := reboot.New(mgr.GetClient(), wd, maxErrorThreshold, apiCheckInterval, apiServerTimeout, peerDialTimeout, peerRequestTimeout, timeToAssumeNodeRebooted)
+	if err = mgr.Add(safeRebootCalc); err != nil {
+		setupLog.Error(err, "failed to add safe reboot time calculator to the manager")
+		os.Exit(1)
+	}
+
+	// it's fine when the watchdog is nil!
+	rebooter := reboot.NewWatchdogRebooter(wd, ctrl.Log.WithName("rebooter"), safeRebootCalc)
 
 	// init certificate reader
 	certReader := certificates.NewSecretCertStorage(mgr.GetClient(), ctrl.Log.WithName("SecretCertStorage"), ns)
@@ -260,7 +266,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		PeerDialTimeout:           peerDialTimeout,
 		PeerRequestTimeout:        peerRequestTimeout,
 		PeerHealthPort:            peerHealthDefaultPort,
-		MaxTimeForNoPeersResponse: maxTimeForNoPeersResponse,
+		MaxTimeForNoPeersResponse: reboot.MaxTimeForNoPeersResponse,
 	}
 
 	controlPlaneManager := controlplane.NewManager(myNodeName, mgr.GetClient())
@@ -276,36 +282,15 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
-	// determine safe reboot time
-	timeToAssumeNodeRebooted := getDurEnvVarOrDie("TIME_TO_ASSUME_NODE_REBOOTED")
-
-	// but the reboot time needs be at least the time we know we need for determining a node issue and trigger the reboot!
-	// 1. time for determine node issue
-	minTimeToAssumeNodeRebooted := (apiCheckInterval+apiServerTimeout)*time.Duration(maxErrorThreshold) + maxTimeForNoPeersResponse
-	// 2. time for asking peers (10% batches + 1st smaller batch)
-	minTimeToAssumeNodeRebooted += calcNumOfBatches(myPeers) * (peerDialTimeout + peerRequestTimeout)
-	// 3. watchdog timeout
-	if wd != nil {
-		minTimeToAssumeNodeRebooted += wd.GetTimeout()
-	}
-	// 4. some buffer
-	minTimeToAssumeNodeRebooted += 15 * time.Second
-
-	if timeToAssumeNodeRebooted < minTimeToAssumeNodeRebooted {
-		timeToAssumeNodeRebooted = minTimeToAssumeNodeRebooted
-	}
-	setupLog.Info("Time to assume that unhealthy node has been rebooted", "time", timeToAssumeNodeRebooted)
-
 	restoreNodeAfter := 90 * time.Second
 	snrReconciler := &controllers.SelfNodeRemediationReconciler{
-		Client:                       mgr.GetClient(),
-		Log:                          ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
-		Scheme:                       mgr.GetScheme(),
-		Recorder:                     mgr.GetEventRecorderFor("SelfNodeRemediation"),
-		Rebooter:                     rebooter,
-		SafeTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
-		MyNodeName:                   myNodeName,
-		RestoreNodeAfter:             restoreNodeAfter,
+		Client:           mgr.GetClient(),
+		Log:              ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
+		Scheme:           mgr.GetScheme(),
+		Recorder:         mgr.GetEventRecorderFor("SelfNodeRemediation"),
+		Rebooter:         rebooter,
+		MyNodeName:       myNodeName,
+		RestoreNodeAfter: restoreNodeAfter,
 	}
 
 	if err = snrReconciler.SetupWithManager(mgr); err != nil {
@@ -324,16 +309,4 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		setupLog.Error(err, "failed to add grpc server to the manager")
 		os.Exit(1)
 	}
-}
-
-func calcNumOfBatches(myPeers *peers.Peers) time.Duration {
-	// 2. time for asking peers (10% batches + 1st smaller batch)
-	numberOfBatches := 10
-	numOfWorkerPeers := len(myPeers.GetPeersAddresses(peers.Worker))
-	//in case there are less than 10 worker peers we can cover all of them with less than batches
-	if numOfWorkerPeers < numberOfBatches {
-		numberOfBatches = numOfWorkerPeers
-	}
-	numberOfBatches = numberOfBatches + 1
-	return time.Duration(numberOfBatches)
 }

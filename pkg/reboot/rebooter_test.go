@@ -21,7 +21,7 @@ var _ = Describe("Rebooter tests", func() {
 	Describe("Crash on start", func() {
 		BeforeEach(func() {
 			wd, _ := watchdog.NewFake(false)
-			rebooter = &watchdogRebooter{wd, ctrl.Log.WithName("fake rebooter"), fakeSoftwareReboot}
+			rebooter = &watchdogRebooter{wd, ctrl.Log.WithName("fake rebooter"), fakeSoftwareReboot, nil}
 
 		})
 
