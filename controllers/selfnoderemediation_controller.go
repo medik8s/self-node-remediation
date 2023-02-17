@@ -127,6 +127,7 @@ func (r *SelfNodeRemediationReconciler) SetupWithManager(mgr ctrl.Manager) error
 //+kubebuilder:rbac:groups=self-node-remediation.medik8s.io,resources=selfnoderemediations/finalizers,verbs=update
 //+kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=machine.openshift.io,resources=machines,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=namespaces,verbs=list;get;watch
 
 func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	r.logger = r.Log.WithValues("selfnoderemediation", req.NamespacedName)
