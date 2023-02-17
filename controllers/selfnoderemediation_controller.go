@@ -213,15 +213,15 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alp
 		return ctrl.Result{}, nil
 	}
 
+	if !controllerutil.ContainsFinalizer(snr, SNRFinalizer) {
+		return r.addFinalizer(snr)
+	}
+
 	r.logger.Info("fencing not completed yet, continuing remediation")
 
 	if !r.isNodeRebootCapable(node) {
 		//use err to trigger exponential backoff
 		return ctrl.Result{}, errors.New("Node is not capable to reboot itself")
-	}
-
-	if !controllerutil.ContainsFinalizer(snr, SNRFinalizer) {
-		return r.addFinalizer(snr)
 	}
 
 	if err = r.addNoExecuteTaint(node); err != nil {
