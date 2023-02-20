@@ -145,11 +145,13 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	if r.isStoppedByNHC(snr) {
 		r.logger.Info("SNR remediation was stopped by Node Healthcheck")
-		return ctrl.Result{}, r.updateSnrProcessingCondition(metav1.ConditionFalse, snr)
+		return r.updateSnrProcessingCondition(metav1.ConditionFalse, snr)
 	}
 
-	if err := r.updateSnrProcessingCondition(metav1.ConditionTrue, snr); err != nil {
-		return ctrl.Result{}, err
+	if res, err := r.updateSnrProcessingCondition(metav1.ConditionTrue, snr); err != nil {
+		return res, err
+	} else if res.Requeue {
+		return res, err
 	}
 
 	r.mutex.Lock()
@@ -176,7 +178,14 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	return result, r.updateSnrStatusLastError(snr, err)
 }
 
-func (r *SelfNodeRemediationReconciler) updateSnrProcessingCondition(conditionStatus metav1.ConditionStatus, snr *v1alpha1.SelfNodeRemediation) error {
+func (r *SelfNodeRemediationReconciler) updateSnrProcessingCondition(conditionStatus metav1.ConditionStatus, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+	r.logger.Info("start updateSnrProcessingCondition v0", v1alpha1.SnrConditionProcessing, conditionStatus)
+	defer r.logger.Info("finished updateSnrProcessingCondition")
+
+	if r.isConditionStatusAlreadySet(snr.Status.Conditions, v1alpha1.SnrConditionProcessing, conditionStatus) {
+		return ctrl.Result{}, nil
+	}
+
 	var reason string
 
 	switch conditionStatus {
@@ -187,19 +196,22 @@ func (r *SelfNodeRemediationReconciler) updateSnrProcessingCondition(conditionSt
 	default:
 		reason = "Invalid remediation condition status"
 	}
-	mergeFrom := client.MergeFrom(snr)
 	meta.SetStatusCondition(&snr.Status.Conditions, metav1.Condition{
 		Type:   v1alpha1.SnrConditionProcessing,
 		Status: conditionStatus,
 		Reason: reason,
 	})
 
-	if err := r.Client.Status().Patch(context.Background(), snr, mergeFrom); err != nil {
+	if err := r.Client.Status().Update(context.Background(), snr); err != nil {
+		if apiErrors.IsConflict(err) {
+			// conflicts are expected since all self node remediation deamonset pods are competing on the same requests
+			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
+		}
 		r.logger.Error(err, "failed to update SNR condition status")
-		return err
+		return ctrl.Result{}, err
 	}
-	
-	return nil
+
+	return ctrl.Result{}, nil
 
 }
 
@@ -668,6 +680,18 @@ func (r *SelfNodeRemediationReconciler) isStoppedByNHC(snr *v1alpha1.SelfNodeRem
 	if snr != nil && snr.Annotations != nil {
 		_, isTimeoutIssued := snr.Annotations[nhcTimeOutAnnotation]
 		return isTimeoutIssued
+	}
+	return false
+}
+
+func (r *SelfNodeRemediationReconciler) isConditionStatusAlreadySet(conditions []metav1.Condition, condType string, condStatus metav1.ConditionStatus) bool {
+	if len(conditions) == 0 {
+		return false
+	}
+	for _, cond := range conditions {
+		if cond.Type == condType {
+			return cond.Status == condStatus
+		}
 	}
 	return false
 }
