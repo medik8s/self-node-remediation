@@ -177,9 +177,21 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 }
 
 func (r *SelfNodeRemediationReconciler) updateSnrProcessingCondition(conditionStatus metav1.ConditionStatus, snr *v1alpha1.SelfNodeRemediation) error {
+	var reason string
+
+	switch conditionStatus {
+	case metav1.ConditionTrue:
+		reason = "Remediation started"
+	case metav1.ConditionFalse:
+		reason = "Remediation stopped"
+	default:
+		reason = "Invalid remediation condition status"
+	}
+
 	meta.SetStatusCondition(&snr.Status.Conditions, metav1.Condition{
 		Type:   v1alpha1.SnrConditionProcessing,
 		Status: conditionStatus,
+		Reason: reason,
 	})
 	var err error
 	if err = r.Client.Status().Update(context.Background(), snr); err != nil {
