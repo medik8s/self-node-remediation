@@ -187,18 +187,20 @@ func (r *SelfNodeRemediationReconciler) updateSnrProcessingCondition(conditionSt
 	default:
 		reason = "Invalid remediation condition status"
 	}
-
+	mergeFrom := client.MergeFrom(snr)
 	meta.SetStatusCondition(&snr.Status.Conditions, metav1.Condition{
 		Type:   v1alpha1.SnrConditionProcessing,
 		Status: conditionStatus,
 		Reason: reason,
 	})
-	var err error
-	if err = r.Client.Status().Update(context.Background(), snr); err != nil {
-		r.logger.Error(err, "failed to update SNR condition status")
-	}
 
-	return err
+	if err := r.Client.Status().Patch(context.Background(), snr, mergeFrom); err != nil {
+		r.logger.Error(err, "failed to update SNR condition status")
+		return err
+	}
+	
+	return nil
+
 }
 
 func (r *SelfNodeRemediationReconciler) isFencingCompleted(snr *v1alpha1.SelfNodeRemediation) bool {
