@@ -32,7 +32,7 @@ const nodeName = "somenode"
 var cfg *rest.Config
 var k8sClient client.Client
 var testEnv *envtest.Environment
-var pprr *controllers.SelfNodeRemediationReconciler
+var snrReconciler *controllers.SelfNodeRemediationReconciler
 var cancelFunc context.CancelFunc
 
 var _ = BeforeSuite(func() {
@@ -72,12 +72,12 @@ var _ = BeforeSuite(func() {
 	Expect(k8sClient).ToNot(BeNil())
 
 	// we need a reconciler for getting last SNR namespace
-	pprr = &controllers.SelfNodeRemediationReconciler{
+	snrReconciler = &controllers.SelfNodeRemediationReconciler{
 		Client:     k8sClient,
 		Log:        ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
 		MyNodeName: nodeName,
 	}
-	err = pprr.SetupWithManager(k8sManager)
+	err = snrReconciler.SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	var ctx context.Context
