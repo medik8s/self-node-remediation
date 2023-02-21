@@ -179,7 +179,7 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 }
 
 func (r *SelfNodeRemediationReconciler) updateSnrProcessingCondition(conditionStatus metav1.ConditionStatus, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
-	r.logger.Info("start updateSnrProcessingCondition v0", v1alpha1.SnrConditionProcessing, conditionStatus)
+	r.logger.Info("start updateSnrProcessingCondition v22", v1alpha1.SnrConditionProcessing, conditionStatus)
 	defer r.logger.Info("finished updateSnrProcessingCondition")
 
 	if r.isConditionStatusAlreadySet(snr.Status.Conditions, v1alpha1.SnrConditionProcessing, conditionStatus) {
@@ -190,23 +190,21 @@ func (r *SelfNodeRemediationReconciler) updateSnrProcessingCondition(conditionSt
 
 	switch conditionStatus {
 	case metav1.ConditionTrue:
-		reason = "Remediation started"
+		reason = "RemediationStarted"
 	case metav1.ConditionFalse:
-		reason = "Remediation stopped"
+		reason = "RemediationStopped"
 	default:
-		reason = "Invalid remediation condition status"
+		reason = "InvalidRemediationConditionStatus"
 	}
+
+	mergeFrom := client.MergeFrom(snr)
 	meta.SetStatusCondition(&snr.Status.Conditions, metav1.Condition{
 		Type:   v1alpha1.SnrConditionProcessing,
 		Status: conditionStatus,
 		Reason: reason,
 	})
 
-	if err := r.Client.Status().Update(context.Background(), snr); err != nil {
-		if apiErrors.IsConflict(err) {
-			// conflicts are expected since all self node remediation deamonset pods are competing on the same requests
-			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
-		}
+	if err := r.Client.Status().Patch(context.Background(), snr, mergeFrom); err != nil {
 		r.logger.Error(err, "failed to update SNR condition status")
 		return ctrl.Result{}, err
 	}
