@@ -32,8 +32,8 @@ type safeTimeCalculator struct {
 	maxErrorThreshold                                                       int
 	apiCheckInterval, apiServerTimeout, peerDialTimeout, peerRequestTimeout time.Duration
 	log                                                                     logr.Logger
-	k8sClient                                                               client.Client
-	minBatchNumber                                                          int
+	k8sClient                    client.Client
+	highestCalculatedBatchNumber int
 }
 
 func NewSafeTimeCalculator(k8sClient client.Client, wd watchdog.Watchdog, maxErrorThreshold int, apiCheckInterval, apiServerTimeout, peerDialTimeout, peerRequestTimeout, timeToAssumeNodeRebooted time.Duration) SafeTimeCalculator {
@@ -58,18 +58,17 @@ func (s *safeTimeCalculator) GetTimeToAssumeNodeRebooted() time.Duration {
 	return s.timeToAssumeNodeRebooted
 }
 
-//goland:noinspection GoUnusedParameter
-func (s *safeTimeCalculator) Start(ctx context.Context) error {
+func (s *safeTimeCalculator) Start(_ context.Context) error {
 	s.calcMinTimeAssumeRebooted()
 	return nil
 }
 
 func (s *safeTimeCalculator) calcMinTimeAssumeRebooted() {
-	// but the reboot time needs be at least the time we know we need for determining a node issue and trigger the reboot!
+	// The reboot time needs be at least the time we know we need for determining a node issue and trigger the reboot!
 	// 1. time for determine node issue
 	minTime := (s.apiCheckInterval+s.apiServerTimeout)*time.Duration(s.maxErrorThreshold) + MaxTimeForNoPeersResponse
 	// 2. time for asking peers (10% batches + 1st smaller batch)
-	minTime += s.calcNumOfBatches() * (s.peerDialTimeout + s.peerRequestTimeout)
+	minTime += time.Duration(s.calcNumOfBatches()) * (s.peerDialTimeout + s.peerRequestTimeout)
 	// 3. watchdog timeout
 	if s.wd != nil {
 		minTime += s.wd.GetTimeout()
@@ -80,7 +79,7 @@ func (s *safeTimeCalculator) calcMinTimeAssumeRebooted() {
 	s.minTimeToAssumeNodeRebooted = minTime
 }
 
-func (s *safeTimeCalculator) calcNumOfBatches() time.Duration {
+func (s *safeTimeCalculator) calcNumOfBatches() int {
 
 	reqPeers, _ := labels.NewRequirement(utils.WorkerLabelName, selection.Exists, []string{})
 	selector := labels.NewSelector()
@@ -88,21 +87,30 @@ func (s *safeTimeCalculator) calcNumOfBatches() time.Duration {
 
 	nodes := &v1.NodeList{}
 	// time for asking peers (10% batches + 1st smaller batch)
-	numberOfBatches := 10
+	maxNumberOfBatches := 10 + 1
 	if err := s.k8sClient.List(context.Background(), nodes, client.MatchingLabelsSelector{Selector: selector}); err != nil {
 		s.log.Error(err, "couldn't fetch worker nodes")
-		return time.Duration(numberOfBatches)
+		return maxNumberOfBatches
 	}
+	workerNodesCount := len(nodes.Items)
 
-	//in case there are less than 10 worker peers we can cover all of them with less than batches
-	if workerNodesCount := len(nodes.Items); workerNodesCount > 0 && workerNodesCount < numberOfBatches {
-		numberOfBatches = workerNodesCount
-	}
+	var numberOfBatches int
+	switch {
+	// 3 workers of first batch + 10% for each batch
+	case workerNodesCount >= 13:
+		numberOfBatches = maxNumberOfBatches
+	// first 3 workers use one batch
+	case workerNodesCount <= 3:
+		numberOfBatches = 1
+	//assuming worst case of one batch for the first 3 worker nodes and another batch for each other node
+	default:
+		numberOfBatches = workerNodesCount - 2
 
-	numberOfBatches = numberOfBatches + 1
-	//In order to stay on the safe side taking the largest number ever found - cap is 11 (10+1)
-	if numberOfBatches > s.minBatchNumber {
-		s.minBatchNumber = numberOfBatches
 	}
-	return time.Duration(s.minBatchNumber)
+	//In order to stay on the safe side taking the largest calculated batch number (capped at 11)
+	if s.highestCalculatedBatchNumber < numberOfBatches {
+		s.highestCalculatedBatchNumber = numberOfBatches
+	}
+	return s.highestCalculatedBatchNumber
+
 }
