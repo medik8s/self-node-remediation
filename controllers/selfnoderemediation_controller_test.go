@@ -17,7 +17,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/controllers"
 	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
@@ -27,7 +27,7 @@ const (
 )
 
 var _ = Describe("snr Controller", func() {
-	snr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
+	snr := &v1alpha1.SelfNodeRemediation{}
 	snr.Name = unhealthyNodeName
 	snr.Namespace = snrNamespace
 
@@ -63,7 +63,7 @@ var _ = Describe("snr Controller", func() {
 		//if the unhealthy node doesn't have the self-node-remediation pod
 		//we don't want to delete the node, since it might never
 		//be in a safe state (i.e. rebooted)
-		var remediationStrategy selfnoderemediationv1alpha1.RemediationStrategyType
+		var remediationStrategy v1alpha1.RemediationStrategyType
 		JustBeforeEach(func() {
 			createSNR(remediationStrategy)
 		})
@@ -74,7 +74,7 @@ var _ = Describe("snr Controller", func() {
 
 		Context("ResourceDeletion strategy", func() {
 			BeforeEach(func() {
-				remediationStrategy = selfnoderemediationv1alpha1.ResourceDeletionRemediationStrategy
+				remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
 			})
 
 			It("snr should not have finalizers", func() {
@@ -94,7 +94,7 @@ var _ = Describe("snr Controller", func() {
 
 			BeforeEach(func() {
 				createSelfNodeRemediationPod()
-				createSNR(selfnoderemediationv1alpha1.ResourceDeletionRemediationStrategy)
+				createSNR(v1alpha1.ResourceDeletionRemediationStrategy)
 			})
 
 			AfterEach(func() {
@@ -127,7 +127,7 @@ var _ = Describe("snr Controller", func() {
 	})
 
 	Context("Unhealthy node with api-server access", func() {
-		var remediationStrategy selfnoderemediationv1alpha1.RemediationStrategyType
+		var remediationStrategy v1alpha1.RemediationStrategyType
 		var isSNRNeedsDeletion = true
 		JustBeforeEach(func() {
 			createSelfNodeRemediationPod()
@@ -149,7 +149,7 @@ var _ = Describe("snr Controller", func() {
 			var vaName = "some-va"
 
 			BeforeEach(func() {
-				remediationStrategy = selfnoderemediationv1alpha1.ResourceDeletionRemediationStrategy
+				remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
 				createVolumeAttachment(vaName)
 			})
 
@@ -162,6 +162,8 @@ var _ = Describe("snr Controller", func() {
 
 				addUnschedulableTaint(node)
 
+				verifyProcessingCondition(metav1.ConditionTrue)
+
 				verifyTimeHasBeenRebootedExists()
 
 				verifyNoWatchdogFood()
@@ -173,6 +175,8 @@ var _ = Describe("snr Controller", func() {
 				verifyFinalizerExists()
 
 				verifyNoExecuteTaintExist()
+
+				verifyProcessingCondition(metav1.ConditionFalse)
 
 				deleteSNR(snr)
 				isSNRNeedsDeletion = false
@@ -196,7 +200,7 @@ var _ = Describe("snr Controller", func() {
 		BeforeEach(func() {
 			By("Simulate api-server failure")
 			k8sClient.ShouldSimulateFailure = true
-			createSNR(selfnoderemediationv1alpha1.ResourceDeletionRemediationStrategy)
+			createSNR(v1alpha1.ResourceDeletionRemediationStrategy)
 		})
 
 		AfterEach(func() {
@@ -237,6 +241,20 @@ func createVolumeAttachment(vaName string) {
 	foo := "foo"
 	va.Spec.Source.PersistentVolumeName = &foo
 	ExpectWithOffset(1, k8sClient.Create(context.Background(), va)).To(Succeed())
+}
+
+func verifyProcessingCondition(conditionStatus metav1.ConditionStatus) {
+	By("Verify that SNR Processing status condition is correct")
+	snr := &v1alpha1.SelfNodeRemediation{}
+	Eventually(func() bool {
+		snrNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: snrNamespace}
+		if err := k8sClient.Client.Get(context.Background(), snrNamespacedName, snr); err != nil {
+			return false
+		}
+
+		return controllers.IsConditionStatusAlreadySet(snr.Status.Conditions, v1alpha1.SnrConditionProcessing, conditionStatus)
+
+	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
 }
 
 func verifyVaDeleted(vaName string) {
@@ -287,7 +305,7 @@ func verifyNoWatchdogFood() {
 
 func verifyFinalizerExists() {
 	By("Verify that finalizer was added")
-	snr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
+	snr := &v1alpha1.SelfNodeRemediation{}
 	snrNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: snrNamespace}
 	ExpectWithOffset(1, k8sClient.Get(context.Background(), snrNamespacedName, snr)).To(Succeed())
 	ExpectWithOffset(1, controllerutil.ContainsFinalizer(snr, controllers.SNRFinalizer)).Should(BeTrue(), "finalizer should be added")
@@ -319,7 +337,7 @@ func isNoExecuteTaintExist() (bool, error) {
 
 func verifyTimeHasBeenRebootedExists() {
 	By("Verify that time has been added to SNR status")
-	snr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
+	snr := &v1alpha1.SelfNodeRemediation{}
 	EventuallyWithOffset(1, func() (*metav1.Time, error) {
 		snrNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: snrNamespace}
 		err := k8sClient.Client.Get(context.Background(), snrNamespacedName, snr)
@@ -331,7 +349,7 @@ func verifyTimeHasBeenRebootedExists() {
 func verifySNRDoesNotExists() {
 	By("Verify that SNR does not exit")
 	Eventually(func() bool {
-		snr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
+		snr := &v1alpha1.SelfNodeRemediation{}
 		snrNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: snrNamespace}
 		err := k8sClient.Get(context.Background(), snrNamespacedName, snr)
 		return apierrors.IsNotFound(err)
@@ -375,12 +393,12 @@ func verifySelfNodeRemediationPodExist() {
 	}, 5*time.Second, 250*time.Millisecond).Should(Equal(1))
 }
 
-func deleteSNR(snr *selfnoderemediationv1alpha1.SelfNodeRemediation) {
+func deleteSNR(snr *v1alpha1.SelfNodeRemediation) {
 	ExpectWithOffset(1, k8sClient.Client.Delete(context.Background(), snr)).To(Succeed(), "failed to delete snr CR")
 }
 
-func createSNR(strategy selfnoderemediationv1alpha1.RemediationStrategyType) {
-	snr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
+func createSNR(strategy v1alpha1.RemediationStrategyType) {
+	snr := &v1alpha1.SelfNodeRemediation{}
 	snr.Name = unhealthyNodeName
 	snr.Namespace = snrNamespace
 	snr.Spec.RemediationStrategy = strategy
@@ -452,7 +470,7 @@ func deleteIsRebootCapableAnnotation() {
 
 // testNoFinalizer checks that snr doesn't have finalizer
 func testNoFinalizer() {
-	snr := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
+	snr := &v1alpha1.SelfNodeRemediation{}
 	snrKey := client.ObjectKey{
 		Namespace: snrNamespace,
 		Name:      unhealthyNodeName,
