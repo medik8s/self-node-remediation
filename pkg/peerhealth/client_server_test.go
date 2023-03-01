@@ -48,7 +48,7 @@ var _ = Describe("Checking health using grpc client and server", func() {
 		}
 
 		By("Creating server")
-		phServer, err = NewServer(pprr, cfg, ctrl.Log.WithName("peerhealth test").WithName("phServer"), 9000, certReader)
+		phServer, err = NewServer(snrReconciler, cfg, ctrl.Log.WithName("peerhealth test").WithName("phServer"), 9000, certReader)
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Starting server")
@@ -91,7 +91,7 @@ var _ = Describe("Checking health using grpc client and server", func() {
 	Describe("for an unhealthy node", func() {
 
 		BeforeEach(func() {
-			By("creating a PPR")
+			By("creating a SNR")
 			snr := &v1alpha1.SelfNodeRemediation{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      nodeName,
@@ -103,7 +103,7 @@ var _ = Describe("Checking health using grpc client and server", func() {
 
 			// wait until reconciled
 			Eventually(func() bool {
-				return pprr.GetLastSeenSnrNamespace() != ""
+				return snrReconciler.GetLastSeenSnrNamespace() != ""
 			}, 5*time.Second, 250*time.Millisecond).Should(BeTrue(), "SNR not reconciled")
 		})
 
