@@ -9,7 +9,7 @@ metadata:
     createdAt: "2022-11-06 08:57:52"
     description: Self Node Remediation Operator for remediate itself in case of a
       failure.
-    olm.skipRange: '>=0.4.0 <0.5.0'
+    olm.skipRange: '>=0.4.0'
     repository: https://github.com/medik8s/self-node-remediation
     support: Medik8s
   name: self-node-remediation.v0.0.0
