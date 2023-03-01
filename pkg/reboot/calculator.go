@@ -19,6 +19,8 @@ import (
 
 const (
 	MaxTimeForNoPeersResponse = 30 * time.Second
+	NodesNumberInFirstBatch = 3
+	MaxBatchesAfterFirst    = 10
 )
 
 type SafeTimeCalculator interface {
@@ -32,8 +34,8 @@ type safeTimeCalculator struct {
 	maxErrorThreshold                                                       int
 	apiCheckInterval, apiServerTimeout, peerDialTimeout, peerRequestTimeout time.Duration
 	log                                                                     logr.Logger
-	k8sClient                    client.Client
-	highestCalculatedBatchNumber int
+	k8sClient                                                               client.Client
+	highestCalculatedBatchNumber                                            int
 }
 
 func NewSafeTimeCalculator(k8sClient client.Client, wd watchdog.Watchdog, maxErrorThreshold int, apiCheckInterval, apiServerTimeout, peerDialTimeout, peerRequestTimeout, timeToAssumeNodeRebooted time.Duration) SafeTimeCalculator {
@@ -87,7 +89,7 @@ func (s *safeTimeCalculator) calcNumOfBatches() int {
 
 	nodes := &v1.NodeList{}
 	// time for asking peers (10% batches + 1st smaller batch)
-	maxNumberOfBatches := 10 + 1
+	maxNumberOfBatches := MaxBatchesAfterFirst + 1
 	if err := s.k8sClient.List(context.Background(), nodes, client.MatchingLabelsSelector{Selector: selector}); err != nil {
 		s.log.Error(err, "couldn't fetch worker nodes")
 		return maxNumberOfBatches
@@ -97,10 +99,10 @@ func (s *safeTimeCalculator) calcNumOfBatches() int {
 	var numberOfBatches int
 	switch {
 	// 3 workers of first batch + 10% for each batch
-	case workerNodesCount >= 13:
+	case workerNodesCount >= MaxBatchesAfterFirst+NodesNumberInFirstBatch:
 		numberOfBatches = maxNumberOfBatches
 	// first 3 workers use one batch
-	case workerNodesCount <= 3:
+	case workerNodesCount <= NodesNumberInFirstBatch:
 		numberOfBatches = 1
 	//assuming worst case of one batch for the first 3 worker nodes and another batch for each other node
 	default:
