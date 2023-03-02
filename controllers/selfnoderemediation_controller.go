@@ -91,15 +91,12 @@ type SelfNodeRemediationReconciler struct {
 	client.Client
 	Log logr.Logger
 	//logger is a logger that holds the CR name being reconciled
-	logger   logr.Logger
-	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
-	Rebooter reboot.Rebooter
-	// note that this time must include the time for a unhealthy node without api-server access to reach the conclusion that it's unhealthy
-	// this should be at least worst-case time to reach a conclusion from the other peers * request context timeout + watchdog interval + maxFailuresThreshold * reconcileInterval + padding
-	SafeTimeToAssumeNodeRebooted time.Duration
-	MyNodeName                   string
-	mutex                        sync.Mutex
+	logger     logr.Logger
+	Scheme     *runtime.Scheme
+	Recorder   record.EventRecorder
+	Rebooter   reboot.Rebooter
+	MyNodeName string
+	mutex      sync.Mutex
 	//we need to restore the node only after the cluster realized it can reschecudle the affected workloads
 	//as of writing this lines, kubernetes will check for pods with non-existent node once in 20s, and allows
 	//40s of grace period for the node to reappear before it deletes the pods.
@@ -430,7 +427,7 @@ func (r *SelfNodeRemediationReconciler) getReadyCond(node *v1.Node) *v1.NodeCond
 func (r *SelfNodeRemediationReconciler) updateSnrStatus(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	r.logger.Info("updating snr with node backup and updating time to assume node has been rebooted", "node name", node.Name)
 	//we assume the unhealthy node will be rebooted by maxTimeNodeHasRebooted
-	maxTimeNodeHasRebooted := metav1.NewTime(metav1.Now().Add(r.SafeTimeToAssumeNodeRebooted))
+	maxTimeNodeHasRebooted := metav1.NewTime(metav1.Now().Add(r.Rebooter.GetTimeToAssumeNodeRebooted()))
 	snr.Status.TimeAssumedRebooted = &maxTimeNodeHasRebooted
 
 	err := r.Client.Status().Update(context.Background(), snr)
