@@ -152,12 +152,20 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	if r.isStoppedByNHC(snr) {
 		r.logger.Info("SNR remediation was stopped by Node Healthcheck")
-		return ctrl.Result{}, r.updateSnrProcessingCondition(remediationTerminatedByNHC, snr, true)
+		org := snr.DeepCopy()
+		if err := r.updateSnrProcessingCondition(remediationTerminatedByNHC, snr); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, r.patchSnrStatus(snr, org)
 	}
 
 	//In case snr is being deleted there is no remediation in process
 	if !r.isFencingCompleted(snr) {
-		if err := r.updateSnrProcessingCondition(remediationStarted, snr, true); err != nil {
+		org := snr.DeepCopy()
+		if err := r.updateSnrProcessingCondition(remediationStarted, snr); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.patchSnrStatus(snr, org); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -181,7 +189,7 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	return result, r.updateSnrStatusLastError(snr, err)
 }
 
-func (r *SelfNodeRemediationReconciler) updateSnrProcessingCondition(reason processingChangeReason, snr *v1alpha1.SelfNodeRemediation, isPatchDone bool) error {
+func (r *SelfNodeRemediationReconciler) updateSnrProcessingCondition(reason processingChangeReason, snr *v1alpha1.SelfNodeRemediation) error {
 	var conditionStatus metav1.ConditionStatus
 	switch reason {
 	case remediationStarted:
@@ -198,19 +206,11 @@ func (r *SelfNodeRemediationReconciler) updateSnrProcessingCondition(reason proc
 		return nil
 	}
 
-	org := snr.DeepCopy()
 	meta.SetStatusCondition(&snr.Status.Conditions, metav1.Condition{
 		Type:   v1alpha1.SnrConditionProcessing,
 		Status: conditionStatus,
 		Reason: string(reason),
 	})
-
-	if isPatchDone {
-		if err := r.patchSnrStatus(snr, org); err != nil {
-			r.logger.Error(err, "failed to update SNR condition status")
-			return err
-		}
-	}
 
 	return nil
 
@@ -359,7 +359,7 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alp
 	org := snr.DeepCopy()
 	fencingCompleted := fencingCompletedPhase
 	snr.Status.Phase = &fencingCompleted
-	if err := r.updateSnrProcessingCondition(remediationFinished, snr, false); err != nil {
+	if err := r.updateSnrProcessingCondition(remediationFinished, snr); err != nil {
 		return ctrl.Result{}, err
 	}
 
