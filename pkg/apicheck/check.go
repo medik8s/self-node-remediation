@@ -142,16 +142,16 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 	for i := 0; len(nodesToAsk) > 0; i++ {
 
 		// start asking a few nodes only in first iteration to cover the case we get a healthy / unhealthy result
-		nodesBatchCount := reboot.NodesNumberInFirstBatch
+		nodesBatchCount := reboot.MinNodesNumberInBatch
 		if i > 0 {
 			// after that ask 10% of the cluster each time to check the api problem case
 			nodesBatchCount = len(nodesToAsk) / reboot.MaxBatchesAfterFirst
-			if nodesBatchCount == 0 {
-				nodesBatchCount = 1
+			if nodesBatchCount < reboot.MinNodesNumberInBatch {
+				nodesBatchCount = reboot.MinNodesNumberInBatch
 			}
 		}
 
-		// but do not ask more then we have
+		// but do not ask more than we have
 		if len(nodesToAsk) < nodesBatchCount {
 			nodesBatchCount = len(nodesToAsk)
 		}

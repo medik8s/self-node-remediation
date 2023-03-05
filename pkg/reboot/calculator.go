@@ -19,8 +19,8 @@ import (
 
 const (
 	MaxTimeForNoPeersResponse = 30 * time.Second
-	NodesNumberInFirstBatch = 3
-	MaxBatchesAfterFirst    = 10
+	MinNodesNumberInBatch     = 3
+	MaxBatchesAfterFirst      = 10
 )
 
 type SafeTimeCalculator interface {
@@ -98,16 +98,15 @@ func (s *safeTimeCalculator) calcNumOfBatches() int {
 
 	var numberOfBatches int
 	switch {
-	// 3 workers of first batch + 10% for each batch
-	case workerNodesCount >= MaxBatchesAfterFirst+NodesNumberInFirstBatch:
+	//high number of workers we need max batches (for example 53 nodes will be done in 11 batches -> 1 * 3 + 10 * 5 )
+	case workerNodesCount > maxNumberOfBatches*MinNodesNumberInBatch:
 		numberOfBatches = maxNumberOfBatches
-	// first 3 workers use one batch
-	case workerNodesCount <= NodesNumberInFirstBatch:
-		numberOfBatches = 1
-	//assuming worst case of one batch for the first 3 worker nodes and another batch for each other node
+	//there are few enough nodes to use the min batch (for example 20 nodes will be done in 7 batches -> 1 * 3 +  6 * 3 )
 	default:
-		numberOfBatches = workerNodesCount - 2
-
+		numberOfBatches = workerNodesCount / MinNodesNumberInBatch
+		if workerNodesCount%MinNodesNumberInBatch != 0 {
+			numberOfBatches++
+		}
 	}
 	//In order to stay on the safe side taking the largest calculated batch number (capped at 11)
 	if s.highestCalculatedBatchNumber < numberOfBatches {
