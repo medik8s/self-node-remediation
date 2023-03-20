@@ -98,7 +98,7 @@ func (s *safeTimeCalculator) calcNumOfBatches() int {
 
 	var numberOfBatches int
 	switch {
-	//high number of workers we need max batches (for example 53 nodes will be done in 11 batches -> 1 * 3 + 10 * 5 )
+	//high number of workers: we need max batches (for example 53 nodes will be done in 11 batches -> 1 * 3 + 10 * 5 )
 	case workerNodesCount > maxNumberOfBatches*MinNodesNumberInBatch:
 		numberOfBatches = maxNumberOfBatches
 	//there are few enough nodes to use the min batch (for example 20 nodes will be done in 7 batches -> 1 * 3 +  6 * 3 )
