@@ -23,7 +23,6 @@ import (
 
 const (
 	kubeletPort    = "10250"
-	etcdHealthPort = "9980"
 )
 
 // Manager contains logic and info needed to fence and remediate controlplane nodes
@@ -47,7 +46,7 @@ func NewManager(nodeName string, myClient client.Client) *Manager {
 	}
 }
 
-func (manager *Manager) Start(ctx context.Context) error {
+func (manager *Manager) Start(_ context.Context) error {
 	if err := manager.initializeManager(); err != nil {
 		return err
 	}
@@ -87,8 +86,6 @@ func (manager *Manager) isDiagnosticsPassed() bool {
 	if manager.isEndpointAccessLost() {
 		return false
 	} else if !manager.isKubeletServiceRunning() {
-		return false
-	} else if !manager.isEtcdRunning() {
 		return false
 	}
 	manager.log.Info("Control-plane node diagnostics passed successfully")
@@ -167,28 +164,6 @@ func (manager *Manager) isKubeletServiceRunning() bool {
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		manager.log.Error(err, "kubelet service is down", "node name", manager.nodeName)
-		return false
-	}
-	defer resp.Body.Close()
-	return true
-}
-
-func (manager *Manager) isEtcdRunning() bool {
-	url := fmt.Sprintf("https://%s:%s/healthz", manager.nodeName, etcdHealthPort)
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	httpClient := &http.Client{Transport: tr}
-
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		manager.log.Error(err, "failed to create an etcd health request", "node name", manager.nodeName)
-		return false
-	}
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		manager.log.Error(err, "etcd is down", "node name", manager.nodeName)
 		return false
 	}
 	defer resp.Body.Close()
