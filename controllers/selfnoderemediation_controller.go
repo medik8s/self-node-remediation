@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -61,6 +63,14 @@ var (
 
 	lastSeenSnrNamespace  string
 	wasLastSeenSnrMachine bool
+)
+
+type processingChangeReason string
+
+var (
+	remediationStarted         processingChangeReason = "RemediationStarted"
+	remediationTerminatedByNHC processingChangeReason = "RemediationStoppedByNHC"
+	remediationFinished        processingChangeReason = "RemediationFinished"
 )
 
 type UnreconcilableError struct {
@@ -139,7 +149,21 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	if r.isStoppedByNHC(snr) {
 		r.logger.Info("SNR remediation was stopped by Node Healthcheck")
-		return ctrl.Result{}, nil
+		org := snr.DeepCopy()
+		if err := r.updateSnrProcessingCondition(remediationTerminatedByNHC, snr); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, r.patchSnrStatus(snr, org)
+	}
+
+	if !r.isFencingCompleted(snr) {
+		org := snr.DeepCopy()
+		if err := r.updateSnrProcessingCondition(remediationStarted, snr); err != nil {
+			return ctrl.Result{}, err
+		}
+		if err := r.patchSnrStatus(snr, org); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	r.mutex.Lock()
@@ -161,8 +185,43 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	return result, r.updateSnrStatusLastError(snr, err)
 }
 
+func (r *SelfNodeRemediationReconciler) updateSnrProcessingCondition(reason processingChangeReason, snr *v1alpha1.SelfNodeRemediation) error {
+	var conditionStatus metav1.ConditionStatus
+	switch reason {
+	case remediationStarted:
+		conditionStatus = metav1.ConditionTrue
+	case remediationFinished, remediationTerminatedByNHC:
+		conditionStatus = metav1.ConditionFalse
+	default:
+		err := fmt.Errorf("unkown processingChangeReason:%s", reason)
+		r.Log.Error(err, "couldn't update snr processing condition")
+		return err
+	}
+
+	if meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, v1alpha1.SnrConditionProcessing, conditionStatus) {
+		return nil
+	}
+
+	meta.SetStatusCondition(&snr.Status.Conditions, metav1.Condition{
+		Type:   v1alpha1.SnrConditionProcessing,
+		Status: conditionStatus,
+		Reason: string(reason),
+	})
+
+	return nil
+
+}
+
+func (r *SelfNodeRemediationReconciler) patchSnrStatus(changed, org *v1alpha1.SelfNodeRemediation) error {
+	if err := r.Client.Status().Patch(context.Background(), changed, client.MergeFrom(org)); err != nil {
+		r.logger.Error(err, "failed to patch SNR status")
+		return err
+	}
+	return nil
+}
+
 func (r *SelfNodeRemediationReconciler) isFencingCompleted(snr *v1alpha1.SelfNodeRemediation) bool {
-	return snr.Status.Phase != nil && *snr.Status.Phase == fencingCompletedPhase && snr.DeletionTimestamp != nil
+	return snr.Status.Phase != nil && *snr.Status.Phase == fencingCompletedPhase
 }
 
 func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
@@ -172,7 +231,7 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alp
 		return ctrl.Result{}, err
 	}
 
-	if r.isFencingCompleted(snr) {
+	if r.isFencingCompleted(snr) && snr.DeletionTimestamp != nil {
 		r.logger.Info("fencing completed, cleaning up")
 		if node.Spec.Unschedulable {
 			node.Spec.Unschedulable = false
@@ -293,18 +352,15 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alp
 
 	r.logger.Info("done deleting node resources", "node name", node.Name)
 
+	org := snr.DeepCopy()
 	fencingCompleted := fencingCompletedPhase
 	snr.Status.Phase = &fencingCompleted
-	if err := r.Client.Status().Update(context.Background(), snr); err != nil {
-		if apiErrors.IsConflict(err) {
-			// conflicts are expected since all self node remediation deamonset pods are competing on the same requests
-			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
-		}
-		r.logger.Error(err, "failed to mark SNR as fencing completed")
+	if err := r.updateSnrProcessingCondition(remediationFinished, snr); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, nil
+	return ctrl.Result{}, r.patchSnrStatus(snr, org)
+
 }
 
 // rebootIfNeeded reboots the node if no reboot was performed so far

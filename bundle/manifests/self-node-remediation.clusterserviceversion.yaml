@@ -71,6 +71,12 @@ spec:
         name: selfnoderemediations
         version: v1alpha1
       statusDescriptors:
+      - description: 'Represents the observations of a SelfNodeRemediation''s current
+          state. Known .status.conditions.type are: "Processing"'
+        displayName: conditions
+        path: conditions
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:conditions
       - description: LastError captures the last error that occurred during remediation.
           If no error occurred it would be empty
         displayName: Last Error
