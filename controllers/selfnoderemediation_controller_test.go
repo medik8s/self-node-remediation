@@ -2,6 +2,7 @@ package controllers_test
 
 import (
 	"context"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -252,7 +253,7 @@ func verifyProcessingCondition(conditionStatus metav1.ConditionStatus) {
 			return false
 		}
 
-		return controllers.IsConditionStatusAlreadySet(snr.Status.Conditions, v1alpha1.SnrConditionProcessing, conditionStatus)
+		return meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, v1alpha1.SnrConditionProcessing, conditionStatus)
 
 	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
 }

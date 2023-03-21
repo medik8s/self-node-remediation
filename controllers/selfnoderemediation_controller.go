@@ -159,7 +159,6 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, r.patchSnrStatus(snr, org)
 	}
 
-	//In case snr is being deleted there is no remediation in process
 	if !r.isFencingCompleted(snr) {
 		org := snr.DeepCopy()
 		if err := r.updateSnrProcessingCondition(remediationStarted, snr); err != nil {
@@ -202,7 +201,7 @@ func (r *SelfNodeRemediationReconciler) updateSnrProcessingCondition(reason proc
 		return err
 	}
 
-	if IsConditionStatusAlreadySet(snr.Status.Conditions, v1alpha1.SnrConditionProcessing, conditionStatus) {
+	if meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, v1alpha1.SnrConditionProcessing, conditionStatus) {
 		return nil
 	}
 
@@ -686,18 +685,6 @@ func (r *SelfNodeRemediationReconciler) isStoppedByNHC(snr *v1alpha1.SelfNodeRem
 	if snr != nil && snr.Annotations != nil {
 		_, isTimeoutIssued := snr.Annotations[nhcTimeOutAnnotation]
 		return isTimeoutIssued
-	}
-	return false
-}
-
-func IsConditionStatusAlreadySet(conditions []metav1.Condition, condType string, condStatus metav1.ConditionStatus) bool {
-	if len(conditions) == 0 {
-		return false
-	}
-	for _, cond := range conditions {
-		if cond.Type == condType {
-			return cond.Status == condStatus
-		}
 	}
 	return false
 }
