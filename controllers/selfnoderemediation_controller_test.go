@@ -83,6 +83,15 @@ var _ = Describe("snr Controller", func() {
 			})
 		})
 
+		Context("OutOfServiceTaint strategy", func() {
+			BeforeEach(func() {
+				remediationStrategy = v1alpha1.OutOfServiceTaintRemediationStrategy
+			})
+
+			It("snr should not have finalizers", func() {
+				testNoFinalizer()
+			})
+		})
 	})
 
 	Context("Unhealthy node with self-node-remediation pod but unable to reboot", func() {
@@ -192,6 +201,59 @@ var _ = Describe("snr Controller", func() {
 
 			})
 		})
+
+		Context("OutOfServiceTaint strategy", func() {
+			var vaName = "some-va"
+
+			BeforeEach(func() {
+				remediationStrategy = v1alpha1.OutOfServiceTaintRemediationStrategy
+
+				createVolumeAttachment(vaName)
+			})
+
+			AfterEach(func() {
+				//no need to delete pp pod or va as it was already deleted by the controller
+			})
+
+			It("Remediation flow", func() {
+				node := verifyNodeIsUnschedulable()
+
+				addUnschedulableTaint(node)
+
+				// The normal NoExecute taint tries to delete pods, however it can't delete pods
+				// with stateful workloads like volumes and they are stuck in terminating status.
+				createTerminatingPod()
+
+				verifyTimeHasBeenRebootedExists()
+
+				verifyNoWatchdogFood()
+
+				verifyFinalizerExists()
+
+				verifyNoExecuteTaintExist()
+
+				verifyOutOfServiceTaintExist()
+
+				// simulate the out-of-service taint by Pod GC Controller
+				deleteTerminatingPod()
+				deleteVolumeAttachment(vaName)
+
+				verifyOutOfServiceTaintRemoved()
+
+				deleteSNR(snr)
+				isSNRNeedsDeletion = false
+
+				verifyNodeIsSchedulable()
+
+				removeUnschedulableTaint()
+
+				verifyNoExecuteTaintRemoved()
+
+				verifySNRDoesNotExists()
+
+			})
+		})
+
 	})
 
 	Context("Unhealthy node without api-server access", func() {
@@ -258,6 +320,16 @@ func verifyProcessingCondition(conditionStatus metav1.ConditionStatus) {
 	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
 }
 
+func deleteVolumeAttachment(vaName string) {
+	va := &storagev1.VolumeAttachment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      vaName,
+			Namespace: namespace,
+		},
+	}
+	ExpectWithOffset(1, k8sClient.Delete(context.Background(), va)).To(Succeed())
+}
+
 func verifyVaDeleted(vaName string) {
 	vaKey := client.ObjectKey{
 		Namespace: namespace,
@@ -314,22 +386,40 @@ func verifyFinalizerExists() {
 
 func verifyNoExecuteTaintRemoved() {
 	By("Verify that node does not have NoExecute taint")
-	Eventually(isNoExecuteTaintExist, 10*time.Second, 200*time.Millisecond).Should(BeFalse())
+	Eventually(func() (bool, error) {
+		return isTaintExist(controllers.NodeNoExecuteTaint)
+	}, 10*time.Second, 200*time.Millisecond).Should(BeFalse())
 }
 
 func verifyNoExecuteTaintExist() {
 	By("Verify that node has NoExecute taint")
-	Eventually(isNoExecuteTaintExist, 10*time.Second, 200*time.Millisecond).Should(BeTrue())
+	Eventually(func() (bool, error) {
+		return isTaintExist(controllers.NodeNoExecuteTaint)
+	}, 10*time.Second, 200*time.Millisecond).Should(BeTrue())
 }
 
-func isNoExecuteTaintExist() (bool, error) {
+func verifyOutOfServiceTaintRemoved() {
+	By("Verify that node does not have out-of-service taint")
+	Eventually(func() (bool, error) {
+		return isTaintExist(controllers.OutOfServiceTaint)
+	}, 10*time.Second, 200*time.Millisecond).Should(BeFalse())
+}
+
+func verifyOutOfServiceTaintExist() {
+	By("Verify that node has out-of-service taint")
+	Eventually(func() (bool, error) {
+		return isTaintExist(controllers.OutOfServiceTaint)
+	}, 10*time.Second, 200*time.Millisecond).Should(BeTrue())
+}
+
+func isTaintExist(taintToMatch *v1.Taint) (bool, error) {
 	node := &v1.Node{}
 	err := k8sClient.Reader.Get(context.TODO(), unhealthyNodeNamespacedName, node)
 	if err != nil {
 		return false, err
 	}
 	for _, taint := range node.Spec.Taints {
-		if controllers.NodeNoExecuteTaint.MatchTaint(&taint) {
+		if taintToMatch.MatchTaint(&taint) {
 			return true, nil
 		}
 	}
@@ -424,6 +514,39 @@ func deleteSelfNodeRemediationPod() {
 	pod := &v1.Pod{}
 	pod.Name = "self-node-remediation"
 	pod.Namespace = namespace
+	podKey := client.ObjectKey{
+		Namespace: namespace,
+		Name:      pod.Name,
+	}
+
+	var grace client.GracePeriodSeconds = 0
+	ExpectWithOffset(1, k8sClient.Client.Delete(context.Background(), pod, grace)).To(Succeed())
+
+	EventuallyWithOffset(1, func() bool {
+		err := k8sClient.Client.Get(context.Background(), podKey, pod)
+		return apierrors.IsNotFound(err)
+	}, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
+}
+
+func createTerminatingPod() {
+	pod := &v1.Pod{}
+	pod.Spec.NodeName = unhealthyNodeName
+	pod.Name = "terminatingpod"
+	pod.Namespace = "default"
+	container := v1.Container{
+		Name:  "bar",
+		Image: "bar",
+	}
+	pod.Spec.Containers = []v1.Container{container}
+	now := metav1.Now()
+	pod.ObjectMeta = metav1.ObjectMeta{Name: pod.Name, Namespace: pod.Namespace, DeletionTimestamp: &now}
+	ExpectWithOffset(1, k8sClient.Client.Create(context.Background(), pod)).To(Succeed())
+}
+
+func deleteTerminatingPod() {
+	pod := &v1.Pod{}
+	pod.Name = "terminatingpod"
+	pod.Namespace = "default"
 	podKey := client.ObjectKey{
 		Namespace: namespace,
 		Name:      pod.Name,
