@@ -159,6 +159,11 @@ test: envtest manifests generate fmt vet ## Run tests.
 		KUBEBUILDER_CONTROLPLANE_STOP_TIMEOUT="60s"\
 		go test ./api/... ./controllers/... ./pkg/... -coverprofile cover.out -v
 
+.PHONY: bundle-run
+export BUNDLE_RUN_NAMESPACE ?= openshift-operators
+bundle-run: operator-sdk ## Run bundle image. Default NS is "openshift-operators", redefine BUNDLE_RUN_NAMESPACE to override it.
+	$(OPERATOR_SDK) -n $(BUNDLE_RUN_NAMESPACE) run bundle $(BUNDLE_IMG)
+
 ##@ Build
 
 build: generate fmt vet ## Build manager binary.
@@ -268,6 +273,7 @@ bundle-build: bundle bundle-update ## Build the bundle image.
 .PHONY: bundle-push
 bundle-push: ## Push the bundle image.
 	docker push $(BUNDLE_IMG)
+
 
 .PHONY: protoc ## Download protoc (protocol buffers tool needed for gRPC)
 PROTOC = $(shell pwd)/bin/proto/bin/protoc
