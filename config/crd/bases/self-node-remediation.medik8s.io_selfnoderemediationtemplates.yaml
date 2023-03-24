@@ -51,13 +51,16 @@ spec:
                       remediationStrategy:
                         default: ResourceDeletion
                         description: RemediationStrategy is the remediation method
-                          for unhealthy nodes currently "NodeDeletion" is deprecated
-                          and "ResourceDeletion" will always happen, regardless of
-                          which strategy is selected it will iterate over all pods
-                          and volume attachments related to the unhealthy node and
-                          delete them
+                          for unhealthy nodes. Currently "NodeDeletion" is deprecated
+                          and it could be either "ResourceDeletion" or "OutOfServiceTaint".
+                          The first will iterate over all pods and VolumeAttachment
+                          related to the unhealthy node and delete them. The latter
+                          will add the out-of-service taint which is a new well-known
+                          taint "node.kubernetes.io/out-of-service" that enables automatic
+                          deletion of pv-attached pods on failed nodes.
                         enum:
                         - ResourceDeletion
+                        - OutOfServiceTaint
                         type: string
                     type: object
                 required:

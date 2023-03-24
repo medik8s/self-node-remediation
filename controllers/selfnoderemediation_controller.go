@@ -61,6 +61,12 @@ var (
 		Effect: v1.TaintEffectNoExecute,
 	}
 
+	OutOfServiceTaint = &v1.Taint{
+		Key:    "node.kubernetes.io/out-of-service",
+		Value:  "nodeshutdown",
+		Effect: v1.TaintEffectNoExecute,
+	}
+
 	lastSeenSnrNamespace  string
 	wasLastSeenSnrMachine bool
 )
@@ -176,6 +182,8 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	switch snr.Spec.RemediationStrategy {
 	case v1alpha1.ResourceDeletionRemediationStrategy:
 		result, err = r.remediateWithResourceDeletion(snr)
+	case v1alpha1.OutOfServiceTaintRemediationStrategy:
+		result, err = r.remediateWithOutOfServiceTaint(snr)
 	default:
 		//this should never happen since we enforce valid values with kubebuilder
 		err := errors.New("unsupported remediation strategy")
@@ -225,6 +233,102 @@ func (r *SelfNodeRemediationReconciler) isFencingCompleted(snr *v1alpha1.SelfNod
 }
 
 func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+	return r.remediateWithResourceRemoval(snr, r.deleteResourcesWrapper)
+}
+
+// deleteResourcesWrapper returns a 'zero' time and nil if it completes to delete node resources successfully
+// if not, it will return a 'zero' time and non-nil error, which means exponential backoff is triggered
+// snr is only used in order to match method signature required by remediateWithResourceRemoval
+func (r *SelfNodeRemediationReconciler) deleteResourcesWrapper(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (time.Duration, error) {
+	return 0, r.deleteResources(node)
+}
+
+func (r *SelfNodeRemediationReconciler) deleteResources(node *v1.Node) error {
+	//fence
+	zero := int64(0)
+	backgroundDeletePolicy := metav1.DeletePropagationBackground
+
+	deleteOptions := &client.DeleteAllOfOptions{
+		ListOptions: client.ListOptions{
+			FieldSelector: fields.SelectorFromSet(fields.Set{"spec.nodeName": node.Name}),
+			Namespace:     "",
+			Limit:         0,
+		},
+		DeleteOptions: client.DeleteOptions{
+			GracePeriodSeconds: &zero,
+			PropagationPolicy:  &backgroundDeletePolicy,
+		},
+	}
+
+	namespaces := v1.NamespaceList{}
+	if err := r.Client.List(context.Background(), &namespaces); err != nil {
+		r.logger.Error(err, "failed to list namespaces", err)
+		return err
+	}
+
+	r.logger.Info("starting to delete node resources", "node name", node.Name)
+
+	pod := &v1.Pod{}
+	for _, ns := range namespaces.Items {
+		deleteOptions.Namespace = ns.Name
+		err := r.Client.DeleteAllOf(context.Background(), pod, deleteOptions)
+		if err != nil {
+			r.logger.Error(err, "failed to delete pods of unhealthy node", "namespace", ns.Name)
+			return err
+		}
+	}
+
+	volumeAttachments := &storagev1.VolumeAttachmentList{}
+	if err := r.Client.List(context.Background(), volumeAttachments); err != nil {
+		r.logger.Error(err, "failed to get volumeAttachments list")
+		return err
+	}
+	forceDeleteOption := &client.DeleteOptions{
+		GracePeriodSeconds: &zero,
+	}
+	for _, va := range volumeAttachments.Items {
+		if va.Spec.NodeName == node.Name {
+			err := r.Client.Delete(context.Background(), &va, forceDeleteOption)
+			if err != nil {
+				r.logger.Error(err, "failed to delete volumeAttachment", "name", va.Name)
+				return err
+			}
+		}
+	}
+
+	r.logger.Info("done deleting node resources", "node name", node.Name)
+
+	return nil
+}
+
+func (r *SelfNodeRemediationReconciler) remediateWithOutOfServiceTaint(snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+	return r.remediateWithResourceRemoval(snr, r.useOutOfServiceTaint)
+}
+
+func (r *SelfNodeRemediationReconciler) useOutOfServiceTaint(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (time.Duration, error) {
+	if err := r.addOutOfServiceTaint(node); err != nil {
+		return 0, err
+	}
+
+	// We can not control to delete node resources by the "out-of-service" taint
+	// So timer is used to avoid to keep waiting to complete
+	if !r.isResourceDeletionCompleted(node) {
+		isExpired, timeLeft := r.isResourceDeletionExpired(snr)
+		if !isExpired {
+			return timeLeft, nil
+		}
+		// if the timer is expired, exponential backoff is triggered
+		return 0, errors.New("Not ready to delete out-of-service taint")
+	}
+
+	if err := r.removeOutOfServiceTaint(node); err != nil {
+		return 0, err
+	}
+
+	return 0, nil
+}
+
+func (r *SelfNodeRemediationReconciler) remediateWithResourceRemoval(snr *v1alpha1.SelfNodeRemediation, removeNodeResources func(*v1.Node, *v1alpha1.SelfNodeRemediation) (time.Duration, error)) (ctrl.Result, error) {
 	node, err := r.getNodeFromSnr(snr)
 	if err != nil {
 		r.logger.Error(err, "failed to get node", "node name", snr.Name)
@@ -298,59 +402,13 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alp
 
 	r.logger.Info("TimeAssumedRebooted is old. The unhealthy node assumed to been rebooted", "node name", node.Name)
 
-	//fence
-	zero := int64(0)
-	backgroundDeletePolicy := metav1.DeletePropagationBackground
-
-	deleteOptions := &client.DeleteAllOfOptions{
-		ListOptions: client.ListOptions{
-			FieldSelector: fields.SelectorFromSet(fields.Set{"spec.nodeName": node.Name}),
-			Namespace:     "",
-			Limit:         0,
-		},
-		DeleteOptions: client.DeleteOptions{
-			GracePeriodSeconds: &zero,
-			PropagationPolicy:  &backgroundDeletePolicy,
-		},
-	}
-
-	namespaces := v1.NamespaceList{}
-	if err := r.Client.List(context.Background(), &namespaces); err != nil {
-		r.logger.Error(err, "failed to list namespaces", err)
+	// if err is non-nil, exponential backoff is triggred
+	// if err is nil and waitTime is not a 'zero' time, waiting for removing node resources for waitTime seconds
+	if waitTime, err := removeNodeResources(node, snr); err != nil {
 		return ctrl.Result{}, err
+	} else if waitTime != 0 {
+		return ctrl.Result{RequeueAfter: waitTime}, nil
 	}
-
-	r.logger.Info("starting to delete node resources", "node name", node.Name)
-
-	pod := &v1.Pod{}
-	for _, ns := range namespaces.Items {
-		deleteOptions.Namespace = ns.Name
-		err = r.Client.DeleteAllOf(context.Background(), pod, deleteOptions)
-		if err != nil {
-			r.logger.Error(err, "failed to delete pods of unhealthy node", "namespace", ns.Name)
-			return ctrl.Result{}, err
-		}
-	}
-
-	volumeAttachments := &storagev1.VolumeAttachmentList{}
-	if err := r.Client.List(context.Background(), volumeAttachments); err != nil {
-		r.logger.Error(err, "failed to get volumeAttachments list")
-		return ctrl.Result{}, err
-	}
-	forceDeleteOption := &client.DeleteOptions{
-		GracePeriodSeconds: &zero,
-	}
-	for _, va := range volumeAttachments.Items {
-		if va.Spec.NodeName == node.Name {
-			err = r.Client.Delete(context.Background(), &va, forceDeleteOption)
-			if err != nil {
-				r.logger.Error(err, "failed to delete volumeAttachment", "name", va.Name)
-				return ctrl.Result{}, err
-			}
-		}
-	}
-
-	r.logger.Info("done deleting node resources", "node name", node.Name)
 
 	org := snr.DeepCopy()
 	fencingCompleted := fencingCompletedPhase
@@ -684,4 +742,81 @@ func (r *SelfNodeRemediationReconciler) isStoppedByNHC(snr *v1alpha1.SelfNodeRem
 		return isTimeoutIssued
 	}
 	return false
+}
+
+func (r *SelfNodeRemediationReconciler) addOutOfServiceTaint(node *v1.Node) error {
+	if utils.TaintExists(node.Spec.Taints, OutOfServiceTaint) {
+		return nil
+	}
+
+	patch := client.MergeFrom(node.DeepCopy())
+	taint := *OutOfServiceTaint
+	now := metav1.Now()
+	taint.TimeAdded = &now
+	node.Spec.Taints = append(node.Spec.Taints, taint)
+	if err := r.Client.Patch(context.Background(), node, patch); err != nil {
+		r.logger.Error(err, "Failed to add out-of-service taint on node", "node name", node.Name)
+		return err
+	}
+	r.logger.Info("outofservice taint added", "new taints", node.Spec.Taints)
+	return nil
+}
+
+func (r *SelfNodeRemediationReconciler) removeOutOfServiceTaint(node *v1.Node) error {
+
+	if !utils.TaintExists(node.Spec.Taints, OutOfServiceTaint) {
+		return nil
+	}
+
+	patch := client.MergeFrom(node.DeepCopy())
+	if taints, deleted := utils.DeleteTaint(node.Spec.Taints, OutOfServiceTaint); !deleted {
+		r.logger.Info("Failed to remove taint from node, taint not found", "node name", node.Name, "taint key", OutOfServiceTaint.Key, "taint effect", OutOfServiceTaint.Effect)
+		return nil
+	} else {
+		node.Spec.Taints = taints
+	}
+	if err := r.Client.Patch(context.Background(), node, patch); err != nil {
+		r.logger.Error(err, "Failed to remove taint from node,", "node name", node.Name, "taint key", OutOfServiceTaint.Key, "taint effect", OutOfServiceTaint.Effect)
+		return err
+	}
+	return nil
+}
+
+func (r *SelfNodeRemediationReconciler) isResourceDeletionCompleted(node *v1.Node) bool {
+	pods := &v1.PodList{}
+	if err := r.Client.List(context.Background(), pods); err != nil {
+		r.logger.Error(err, "failed to get pod list")
+		return false
+	}
+	for _, pod := range pods.Items {
+		if pod.Spec.NodeName == node.Name && r.isPodTerminating(&pod) {
+			return false
+		}
+	}
+	volumeAttachments := &storagev1.VolumeAttachmentList{}
+	if err := r.Client.List(context.Background(), volumeAttachments); err != nil {
+		r.logger.Error(err, "failed to get volumeAttachments list")
+		return false
+	}
+	for _, va := range volumeAttachments.Items {
+		if va.Spec.NodeName == node.Name {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (r *SelfNodeRemediationReconciler) isPodTerminating(pod *v1.Pod) bool {
+	return pod.ObjectMeta.DeletionTimestamp != nil
+}
+
+func (r *SelfNodeRemediationReconciler) isResourceDeletionExpired(snr *v1alpha1.SelfNodeRemediation) (bool, time.Duration) {
+	waitTime := snr.Status.TimeAssumedRebooted.Add(300 * time.Second)
+
+	if waitTime.After(time.Now()) {
+		return false, 5 * time.Second
+	}
+
+	return true, 0
 }
