@@ -243,8 +243,8 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alp
 
 // deleteResourcesWrapper returns a 'zero' time and nil if it completes to delete node resources successfully
 // if not, it will return a 'zero' time and non-nil error, which means exponential backoff is triggered
-// snr is only used in order to match method signature required by remediateWithResourceRemoval
-func (r *SelfNodeRemediationReconciler) deleteResourcesWrapper(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (time.Duration, error) {
+// SelfNodeRemediation is only used in order to match method signature required by remediateWithResourceRemoval
+func (r *SelfNodeRemediationReconciler) deleteResourcesWrapper(node *v1.Node, _ *v1alpha1.SelfNodeRemediation) (time.Duration, error) {
 	return 0, r.deleteResources(node)
 }
 

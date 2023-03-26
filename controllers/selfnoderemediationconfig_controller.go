@@ -56,7 +56,7 @@ type SelfNodeRemediationConfigReconciler struct {
 //+kubebuilder:rbac:groups=machine.openshift.io,resources=machines,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=machine.openshift.io,resources=machines/status,verbs=get;update;patch
 
-func (r *SelfNodeRemediationConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *SelfNodeRemediationConfigReconciler) Reconcile(_ context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.Log.WithValues("selfnoderemediationconfig", req.NamespacedName)
 
 	if req.Name != selfnoderemediationv1alpha1.ConfigCRName || req.Namespace != r.Namespace {
