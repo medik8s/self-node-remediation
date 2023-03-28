@@ -156,7 +156,7 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	snrOrg := snr.DeepCopy()
 	defer func() {
-		if patchErr := r.patchSnrStatus(snr, snrOrg); patchErr != nil {
+		if patchErr := r.patchSnrStatus(ctx, snr, snrOrg); patchErr != nil {
 			if returnErr == nil {
 				returnErr = patchErr
 			} else {
@@ -225,8 +225,8 @@ func (r *SelfNodeRemediationReconciler) updateSnrProcessingCondition(reason proc
 }
 
 // Note: this method is activated automatically at the end of reconcile, and it shouldn't be called explicitly
-func (r *SelfNodeRemediationReconciler) patchSnrStatus(changed, org *v1alpha1.SelfNodeRemediation) error {
-	if err := r.Client.Status().Patch(context.Background(), changed, client.MergeFrom(org)); err != nil {
+func (r *SelfNodeRemediationReconciler) patchSnrStatus(ctx context.Context, changed, org *v1alpha1.SelfNodeRemediation) error {
+	if err := r.Client.Status().Patch(ctx, changed, client.MergeFrom(org)); err != nil {
 		r.logger.Error(err, "failed to patch SNR status")
 		return err
 	}

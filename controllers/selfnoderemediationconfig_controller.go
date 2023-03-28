@@ -56,7 +56,7 @@ type SelfNodeRemediationConfigReconciler struct {
 //+kubebuilder:rbac:groups=machine.openshift.io,resources=machines,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=machine.openshift.io,resources=machines/status,verbs=get;update;patch
 
-func (r *SelfNodeRemediationConfigReconciler) Reconcile(_ context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *SelfNodeRemediationConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := r.Log.WithValues("selfnoderemediationconfig", req.NamespacedName)
 
 	if req.Name != selfnoderemediationv1alpha1.ConfigCRName || req.Namespace != r.Namespace {
@@ -66,7 +66,7 @@ func (r *SelfNodeRemediationConfigReconciler) Reconcile(_ context.Context, req c
 	}
 
 	config := &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}
-	if err := r.Client.Get(context.Background(), req.NamespacedName, config); err != nil {
+	if err := r.Client.Get(ctx, req.NamespacedName, config); err != nil {
 		if errors.IsNotFound(err) {
 			err := r.DefaultPpcCreator(r.Client)
 			return ctrl.Result{}, err
@@ -80,7 +80,7 @@ func (r *SelfNodeRemediationConfigReconciler) Reconcile(_ context.Context, req c
 		return ctrl.Result{}, err
 	}
 
-	if err := r.syncConfigDaemonSet(config); err != nil {
+	if err := r.syncConfigDaemonSet(ctx, config); err != nil {
 		logger.Error(err, "error syncing DS")
 		return ctrl.Result{}, err
 	}
@@ -96,7 +96,7 @@ func (r *SelfNodeRemediationConfigReconciler) SetupWithManager(mgr ctrl.Manager)
 		Complete(r)
 }
 
-func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(snrConfig *selfnoderemediationv1alpha1.SelfNodeRemediationConfig) error {
+func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Context, snrConfig *selfnoderemediationv1alpha1.SelfNodeRemediationConfig) error {
 	logger := r.Log.WithName("syncConfigDaemonset")
 	logger.Info("Start to sync config daemonset")
 
@@ -134,7 +134,7 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(snrConfig *sel
 	}
 	// Sync DaemonSets
 	for _, obj := range objs {
-		err = r.syncK8sResource(snrConfig, obj)
+		err = r.syncK8sResource(ctx, snrConfig, obj)
 		if err != nil {
 			logger.Error(err, "Couldn't sync self-node-remediation daemons objects")
 			return err
@@ -143,7 +143,7 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(snrConfig *sel
 	return nil
 }
 
-func (r *SelfNodeRemediationConfigReconciler) syncK8sResource(cr *selfnoderemediationv1alpha1.SelfNodeRemediationConfig, in *unstructured.Unstructured) error {
+func (r *SelfNodeRemediationConfigReconciler) syncK8sResource(ctx context.Context, cr *selfnoderemediationv1alpha1.SelfNodeRemediationConfig, in *unstructured.Unstructured) error {
 	// set owner-reference only for namespaced objects
 	if in.GetKind() != "ClusterRole" && in.GetKind() != "ClusterRoleBinding" {
 		if err := controllerutil.SetControllerReference(cr, in, r.Scheme); err != nil {
@@ -151,7 +151,7 @@ func (r *SelfNodeRemediationConfigReconciler) syncK8sResource(cr *selfnoderemedi
 		}
 	}
 
-	if err := apply.ApplyObject(context.TODO(), r.Client, in); err != nil {
+	if err := apply.ApplyObject(ctx, r.Client, in); err != nil {
 		return fmt.Errorf("failed to apply object %v with err: %v", in, err)
 	}
 	return nil
