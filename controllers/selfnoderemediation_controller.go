@@ -33,6 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -139,7 +140,7 @@ func (r *SelfNodeRemediationReconciler) SetupWithManager(mgr ctrl.Manager) error
 //+kubebuilder:rbac:groups=machine.openshift.io,resources=machines,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=namespaces,verbs=list;get;watch
 
-func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (returnResult ctrl.Result, returnErr error) {
 	r.logger = r.Log.WithValues("selfnoderemediation", req.NamespacedName)
 
 	snr := &v1alpha1.SelfNodeRemediation{}
@@ -153,21 +154,24 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, err
 	}
 
+	snrOrg := snr.DeepCopy()
+	defer func() {
+		if patchErr := r.patchSnrStatus(ctx, snr, snrOrg); patchErr != nil {
+			if returnErr == nil {
+				returnErr = patchErr
+			} else {
+				returnErr = utilerrors.NewAggregate([]error{patchErr, returnErr})
+			}
+		}
+	}()
+
 	if r.isStoppedByNHC(snr) {
 		r.logger.Info("SNR remediation was stopped by Node Healthcheck")
-		org := snr.DeepCopy()
-		if err := r.updateSnrProcessingCondition(remediationTerminatedByNHC, snr); err != nil {
-			return ctrl.Result{}, err
-		}
-		return ctrl.Result{}, r.patchSnrStatus(snr, org)
+		return ctrl.Result{}, r.updateSnrProcessingCondition(remediationTerminatedByNHC, snr)
 	}
 
 	if !r.isFencingCompleted(snr) {
-		org := snr.DeepCopy()
 		if err := r.updateSnrProcessingCondition(remediationStarted, snr); err != nil {
-			return ctrl.Result{}, err
-		}
-		if err := r.patchSnrStatus(snr, org); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -220,8 +224,9 @@ func (r *SelfNodeRemediationReconciler) updateSnrProcessingCondition(reason proc
 
 }
 
-func (r *SelfNodeRemediationReconciler) patchSnrStatus(changed, org *v1alpha1.SelfNodeRemediation) error {
-	if err := r.Client.Status().Patch(context.Background(), changed, client.MergeFrom(org)); err != nil {
+// Note: this method is activated automatically at the end of reconcile, and it shouldn't be called explicitly
+func (r *SelfNodeRemediationReconciler) patchSnrStatus(ctx context.Context, changed, org *v1alpha1.SelfNodeRemediation) error {
+	if err := r.Client.Status().Patch(ctx, changed, client.MergeFrom(org)); err != nil {
 		r.logger.Error(err, "failed to patch SNR status")
 		return err
 	}
@@ -238,8 +243,8 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alp
 
 // deleteResourcesWrapper returns a 'zero' time and nil if it completes to delete node resources successfully
 // if not, it will return a 'zero' time and non-nil error, which means exponential backoff is triggered
-// snr is only used in order to match method signature required by remediateWithResourceRemoval
-func (r *SelfNodeRemediationReconciler) deleteResourcesWrapper(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (time.Duration, error) {
+// SelfNodeRemediation is only used in order to match method signature required by remediateWithResourceRemoval
+func (r *SelfNodeRemediationReconciler) deleteResourcesWrapper(node *v1.Node, _ *v1alpha1.SelfNodeRemediation) (time.Duration, error) {
 	return 0, r.deleteResources(node)
 }
 
@@ -410,14 +415,10 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceRemoval(snr *v1alph
 		return ctrl.Result{RequeueAfter: waitTime}, nil
 	}
 
-	org := snr.DeepCopy()
 	fencingCompleted := fencingCompletedPhase
 	snr.Status.Phase = &fencingCompleted
-	if err := r.updateSnrProcessingCondition(remediationFinished, snr); err != nil {
-		return ctrl.Result{}, err
-	}
 
-	return ctrl.Result{}, r.patchSnrStatus(snr, org)
+	return ctrl.Result{}, r.updateSnrProcessingCondition(remediationFinished, snr)
 
 }
 

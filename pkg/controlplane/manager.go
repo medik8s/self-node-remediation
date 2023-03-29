@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	kubeletPort    = "10250"
+	kubeletPort = "10250"
 )
 
 // Manager contains logic and info needed to fence and remediate controlplane nodes

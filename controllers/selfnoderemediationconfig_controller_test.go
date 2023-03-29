@@ -21,7 +21,7 @@ var _ = Describe("snrc controller Test", func() {
 
 	Context("DS installation", func() {
 		dummySelfNodeRemediationImage := "self-node-remediation-image"
-		os.Setenv("SELF_NODE_REMEDIATION_IMAGE", dummySelfNodeRemediationImage)
+		_ = os.Setenv("SELF_NODE_REMEDIATION_IMAGE", dummySelfNodeRemediationImage)
 
 		config := &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}
 		config.Kind = "SelfNodeRemediationConfig"
