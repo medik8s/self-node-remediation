@@ -98,6 +98,9 @@ var _ = BeforeSuite(func() {
 	err = (&SelfNodeRemediationConfig{}).SetupWebhookWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())
 
+	err = (&SelfNodeRemediationTemplate{}).SetupWebhookWithManager(mgr)
+	Expect(err).NotTo(HaveOccurred())
+
 	//+kubebuilder:scaffold:webhook
 
 	var ctx context.Context
