@@ -157,17 +157,11 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	defer func() {
 		if updateErr := r.updateSnrStatus(ctx, snr); updateErr != nil {
 			if apiErrors.IsConflict(updateErr) {
-				if returnErr == nil {
-					if !returnResult.Requeue {
-						returnResult = ctrl.Result{RequeueAfter: time.Second}
-					}
+				if returnErr == nil && !returnResult.Requeue {
+					returnResult = ctrl.Result{RequeueAfter: time.Second}
 				}
 			} else {
-				if returnErr == nil {
-					returnErr = updateErr
-				} else {
-					returnErr = utilerrors.NewAggregate([]error{updateErr, returnErr})
-				}
+				returnErr = utilerrors.NewAggregate([]error{updateErr, returnErr})
 			}
 		}
 	}()
