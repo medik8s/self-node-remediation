@@ -200,6 +200,43 @@ var _ = Describe("snr Controller", func() {
 				verifySNRDoesNotExists()
 
 			})
+
+			It("The snr agent attempts to keep deleting node resources during temporary api-server failure", func() {
+				node := verifyNodeIsUnschedulable()
+
+				k8sClient.ShouldSimulateVaFailure = true
+
+				addUnschedulableTaint(node)
+
+				verifyProcessingCondition(metav1.ConditionTrue)
+
+				verifyTimeHasBeenRebootedExists()
+
+				verifyNoWatchdogFood()
+
+				verifySelfNodeRemediationPodDoesntExist()
+
+				verifyVaNotDeleted(vaName)
+
+				// The kube-api calls for VA fail intentionally. In this case, we expect the snr agent to try
+				// to delete node resources again. So LastError is set to the error every time Reconcile()
+				// is triggered. If it becomes another error, it means something unintended happens.
+				verifyLastErrorKeepsApiErrorForVa()
+
+				k8sClient.ShouldSimulateVaFailure = false
+
+				deleteVolumeAttachment(vaName)
+
+				deleteSNR(snr)
+
+				isSNRNeedsDeletion = false
+
+				removeUnschedulableTaint()
+
+				verifySNRDoesNotExists()
+
+			})
+
 		})
 
 		Context("OutOfServiceTaint strategy", func() {
@@ -220,6 +257,8 @@ var _ = Describe("snr Controller", func() {
 
 				addUnschedulableTaint(node)
 
+				verifyProcessingCondition(metav1.ConditionTrue)
+
 				// The normal NoExecute taint tries to delete pods, however it can't delete pods
 				// with stateful workloads like volumes and they are stuck in terminating status.
 				createTerminatingPod()
@@ -239,6 +278,8 @@ var _ = Describe("snr Controller", func() {
 				deleteVolumeAttachment(vaName)
 
 				verifyOutOfServiceTaintRemoved()
+
+				verifyProcessingCondition(metav1.ConditionFalse)
 
 				deleteSNR(snr)
 				isSNRNeedsDeletion = false
@@ -341,6 +382,32 @@ func verifyVaDeleted(vaName string) {
 		err := k8sClient.Get(context.Background(), vaKey, va)
 		return apierrors.IsNotFound(err)
 
+	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
+}
+
+func verifyVaNotDeleted(vaName string) {
+	vaKey := client.ObjectKey{
+		Namespace: namespace,
+		Name:      vaName,
+	}
+
+	ConsistentlyWithOffset(1, func() bool {
+		va := &storagev1.VolumeAttachment{}
+		err := k8sClient.Get(context.Background(), vaKey, va)
+		return apierrors.IsNotFound(err)
+
+	}, 5*time.Second, 250*time.Millisecond).Should(BeFalse())
+}
+
+func verifyLastErrorKeepsApiErrorForVa() {
+	By("Verify that LastError in SNR status has been kept kube-api error for VA")
+	snr := &v1alpha1.SelfNodeRemediation{}
+	ConsistentlyWithOffset(1, func() bool {
+		snrNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: snrNamespace}
+		if err := k8sClient.Client.Get(context.Background(), snrNamespacedName, snr); err != nil {
+			return false
+		}
+		return snr.Status.LastError == k8sClient.VaFailureMessage
 	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
 }
 
