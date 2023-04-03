@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -30,8 +31,9 @@ import (
 )
 
 const (
-	//out of service taint strategy const
-	minK8sVersionSupportingOutOfServiceTaint = 1.26
+	//out of service taint strategy const (supported from 1.26)
+	minK8sMajorVersionSupportingOutOfServiceTaint = 1
+	minK8sMinorVersionSupportingOutOfServiceTaint = 26
 )
 
 var (
@@ -96,14 +98,21 @@ func initOutOfServiceTaintSupportedFlag(config *rest.Config) error {
 		snrtWebookLog.Error(err, "couldn't get retrieve k8s server version")
 		return err
 	} else {
-		k8sVersion, err := strconv.ParseFloat(fmt.Sprintf("%s.%s", version.Major, version.Minor), 8)
-		if err != nil {
-			snrtWebookLog.Error(err, "couldn't get parse k8s server version", "Major", version.Major, "Minor", version.Minor)
+		isOutOfServiceTaintSupported = strings.Compare(fmt.Sprintf("%s.%s", version.Major, version.Minor), "1.26") >= 0
+
+		var majorVer, minorVer int64
+		if majorVer, err = strconv.ParseInt(version.Major, 10, 8); err != nil {
+			snrtWebookLog.Error(err, "couldn't parse k8s major version", "major version", version.Major)
 			return err
 		}
 
-		isOutOfServiceTaintSupported = k8sVersion >= minK8sVersionSupportingOutOfServiceTaint
-		snrtWebookLog.Info("out of service taint strategy", "isSupported", isOutOfServiceTaintSupported, "k8sVersion", k8sVersion)
+		if minorVer, err = strconv.ParseInt(version.Major, 10, 8); err != nil {
+			snrtWebookLog.Error(err, "couldn't parse k8s minor version", "minor version", version.Minor)
+			return err
+		}
+
+		isOutOfServiceTaintSupported = majorVer > minK8sMajorVersionSupportingOutOfServiceTaint || (majorVer == minK8sMajorVersionSupportingOutOfServiceTaint && minorVer >= minK8sMinorVersionSupportingOutOfServiceTaint)
+		snrtWebookLog.Info("out of service taint strategy", "isSupported", isOutOfServiceTaintSupported, "k8sMajorVersion", majorVer, "k8sMinorVersion", minorVer)
 		return nil
 	}
 }
