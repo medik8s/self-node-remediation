@@ -67,13 +67,8 @@ var _ = Describe("SelfNodeRemediationTemplate Validation", func() {
 					isOutOfServiceTaintSupported = false
 				})
 				It("should be denied", func() {
-					err := outOfServiceStrategy.ValidateCreate()
-					Expect(err).To(HaveOccurred())
-					Expect(err.Error()).To(ContainSubstring("OutOfServiceTaint remediation strategy is not supported at kubernetes version lower than 1.26, please use a different remediation strategy"))
-
-					err = outOfServiceStrategy.ValidateUpdate(snrtValid)
-					Expect(err).To(HaveOccurred())
-					Expect(err.Error()).To(ContainSubstring("OutOfServiceTaint remediation strategy is not supported at kubernetes version lower than 1.26, please use a different remediation strategy"))
+					Expect(outOfServiceStrategy.ValidateCreate()).To(MatchError(ContainSubstring("OutOfServiceTaint remediation strategy is not supported at kubernetes version lower than 1.26, please use a different remediation strategy")))
+					Expect(outOfServiceStrategy.ValidateUpdate(snrtValid)).To(MatchError(ContainSubstring("OutOfServiceTaint remediation strategy is not supported at kubernetes version lower than 1.26, please use a different remediation strategy")))
 				})
 			})
 
