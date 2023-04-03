@@ -19,7 +19,6 @@ package v1alpha1
 import (
 	"fmt"
 	"strconv"
-	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -98,15 +97,12 @@ func initOutOfServiceTaintSupportedFlag(config *rest.Config) error {
 		snrtWebookLog.Error(err, "couldn't get retrieve k8s server version")
 		return err
 	} else {
-		isOutOfServiceTaintSupported = strings.Compare(fmt.Sprintf("%s.%s", version.Major, version.Minor), "1.26") >= 0
-
-		var majorVer, minorVer int64
-		if majorVer, err = strconv.ParseInt(version.Major, 10, 8); err != nil {
+		var majorVer, minorVer int
+		if majorVer, err = strconv.Atoi(version.Major); err != nil {
 			snrtWebookLog.Error(err, "couldn't parse k8s major version", "major version", version.Major)
 			return err
 		}
-
-		if minorVer, err = strconv.ParseInt(version.Major, 10, 8); err != nil {
+		if minorVer, err = strconv.Atoi(version.Major); err != nil {
 			snrtWebookLog.Error(err, "couldn't parse k8s minor version", "minor version", version.Minor)
 			return err
 		}
