@@ -154,13 +154,14 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, err
 	}
 
-	snrOrg := snr.DeepCopy()
 	defer func() {
-		if patchErr := r.patchSnrStatus(ctx, snr, snrOrg); patchErr != nil {
-			if returnErr == nil {
-				returnErr = patchErr
+		if updateErr := r.updateSnrStatus(ctx, snr); updateErr != nil {
+			if apiErrors.IsConflict(updateErr) {
+				if returnErr == nil && !returnResult.Requeue {
+					returnResult = ctrl.Result{RequeueAfter: time.Second}
+				}
 			} else {
-				returnErr = utilerrors.NewAggregate([]error{patchErr, returnErr})
+				returnErr = utilerrors.NewAggregate([]error{updateErr, returnErr})
 			}
 		}
 	}()
@@ -391,8 +392,7 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceRemoval(snr *v1alph
 	}
 
 	if snr.Status.TimeAssumedRebooted.IsZero() {
-		//todo this also updates the node but we don't need it
-		return r.updateSnrStatus(node, snr)
+		r.updateTimeAssumedRebooted(node, snr)
 	}
 
 	if r.MyNodeName == node.Name {
@@ -539,22 +539,21 @@ func (r *SelfNodeRemediationReconciler) getReadyCond(node *v1.Node) *v1.NodeCond
 	return nil
 }
 
-func (r *SelfNodeRemediationReconciler) updateSnrStatus(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) updateSnrStatus(ctx context.Context, snr *v1alpha1.SelfNodeRemediation) error {
+	if err := r.Client.Status().Update(ctx, snr); err != nil {
+		if !apiErrors.IsConflict(err) {
+			r.logger.Error(err, "failed to update snr status")
+		}
+		return err
+	}
+	return nil
+}
+
+func (r *SelfNodeRemediationReconciler) updateTimeAssumedRebooted(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) {
 	r.logger.Info("updating snr with node backup and updating time to assume node has been rebooted", "node name", node.Name)
 	//we assume the unhealthy node will be rebooted by maxTimeNodeHasRebooted
 	maxTimeNodeHasRebooted := metav1.NewTime(metav1.Now().Add(r.Rebooter.GetTimeToAssumeNodeRebooted()))
 	snr.Status.TimeAssumedRebooted = &maxTimeNodeHasRebooted
-
-	err := r.Client.Status().Update(context.Background(), snr)
-	if err != nil {
-		if apiErrors.IsConflict(err) {
-			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
-		}
-		r.logger.Error(err, "failed to update status with 'node back up' and 'time to assume node has rebooted'")
-		return ctrl.Result{}, err
-	}
-
-	return ctrl.Result{Requeue: true}, nil
 }
 
 // getNodeFromSnr returns the unhealthy node reported in the given snr
