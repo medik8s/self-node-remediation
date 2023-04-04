@@ -68,3 +68,4 @@ func validateStrategy(snrSpec SelfNodeRemediationSpec) error {
 	}
 	return nil
 }
+

@@ -28,6 +28,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -77,13 +78,19 @@ const (
 
 type K8sClientWrapper struct {
 	client.Client
-	Reader                client.Reader
-	ShouldSimulateFailure bool
+	Reader                  client.Reader
+	ShouldSimulateFailure   bool
+	ShouldSimulateVaFailure bool
+	VaFailureMessage        string
 }
 
 func (kcw *K8sClientWrapper) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 	if kcw.ShouldSimulateFailure {
 		return errors.New("simulation of client error")
+	} else if kcw.ShouldSimulateVaFailure {
+		if _, ok := list.(*storagev1.VolumeAttachmentList); ok {
+			return errors.New(kcw.VaFailureMessage)
+		}
 	}
 	return kcw.Client.List(ctx, list, opts...)
 }
@@ -122,6 +129,8 @@ var _ = BeforeSuite(func() {
 		k8sManager.GetClient(),
 		k8sManager.GetAPIReader(),
 		false,
+		false,
+		"simulation of client error for VA",
 	}
 	Expect(k8sClient).ToNot(BeNil())
 
