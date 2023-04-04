@@ -132,6 +132,11 @@ func main() {
 func initSelfNodeRemediationManager(mgr manager.Manager) {
 	setupLog.Info("Starting as a manager that installs the daemonset")
 
+	if err := utils.InitOutOfServiceTaintSupportedFlag(mgr.GetConfig()); err != nil {
+		setupLog.Error(err, "unable to verify out of service taint support")
+		os.Exit(1)
+	}
+
 	if err := (&selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "SelfNodeRemediationConfig")
 		os.Exit(1)
@@ -139,6 +144,11 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 
 	if err := (&selfnoderemediationv1alpha1.SelfNodeRemediationTemplate{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "SelfNodeRemediationTemplate")
+		os.Exit(1)
+	}
+
+	if err := (&selfnoderemediationv1alpha1.SelfNodeRemediation{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "SelfNodeRemediation")
 		os.Exit(1)
 	}
 
