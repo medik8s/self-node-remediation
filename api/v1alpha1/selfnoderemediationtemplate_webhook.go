@@ -18,36 +18,22 @@ package v1alpha1
 
 import (
 	"fmt"
-	"strconv"
+
+	"github.com/medik8s/self-node-remediation/pkg/utils"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 )
 
-const (
-	//out of service taint strategy const (supported from 1.26)
-	minK8sMajorVersionSupportingOutOfServiceTaint = 1
-	minK8sMinorVersionSupportingOutOfServiceTaint = 26
-)
-
 var (
-	// snrtWebookLog is for logging in this package.
-	snrtWebookLog = logf.Log.WithName("selfnoderemediationtemplate-resource")
-	//out of service taint strategy params
-	isOutOfServiceTaintSupported bool
+	// webhookTemplateLog is for logging in this package.
+	webhookTemplateLog = logf.Log.WithName("selfnoderemediationtemplate-resource")
 )
 
 func (r *SelfNodeRemediationTemplate) SetupWebhookWithManager(mgr ctrl.Manager) error {
-
-	if err := initOutOfServiceTaintSupportedFlag(mgr.GetConfig()); err != nil {
-		return err
-	}
-
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(r).
 		Complete()
@@ -59,56 +45,26 @@ var _ webhook.Validator = &SelfNodeRemediationTemplate{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
 func (r *SelfNodeRemediationTemplate) ValidateCreate() error {
-	snrtWebookLog.Info("validate create", "name", r.Name)
+	webhookTemplateLog.Info("validate create", "name", r.Name)
 	return validateStrategy(r.Spec.Template.Spec)
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (r *SelfNodeRemediationTemplate) ValidateUpdate(_ runtime.Object) error {
-	snrtWebookLog.Info("validate update", "name", r.Name)
+	webhookTemplateLog.Info("validate update", "name", r.Name)
 	return validateStrategy(r.Spec.Template.Spec)
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
 func (r *SelfNodeRemediationTemplate) ValidateDelete() error {
 	// unused for now, add "delete" when needed to verbs in the kubebuilder annotation above
-	snrtWebookLog.Info("validate delete", "name", r.Name)
+	webhookTemplateLog.Info("validate delete", "name", r.Name)
 	return nil
 }
 
 func validateStrategy(snrSpec SelfNodeRemediationSpec) error {
-	if snrSpec.RemediationStrategy == OutOfServiceTaintRemediationStrategy && !isOutOfServiceTaintSupported {
+	if snrSpec.RemediationStrategy == OutOfServiceTaintRemediationStrategy && !utils.IsOutOfServiceTaintSupported {
 		return fmt.Errorf("%s remediation strategy is not supported at kubernetes version lower than 1.26, please use a different remediation strategy", OutOfServiceTaintRemediationStrategy)
 	}
 	return nil
-}
-
-func initOutOfServiceTaintSupportedFlag(config *rest.Config) error {
-	if cs, err := kubernetes.NewForConfig(config); err != nil || cs == nil {
-		if cs == nil {
-			err = fmt.Errorf("k8s client set is nil")
-		}
-		snrtWebookLog.Error(err, "couldn't get retrieve k8s client")
-		return err
-	} else if version, err := cs.Discovery().ServerVersion(); err != nil || version == nil {
-		if version == nil {
-			err = fmt.Errorf("k8s server version is nil")
-		}
-		snrtWebookLog.Error(err, "couldn't get retrieve k8s server version")
-		return err
-	} else {
-		var majorVer, minorVer int
-		if majorVer, err = strconv.Atoi(version.Major); err != nil {
-			snrtWebookLog.Error(err, "couldn't parse k8s major version", "major version", version.Major)
-			return err
-		}
-		if minorVer, err = strconv.Atoi(version.Minor); err != nil {
-			snrtWebookLog.Error(err, "couldn't parse k8s minor version", "minor version", version.Minor)
-			return err
-		}
-
-		isOutOfServiceTaintSupported = majorVer > minK8sMajorVersionSupportingOutOfServiceTaint || (majorVer == minK8sMajorVersionSupportingOutOfServiceTaint && minorVer >= minK8sMinorVersionSupportingOutOfServiceTaint)
-		snrtWebookLog.Info("out of service taint strategy", "isSupported", isOutOfServiceTaintSupported, "k8sMajorVersion", majorVer, "k8sMinorVersion", minorVer)
-		return nil
-	}
 }

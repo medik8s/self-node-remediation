@@ -28,11 +28,6 @@ var (
 )
 
 func (r *SelfNodeRemediation) SetupWebhookWithManager(mgr ctrl.Manager) error {
-
-	if err := initOutOfServiceTaintSupportedFlag(mgr.GetConfig()); err != nil {
-		return err
-	}
-
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(r).
 		Complete()

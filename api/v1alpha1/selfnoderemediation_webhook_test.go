@@ -3,6 +3,9 @@ package v1alpha1
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	"github.com/medik8s/self-node-remediation/pkg/utils"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -41,13 +44,13 @@ var _ = Describe("SelfNodeRemediation Validation", func() {
 
 		Context("with out Of Service Taint strategy", func() {
 			BeforeEach(func() {
-				orgValue := isOutOfServiceTaintSupported
-				DeferCleanup(func() { isOutOfServiceTaintSupported = orgValue })
+				orgValue := utils.IsOutOfServiceTaintSupported
+				DeferCleanup(func() { utils.IsOutOfServiceTaintSupported = orgValue })
 
 			})
 			When("out of service taint is supported", func() {
 				BeforeEach(func() {
-					isOutOfServiceTaintSupported = true
+					utils.IsOutOfServiceTaintSupported = true
 				})
 				It("should be allowed", func() {
 					Expect(outOfServiceStrategy.ValidateCreate()).To(Succeed())
@@ -56,7 +59,7 @@ var _ = Describe("SelfNodeRemediation Validation", func() {
 			})
 			When("out of service taint is not supported", func() {
 				BeforeEach(func() {
-					isOutOfServiceTaintSupported = false
+					utils.IsOutOfServiceTaintSupported = false
 				})
 				It("should be denied", func() {
 					Expect(outOfServiceStrategy.ValidateCreate()).To(MatchError(ContainSubstring("OutOfServiceTaint remediation strategy is not supported at kubernetes version lower than 1.26, please use a different remediation strategy")))
