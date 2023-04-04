@@ -102,7 +102,7 @@ func initOutOfServiceTaintSupportedFlag(config *rest.Config) error {
 			snrtWebookLog.Error(err, "couldn't parse k8s major version", "major version", version.Major)
 			return err
 		}
-		if minorVer, err = strconv.Atoi(version.Major); err != nil {
+		if minorVer, err = strconv.Atoi(version.Minor); err != nil {
 			snrtWebookLog.Error(err, "couldn't parse k8s minor version", "minor version", version.Minor)
 			return err
 		}
