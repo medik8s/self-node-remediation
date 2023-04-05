@@ -12,7 +12,7 @@ webhooks:
       name: webhook-service
       namespace: system
       path: /validate-self-node-remediation-medik8s-io-v1alpha1-selfnoderemediation
-  failurePolicy: Fail
+  failurePolicy: Ignore
   name: vselfnoderemediation.kb.io
   rules:
   - apiGroups:
