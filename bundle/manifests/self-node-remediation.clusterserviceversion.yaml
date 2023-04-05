@@ -444,7 +444,7 @@ spec:
     - v1
     containerPort: 443
     deploymentName: self-node-remediation-controller-manager
-    failurePolicy: Fail
+    failurePolicy: Ignore
     generateName: vselfnoderemediation.kb.io
     rules:
     - apiGroups:
