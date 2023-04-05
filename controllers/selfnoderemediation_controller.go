@@ -158,7 +158,8 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 		if updateErr := r.updateSnrStatus(ctx, snr); updateErr != nil {
 			if apiErrors.IsConflict(updateErr) {
 				minRequeue := time.Second
-				if returnResult.Requeue && minRequeue > returnResult.RequeueAfter {
+				//if requeue is already set choose the lowest one
+				if returnResult.RequeueAfter > 0 && minRequeue > returnResult.RequeueAfter {
 					minRequeue = returnResult.RequeueAfter
 				}
 				if returnErr == nil {
