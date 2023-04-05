@@ -245,13 +245,12 @@ bundle: manifests operator-sdk kustomize ## Generate bundle manifests and metada
 	$(OPERATOR_SDK) generate kustomize manifests -q
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
 	$(KUSTOMIZE) build config/manifests | envsubst | $(OPERATOR_SDK) generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
-	$(OPERATOR_SDK) bundle validate ./bundle
+	$(MAKE) bundle-validate
 
 .PHONY: bundle-k8s
 bundle-k8s: bundle ## Generate bundle manifests and metadata customized to k8s community release, then validate generated files.
 	# Note that k8s 1.25+ needs PSA label
 	sed -r -i "s|by default\.|by default.\n    Note that prior to installing SNR on a Kubernetes 1.25+ cluster, a user must manually set a [privileged PSA label](https://kubernetes.io/docs/tasks/configure-pod-container/enforce-standards-namespace-labels/) on SNR's namespace. It gives SNR's agents permissions to reboot the node (in case it needs to be remediated).|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
-
 
 .PHONY: bundle-update
 bundle-update:
@@ -263,9 +262,12 @@ bundle-update:
 	sed -r -i "s|olm.skipRange: .*|olm.skipRange: '>=0.4.0 <${VERSION}'|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
 	# set icon (not version or build date related, but just to not having this huge data permanently in the CSV)
 	sed -r -i "s|base64data:.*|base64data: ${ICON_BASE64}|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
-	$(OPERATOR_SDK) bundle validate ./bundle
+	$(MAKE) bundle-validate
 
-
+.PHONY: bundle-validate
+bundle-validate: operator-sdk ## Validate the bundle directory with additional validators (suite=operatorframework), such as Kubernetes deprecated APIs (https://kubernetes.io/docs/reference/using-api/deprecation-guide/) based on bundle.CSV.Spec.MinKubeVersion
+	$(OPERATOR_SDK) bundle validate ./bundle --select-optional suite=operatorframework
+	
 .PHONY: bundle-build
 bundle-build: bundle bundle-update ## Build the bundle image.
 	docker build -f bundle.Dockerfile -t $(BUNDLE_IMG) .
