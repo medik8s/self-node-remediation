@@ -814,7 +814,7 @@ func (r *SelfNodeRemediationReconciler) removeNoExecuteTaint(node *v1.Node) erro
 }
 
 func (r *SelfNodeRemediationReconciler) isStoppedByNHC(snr *v1alpha1.SelfNodeRemediation) bool {
-	if snr != nil && snr.Annotations != nil {
+	if snr != nil && snr.Annotations != nil && snr.DeletionTimestamp == nil{
 		_, isTimeoutIssued := snr.Annotations[nhcTimeOutAnnotation]
 		return isTimeoutIssued
 	}
