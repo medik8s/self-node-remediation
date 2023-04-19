@@ -22,6 +22,8 @@ import (
 	"strconv"
 	"time"
 
+	"go.uber.org/zap/zapcore"
+
 	"github.com/pkg/errors"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -86,6 +88,7 @@ func main() {
 			"reconciles the config CRD and installs the DS")
 	opts := zap.Options{
 		Development: true,
+		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
