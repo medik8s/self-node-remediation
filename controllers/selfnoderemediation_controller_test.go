@@ -172,7 +172,7 @@ var _ = Describe("snr Controller", func() {
 
 				addUnschedulableTaint(node)
 
-				verifyProcessingCondition(metav1.ConditionTrue)
+				verifyTypeConditions(metav1.ConditionTrue, metav1.ConditionUnknown)
 
 				verifyTimeHasBeenRebootedExists()
 
@@ -186,7 +186,7 @@ var _ = Describe("snr Controller", func() {
 
 				verifyNoExecuteTaintExist()
 
-				verifyProcessingCondition(metav1.ConditionFalse)
+				verifyTypeConditions(metav1.ConditionFalse, metav1.ConditionTrue)
 
 				deleteSNR(snr)
 				isSNRNeedsDeletion = false
@@ -208,7 +208,7 @@ var _ = Describe("snr Controller", func() {
 
 				addUnschedulableTaint(node)
 
-				verifyProcessingCondition(metav1.ConditionTrue)
+				verifyTypeConditions(metav1.ConditionTrue, metav1.ConditionUnknown)
 
 				verifyTimeHasBeenRebootedExists()
 
@@ -244,7 +244,6 @@ var _ = Describe("snr Controller", func() {
 
 			BeforeEach(func() {
 				remediationStrategy = v1alpha1.OutOfServiceTaintRemediationStrategy
-
 				createVolumeAttachment(vaName)
 			})
 
@@ -257,7 +256,7 @@ var _ = Describe("snr Controller", func() {
 
 				addUnschedulableTaint(node)
 
-				verifyProcessingCondition(metav1.ConditionTrue)
+				verifyTypeConditions(metav1.ConditionTrue, metav1.ConditionUnknown)
 
 				// The normal NoExecute taint tries to delete pods, however it can't delete pods
 				// with stateful workloads like volumes and they are stuck in terminating status.
@@ -279,7 +278,7 @@ var _ = Describe("snr Controller", func() {
 
 				verifyOutOfServiceTaintRemoved()
 
-				verifyProcessingCondition(metav1.ConditionFalse)
+				verifyTypeConditions(metav1.ConditionFalse, metav1.ConditionTrue)
 
 				deleteSNR(snr)
 				isSNRNeedsDeletion = false
@@ -347,7 +346,7 @@ func createVolumeAttachment(vaName string) {
 	ExpectWithOffset(1, k8sClient.Create(context.Background(), va)).To(Succeed())
 }
 
-func verifyProcessingCondition(conditionStatus metav1.ConditionStatus) {
+func verifyTypeConditions(expectedProcessingConditionStatus, expectedSucceededConditionStatus metav1.ConditionStatus) {
 	By("Verify that SNR Processing status condition is correct")
 	snr := &v1alpha1.SelfNodeRemediation{}
 	Eventually(func() bool {
@@ -355,8 +354,10 @@ func verifyProcessingCondition(conditionStatus metav1.ConditionStatus) {
 		if err := k8sClient.Client.Get(context.Background(), snrNamespacedName, snr); err != nil {
 			return false
 		}
-
-		return meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, v1alpha1.SnrConditionProcessing, conditionStatus)
+		isActualProcessingMatchExpected := meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, v1alpha1.ProcessingTypeCondition, expectedProcessingConditionStatus)
+		isActualSucceededMatchExpected := meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, v1alpha1.SucceededTypeCondition, expectedSucceededConditionStatus)
+		return isActualProcessingMatchExpected &&
+			isActualSucceededMatchExpected
 
 	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
 }
