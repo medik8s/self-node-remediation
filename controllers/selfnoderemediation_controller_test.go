@@ -354,8 +354,8 @@ func verifyTypeConditions(expectedProcessingConditionStatus, expectedSucceededCo
 		if err := k8sClient.Client.Get(context.Background(), snrNamespacedName, snr); err != nil {
 			return false
 		}
-		isActualProcessingMatchExpected := meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, v1alpha1.ProcessingTypeCondition, expectedProcessingConditionStatus)
-		isActualSucceededMatchExpected := meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, v1alpha1.SucceededTypeCondition, expectedSucceededConditionStatus)
+		isActualProcessingMatchExpected := meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, v1alpha1.ProcessingConditionType, expectedProcessingConditionStatus)
+		isActualSucceededMatchExpected := meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, v1alpha1.SucceededConditionType, expectedSucceededConditionStatus)
 		return isActualProcessingMatchExpected &&
 			isActualSucceededMatchExpected
 

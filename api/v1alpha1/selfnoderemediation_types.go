@@ -23,10 +23,10 @@ import (
 const (
 	ResourceDeletionRemediationStrategy  = RemediationStrategyType("ResourceDeletion")
 	OutOfServiceTaintRemediationStrategy = RemediationStrategyType("OutOfServiceTaint")
-	// ProcessingTypeCondition is the condition type used to signal NHC the remediation status
-	ProcessingTypeCondition = "Processing"
-	// SucceededTypeCondition is the condition type used to signal NHC whether the remediation was successful or not
-	SucceededTypeCondition = "Succeeded"
+	// ProcessingConditionType is the condition type used to signal NHC the remediation status
+	ProcessingConditionType = "Processing"
+	// SucceededConditionType is the condition type used to signal NHC whether the remediation was successful or not
+	SucceededConditionType = "Succeeded"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
