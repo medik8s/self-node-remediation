@@ -104,7 +104,7 @@ func (r *SelfNodeRemediationReconciler) GetLastSeenSnrNamespace() string {
 	return lastSeenSnrNamespace
 }
 
-// WasLastSeenSnrMachine returns the a boolean indicating if the last reconcile SNR
+// WasLastSeenSnrMachine returns a boolean indicating if the last reconcile SNR
 // was pointing an unhealthy machine or a node
 func (r *SelfNodeRemediationReconciler) WasLastSeenSnrMachine() bool {
 	r.mutex.Lock()
@@ -123,7 +123,7 @@ type SelfNodeRemediationReconciler struct {
 	Rebooter   reboot.Rebooter
 	MyNodeName string
 	mutex      sync.Mutex
-	//we need to restore the node only after the cluster realized it can reschecudle the affected workloads
+	//we need to restore the node only after the cluster realized it can reschedule the affected workloads
 	//as of writing this lines, kubernetes will check for pods with non-existent node once in 20s, and allows
 	//40s of grace period for the node to reappear before it deletes the pods.
 	//see here: https://github.com/kubernetes/kubernetes/blob/7a0638da76cb9843def65708b661d2c6aa58ed5a/pkg/controller/podgc/gc_controller.go#L43-L47
@@ -457,7 +457,7 @@ func (r *SelfNodeRemediationReconciler) rebootNode(node *v1.Node, snr *v1alpha1.
 }
 
 func (r *SelfNodeRemediationReconciler) handleRebootCompletedPhase(node *v1.Node, snr *v1alpha1.SelfNodeRemediation, rmNodeResources removeNodeResources) (ctrl.Result, error) {
-	// if err is non-nil, exponential backoff is triggred
+	// if err is non-nil, exponential backoff is triggered
 	// if err is nil and waitTime is not a 'zero' time, wait for waitTime seconds to remove node resources
 	if waitTime, err := rmNodeResources(node, snr); err != nil {
 		return ctrl.Result{}, err
