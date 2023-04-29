@@ -182,11 +182,11 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	if r.isStoppedByNHC(snr) {
 		r.logger.Info("SNR remediation was stopped by Node Healthcheck")
-		return ctrl.Result{}, r.updateSnrProcessingCondition(remediationTerminatedByNHC, snr)
+		return ctrl.Result{}, r.updateConditions(remediationTerminatedByNHC, snr)
 	}
 
 	if r.getPhase(snr) != fencingCompletedPhase {
-		if err := r.updateSnrProcessingCondition(remediationStarted, snr); err != nil {
+		if err := r.updateConditions(remediationStarted, snr); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -212,27 +212,41 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	return result, r.updateSnrStatusLastError(snr, err)
 }
 
-func (r *SelfNodeRemediationReconciler) updateSnrProcessingCondition(reason processingChangeReason, snr *v1alpha1.SelfNodeRemediation) error {
-	var conditionStatus metav1.ConditionStatus
-	switch reason {
+func (r *SelfNodeRemediationReconciler) updateConditions(processingTypeReason processingChangeReason, snr *v1alpha1.SelfNodeRemediation) error {
+	var processingConditionStatus, succeededConditionStatus metav1.ConditionStatus
+	switch processingTypeReason {
 	case remediationStarted:
-		conditionStatus = metav1.ConditionTrue
-	case remediationFinished, remediationTerminatedByNHC:
-		conditionStatus = metav1.ConditionFalse
+		processingConditionStatus = metav1.ConditionTrue
+		succeededConditionStatus = metav1.ConditionUnknown
+	case remediationFinished:
+		processingConditionStatus = metav1.ConditionFalse
+		succeededConditionStatus = metav1.ConditionTrue
+	case remediationTerminatedByNHC:
+		processingConditionStatus = metav1.ConditionFalse
+		succeededConditionStatus = metav1.ConditionFalse
 	default:
-		err := fmt.Errorf("unknown processingChangeReason:%s", reason)
+		err := fmt.Errorf("unkown processingChangeReason:%s", processingTypeReason)
 		r.Log.Error(err, "couldn't update snr processing condition")
 		return err
 	}
 
-	if meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, v1alpha1.SnrConditionProcessing, conditionStatus) {
+	if meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, v1alpha1.ProcessingConditionType, processingConditionStatus) &&
+		meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, v1alpha1.SucceededConditionType, succeededConditionStatus) {
 		return nil
 	}
 
 	meta.SetStatusCondition(&snr.Status.Conditions, metav1.Condition{
-		Type:   v1alpha1.SnrConditionProcessing,
-		Status: conditionStatus,
-		Reason: string(reason),
+		Type:   v1alpha1.ProcessingConditionType,
+		Status: processingConditionStatus,
+		Reason: string(processingTypeReason),
+	})
+
+	//Reason is mandatory, and reason for processing matches succeeded
+	succeededTypeReason := string(processingTypeReason)
+	meta.SetStatusCondition(&snr.Status.Conditions, metav1.Condition{
+		Type:   v1alpha1.SucceededConditionType,
+		Status: succeededConditionStatus,
+		Reason: succeededTypeReason,
 	})
 
 	return nil
@@ -454,7 +468,7 @@ func (r *SelfNodeRemediationReconciler) handleRebootCompletedPhase(node *v1.Node
 	fencingCompleted := string(fencingCompletedPhase)
 	snr.Status.Phase = &fencingCompleted
 
-	return ctrl.Result{}, r.updateSnrProcessingCondition(remediationFinished, snr)
+	return ctrl.Result{}, r.updateConditions(remediationFinished, snr)
 }
 
 func (r *SelfNodeRemediationReconciler) handleFencingCompletedPhase(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
