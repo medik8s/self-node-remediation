@@ -255,7 +255,7 @@ bundle-community-k8s: bundle-community ## Generate bundle manifests and metadata
 .PHONY: bundle-community
 bundle-community: bundle
 	#Add Community Edition suffix to operator name
-	sed -r -i "s|displayName: Self Node Remediation Operator|displayName: Self Node Remediation Operator - Community Edition|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+	sed -r -i "s|displayName: Self Node Remediation Operator.*|displayName: Self Node Remediation Operator - Community Edition|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
 
 .PHONY: bundle-update
 bundle-update:
