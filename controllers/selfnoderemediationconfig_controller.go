@@ -66,11 +66,13 @@ func (r *SelfNodeRemediationConfigReconciler) Reconcile(ctx context.Context, req
 	}
 
 	config := &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}
-	if err := r.Client.Get(ctx, req.NamespacedName, config); err != nil {
-		if errors.IsNotFound(err) {
-			err := r.DefaultPpcCreator(r.Client)
-			return ctrl.Result{}, err
-		}
+	err := r.Client.Get(ctx, req.NamespacedName, config)
+	//In case config is deleted (or about to be deleted) do nothing in order not to interfere with OLM delete process
+	if err != nil && errors.IsNotFound(err) || err == nil && config.DeletionTimestamp != nil {
+		return ctrl.Result{}, nil
+	}
+
+	if err != nil {
 		logger.Error(err, "failed to fetch cr")
 		return ctrl.Result{}, err
 	}
