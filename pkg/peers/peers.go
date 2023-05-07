@@ -73,8 +73,8 @@ func (p *Peers) Start(ctx context.Context) error {
 		p.log.Error(err, "failed to get own hostname")
 		return err
 	} else {
-		p.workerPeerSelector = createSelector(hostname, utils.WorkerLabelName)
-		p.controlPlanePeerSelector = createSelector(hostname, utils.GetControlPlaneLabel(myNode))
+		p.workerPeerSelector = CreateWorkerSelector(hostname)
+		p.controlPlanePeerSelector = createControlPlaneSelector(hostname, utils.GetControlPlaneLabel(myNode))
 	}
 
 	go wait.UntilWithContext(ctx, func(ctx context.Context) {
@@ -147,10 +147,23 @@ func (p *Peers) GetPeersAddresses(role Role) [][]v1.NodeAddress {
 	return addressesCopy
 }
 
-func createSelector(hostNameToExclude string, nodeTypeLabel string) labels.Selector {
+func createControlPlaneSelector(hostNameToExclude string, controlPlaneTypeLabel string) labels.Selector {
 	reqNotMe, _ := labels.NewRequirement(hostnameLabelName, selection.NotEquals, []string{hostNameToExclude})
-	reqPeers, _ := labels.NewRequirement(nodeTypeLabel, selection.Exists, []string{})
+	reqPeers, _ := labels.NewRequirement(controlPlaneTypeLabel, selection.Exists, []string{})
 	selector := labels.NewSelector()
 	selector = selector.Add(*reqNotMe, *reqPeers)
+	return selector
+}
+
+func CreateWorkerSelector(hostNameToExclude string) labels.Selector {
+	reqPeersMasters, _ := labels.NewRequirement(utils.MasterLabelName, selection.DoesNotExist, []string{})
+	reqPeersControlPlane, _ := labels.NewRequirement(utils.ControlPlaneLabelName, selection.DoesNotExist, []string{})
+	selector := labels.NewSelector()
+	selector = selector.Add(*reqPeersMasters, *reqPeersControlPlane)
+	if len(hostNameToExclude) > 0 {
+		reqNotMe, _ := labels.NewRequirement(hostnameLabelName, selection.NotEquals, []string{hostNameToExclude})
+		selector = selector.Add(*reqNotMe)
+	}
+
 	return selector
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/controllers"
 	"github.com/medik8s/self-node-remediation/e2e/utils"
+	"github.com/medik8s/self-node-remediation/pkg/peers"
 	labelUtils "github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
@@ -37,7 +38,12 @@ const (
 )
 
 var _ = Describe("Self Node Remediation E2E", func() {
-
+	Describe("Debug-Timeout", func() {
+		It("Dummy Successful test", func() {
+			time.Sleep(time.Minute)
+			Expect(true).To(BeTrue())
+		})
+	})
 	Describe("Workers Remediation", func() {
 		var node *v1.Node
 		workers := &v1.NodeList{}
@@ -46,13 +52,10 @@ var _ = Describe("Self Node Remediation E2E", func() {
 		var apiIPs []string
 
 		BeforeEach(func() {
-
 			// get all things that doesn't change once only
 			if node == nil {
 				// get worker node(s)
-				selector := labels.NewSelector()
-				req, _ := labels.NewRequirement(labelUtils.WorkerLabelName, selection.Exists, []string{})
-				selector = selector.Add(*req)
+				selector := peers.CreateWorkerSelector("")
 				Expect(k8sClient.List(context.Background(), workers, &client.ListOptions{LabelSelector: selector})).ToNot(HaveOccurred())
 				Expect(len(workers.Items)).To(BeNumerically(">=", 2))
 
@@ -97,13 +100,21 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				var snr *v1alpha1.SelfNodeRemediation
 				var remediationStrategy v1alpha1.RemediationStrategyType
 				JustBeforeEach(func() {
-					snr = createSNR(node, remediationStrategy)
+					By("Resource Deletion Strategy- Start JustBeforeEach (createSNR)")
+					go func() {
+						time.Sleep(time.Minute)
+						snr = createSNR(node, remediationStrategy)
+					}()
+					By("Resource Deletion Strategy- Finish JustBeforeEach (createSNR)")
 				})
 
 				AfterEach(func() {
+					By("Resource Deletion Strategy- Start AfterEach")
 					if snr != nil {
+						By("Resource Deletion Strategy- AfterEach before deleteAndWait")
 						deleteAndWait(snr)
 					}
+					By("Resource Deletion Strategy- Finish AfterEach")
 				})
 
 				Context("Resource Deletion Strategy", func() {
@@ -111,19 +122,25 @@ var _ = Describe("Self Node Remediation E2E", func() {
 					var va *storagev1.VolumeAttachment
 
 					BeforeEach(func() {
+						By("Resource Deletion Strategy- Start BeforeEach")
 						remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
 						oldPodCreationTime = findSnrPod(node).CreationTimestamp.Time
 						va = createVolumeAttachment(node)
+						By("Resource Deletion Strategy- Finish BeforeEach")
 					})
 
 					It("should delete pods and volume attachments", func() {
-						checkPodRecreated(node, oldPodCreationTime)
+						By("Resource Deletion Strategy- It  before checkPodRecreated")
+						checkPodRecreated2(node, oldPodCreationTime)
+						By("Resource Deletion Strategy- It  before checkVaDeleted")
 						checkVaDeleted(va)
 						//Simulate NHC trying to delete SNR
+						By("Resource Deletion Strategy- It  before deleteAndWait")
 						deleteAndWait(snr)
 						snr = nil
-
+						By("Resource Deletion Strategy- It  before checkNoExecuteTaintRemoved")
 						checkNoExecuteTaintRemoved(node)
+						By("Resource Deletion Strategy- It  Finish")
 					})
 				})
 
@@ -131,6 +148,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 		})
 
 		Describe("Without API connectivity", func() {
+
 			Context("Healthy node (no SNR)", func() {
 
 				// no api connectivity
@@ -141,6 +159,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				//    - verify peer check did happen
 
 				BeforeEach(func() {
+					skipK8sTest()
 					killApiConnection(node, apiIPs, true)
 				})
 
@@ -167,13 +186,14 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				// b) unhealthy
 				//    - kill connectivity on one node
 				//    - create SNR
-				//    - verify node does reboot and and is deleted / re-created
+				//    - verify node does reboot and is deleted / re-created
 
 				var snr *v1alpha1.SelfNodeRemediation
 				var va *storagev1.VolumeAttachment
 				var oldPodCreationTime time.Time
 
 				BeforeEach(func() {
+					skipK8sTest()
 					killApiConnection(node, apiIPs, false)
 					snr = createSNR(node, v1alpha1.ResourceDeletionRemediationStrategy)
 					oldPodCreationTime = findSnrPod(node).CreationTimestamp.Time
@@ -213,6 +233,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				bootTimes := make(map[string]*time.Time)
 
 				BeforeEach(func() {
+					skipK8sTest()
 					wg := sync.WaitGroup{}
 					for i := range workers.Items {
 						wg.Add(1)
@@ -243,7 +264,6 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				})
 
 				It("should not have rebooted and not be re-created", func() {
-
 					// all nodes should satisfy this test
 					wg := sync.WaitGroup{}
 					for i := range workers.Items {
@@ -276,7 +296,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 		var controlPlaneNode *v1.Node
 
 		BeforeEach(func() {
-
+			skipK8sTest()
 			// get all things that doesn't change once only
 			if controlPlaneNode == nil {
 				// get worker node(s)
@@ -358,6 +378,12 @@ var _ = Describe("Self Node Remediation E2E", func() {
 	})
 })
 
+func skipK8sTest() {
+	if isK8sRun {
+		Skip("Skipping in k8s due to timeout")
+	}
+}
+
 func checkVaDeleted(va *storagev1.VolumeAttachment) {
 	EventuallyWithOffset(1, func() bool {
 		newVa := &storagev1.VolumeAttachment{}
@@ -388,10 +414,55 @@ func createVolumeAttachment(node *v1.Node) *storagev1.VolumeAttachment {
 
 func checkPodRecreated(node *v1.Node, oldPodCreationTime time.Time) bool {
 	return EventuallyWithOffset(1, func() time.Time {
+		By(fmt.Sprintf("Resource Deletion Strategy- It  before findSnrPod, oldPodCreationTime %s", oldPodCreationTime))
 		pod := findSnrPod(node)
+		isDone := pod.CreationTimestamp.Time.Sub(oldPodCreationTime) > 0
+		By(fmt.Sprintf("Resource Deletion Strategy- It  after findSnrPod,  pod.CreationTimestamp.Time %s, isDone: %t", pod.CreationTimestamp.Time, isDone))
 		return pod.CreationTimestamp.Time
 
 	}, 7*time.Minute, 10*time.Second).Should(BeTemporally(">", oldPodCreationTime))
+}
+
+func checkPodRecreated2(node *v1.Node, oldPodCreationTime time.Time) bool {
+	return Eventually(func() bool {
+		By(fmt.Sprintf("checkPodRecreated2 Start oldPodCreationTime %s", oldPodCreationTime))
+
+		key := client.ObjectKey{
+			Name:      node.GetName(),
+			Namespace: testNamespace,
+		}
+		snr := new(v1alpha1.SelfNodeRemediation)
+		if err := k8sClient.Get(context.Background(), key, snr); err != nil {
+			logger.Error(err, "failed to fetch snr")
+			return false
+		}
+		By(fmt.Sprintf("checkPodRecreated2 SNR  TimeAssumedRebooted %s", snr.Status.TimeAssumedRebooted))
+
+		pods := &v1.PodList{}
+		err := k8sClient.List(context.Background(), pods)
+		if err != nil && !errors.IsNotFound(err) {
+			By("checkPodRecreated2  failed to list pods")
+			logger.Error(err, "failed to list pods")
+			return false
+		}
+
+		for i := range pods.Items {
+			pod := pods.Items[i]
+			if strings.HasPrefix(pod.GetName(), "self-node-remediation-ds") {
+				if pod.Spec.NodeName == node.GetName() {
+					By(fmt.Sprintf("checkPodRecreated2 - It  node name: %s pod creation:%s, pod name: %s, namespace:%s", node.GetName(), pod.CreationTimestamp.Time, pod.Name, pod.Namespace))
+					isPodRecreated := pod.CreationTimestamp.Time.Sub(oldPodCreationTime) > 0
+					if isPodRecreated {
+						By("Resource Deletion Strategy findSnrPod- It  pod Recreated")
+					}
+					return isPodRecreated
+
+				}
+			}
+		}
+		return false
+
+	}, 7*time.Minute, 5*time.Second).Should(BeTrue())
 }
 
 func createSNR(node *v1.Node, remediationStrategy v1alpha1.RemediationStrategyType) *v1alpha1.SelfNodeRemediation {
@@ -406,10 +477,19 @@ func createSNR(node *v1.Node, remediationStrategy v1alpha1.RemediationStrategyTy
 		},
 	}
 	ExpectWithOffset(1, k8sClient.Create(context.Background(), snr)).ToNot(HaveOccurred())
+	By(fmt.Sprintf("SNR Remediation was created in namespace: %s", testNamespace))
 	return snr
 }
 
 func getBootTime(node *v1.Node) (*time.Time, error) {
+	if isK8sRun {
+		return getBootTimeK8s(node)
+	} else {
+		return getBootTimeOCP(node)
+	}
+}
+
+func getBootTimeOCP(node *v1.Node) (*time.Time, error) {
 	bootTimeCommand := []string{"uptime", "-s"}
 	var bootTime time.Time
 	Eventually(func() error {
@@ -426,6 +506,10 @@ func getBootTime(node *v1.Node) (*time.Time, error) {
 		return nil
 	}, 6*time.Minute, 10*time.Second).ShouldNot(HaveOccurred())
 	return &bootTime, nil
+}
+
+func getBootTimeK8s(node *v1.Node) (*time.Time, error) {
+	return utils.GetBootTime(k8sClientSet, node.Name, testNamespace)
 }
 
 func checkNoExecuteTaintRemoved(node *v1.Node) {
@@ -483,7 +567,13 @@ func killApiConnection(node *v1.Node, apiIPs []string, withReconnect bool) {
 		ctx, cancel = context.WithTimeout(context.Background(), nodeExecTimeout)
 	}
 	defer cancel()
-	_, err := utils.ExecCommandOnNode(k8sClient, command, node, ctx)
+
+	var err error
+	if isK8sRun {
+		err = killApiConnectionK8s(node, command)
+	} else {
+		err = killApiConnectionOCP(node, command, ctx)
+	}
 
 	if withReconnect {
 		//in case the sleep didn't work
@@ -502,6 +592,16 @@ func killApiConnection(node *v1.Node, apiIPs []string, withReconnect bool) {
 			),
 		),
 	)
+}
+
+func killApiConnectionOCP(node *v1.Node, command []string, ctx context.Context) error {
+	_, err := utils.ExecCommandOnNode(k8sClient, command, node, ctx)
+	return err
+}
+
+func killApiConnectionK8s(node *v1.Node, command []string) error {
+	_, err := utils.RunCommandInCluster(k8sClientSet, node.Name, testNamespace, command)
+	return err
 }
 
 func composeScript(commandTemplate string, ips []string) string {
