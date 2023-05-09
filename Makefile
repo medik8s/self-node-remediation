@@ -2,24 +2,25 @@
 SHELL := /bin/bash
 
 # versions at  https://github.com/kubernetes-sigs/controller-tools/releases
-CONTROLLER_GEN_VERSION = v0.10.0
+CONTROLLER_GEN_VERSION = v0.12.0
 
 # GO_VERSION refers to the version of Golang to be downloaded when running dockerized version
-GO_VERSION = 1.19
+GO_VERSION = 1.20
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.23
 
 # versions at https://github.com/operator-framework/operator-sdk/releases
-OPERATOR_SDK_VERSION = v1.25.3
+OPERATOR_SDK_VERSION = v1.28.1
 
 # versions at https://github.com/operator-framework/operator-registry/releases
 OPM_VERSION = v1.26.2
 
 # versions at https://github.com/kubernetes-sigs/kustomize/releases
-KUSTOMIZE_VERSION = v4.5.7
+KUSTOMIZE_VERSION = v5.0.2
 
-SORT_IMPORTS_VERSION = v0.1.0
+# versions at https://github.com/slintes/sort-imports/tags
+SORT_IMPORTS_VERSION = v0.2.1
 
 OPERATOR_NAME ?= self-node-remediation
 
@@ -220,7 +221,7 @@ ifeq (,$(wildcard $(KUSTOMIZE)))
 	@{ \
 	rm -rf $(KUSTOMIZE_BIN_FOLDER) ;\
 	mkdir -p $(dir $(KUSTOMIZE)) ;\
-	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v4@${KUSTOMIZE_VERSION}) ;\
+	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5@${KUSTOMIZE_VERSION}) ;\
 	}
 endif
 
@@ -228,7 +229,7 @@ endif
 envtest: ## Download envtest-setup locally if necessary.
 	$(call go-install-tool,$(ENVTEST_ASSETS_DIR),sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.0.0-20220407132358-188b48630db2) # no tagged versions :/
 
-# go-get-tool will 'go get' any package $2 and install it to $1.
+# go-install-tool will 'go install' any package $2 and install it to $1.
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 define go-install-tool
 @[ -f $(1) ] || { \
@@ -380,7 +381,14 @@ tidy: ## Runs go mod tidy
 verify-vendor:tidy vendor verify-no-changes ##Verifies vendor and tidy didn't cause changes
 
 .PHONY:verify-bundle
-verify-bundle: manifests bundle verify-no-changes ##Verifies bundle and manifests didn't cause changes
+verify-bundle: manifests bundle bundle-reset verify-no-changes ##Verifies bundle and manifests didn't cause changes
+
+# Revert all version or build date related changes
+.PHONY: bundle-reset
+bundle-reset:
+	VERSION=0.0.1 $(MAKE) manifests bundle
+	# empty creation date
+	sed -r -i "s|createdAt: .*|createdAt: \"\"|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
 
 SORT_IMPORTS = $(shell pwd)/bin/sort-imports
 .PHONY: sort-imports
