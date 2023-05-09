@@ -2,12 +2,14 @@ package utils
 
 import (
 	"context"
-	"github.com/pkg/errors"
-	v1 "k8s.io/api/core/v1"
 	"os"
+	"strconv"
+
+	"github.com/pkg/errors"
+
+	v1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"strconv"
 )
 
 const (

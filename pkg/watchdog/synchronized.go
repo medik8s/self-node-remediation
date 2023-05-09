@@ -6,10 +6,11 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/medik8s/self-node-remediation/pkg/utils"
 	"github.com/pkg/errors"
 
 	"k8s.io/apimachinery/pkg/util/wait"
+
+	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
 var _ Watchdog = &synchronizedWatchdog{}

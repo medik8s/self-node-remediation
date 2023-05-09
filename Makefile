@@ -19,6 +19,8 @@ OPM_VERSION = v1.26.2
 # versions at https://github.com/kubernetes-sigs/kustomize/releases
 KUSTOMIZE_VERSION = v4.5.7
 
+SORT_IMPORTS_VERSION = v0.1.0
+
 OPERATOR_NAME ?= self-node-remediation
 
 # VERSION defines the project version for the bundle.
@@ -173,7 +175,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./main.go
 
 .PHONY: docker-build
-docker-build: check ## Build docker image with the manager.
+docker-build: test
 	docker build -t ${IMG} .
 
 .PHONY: docker-push
@@ -375,3 +377,16 @@ verify-vendor:tidy vendor verify-no-changes ##Verifies vendor and tidy didn't ca
 
 .PHONY:verify-bundle
 verify-bundle: manifests bundle verify-no-changes ##Verifies bundle and manifests didn't cause changes
+
+SORT_IMPORTS = $(shell pwd)/bin/sort-imports
+.PHONY: sort-imports
+sort-imports: ## Download sort-imports locally if necessary.
+	$(call go-install-tool,$(SORT_IMPORTS),github.com/slintes/sort-imports@$(SORT_IMPORTS_VERSION))
+
+.PHONY: test-imports
+test-imports: sort-imports ## Check for sorted imports
+	$(SORT_IMPORTS) .
+
+.PHONY: fix-imports
+fix-imports: sort-imports ## Sort imports
+	$(SORT_IMPORTS) . -w

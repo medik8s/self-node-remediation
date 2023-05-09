@@ -1,8 +1,9 @@
 package utils
 
 import (
-	"golang.org/x/sys/unix"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // GetLinuxUptime returns the uptime of a linux host
