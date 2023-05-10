@@ -178,6 +178,10 @@ run: manifests generate fmt vet ## Run a controller from your host.
 docker-build: test
 	docker build -t ${IMG} .
 
+.PHONY: docker--build-check
+docker-build-check: check
+	docker build -t ${IMG} .
+
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	docker push ${IMG}
@@ -355,8 +359,10 @@ check: protoc ## Dockerized version of make test
 	$(DOCKER_GO) "make test"
 
 .PHONY: container-build
-container-build: ## Build containers
-	make docker-build bundle bundle-build
+container-build:docker-build bundle bundle-build ## Build containers
+
+.PHONY: container-build-check
+container-build-check:docker-build-check bundle bundle-build ## Build containers
 
 .PHONY: container-push
 container-push: ## Push containers (NOTE: catalog can't be build before bundle was pushed)
@@ -370,10 +376,8 @@ vendor: ## Runs go mod vendor
 tidy: ## Runs go mod tidy
 	go mod tidy
 
-
 .PHONY:verify-vendor
 verify-vendor:tidy vendor verify-no-changes ##Verifies vendor and tidy didn't cause changes
-
 
 .PHONY:verify-bundle
 verify-bundle: manifests bundle verify-no-changes ##Verifies bundle and manifests didn't cause changes
