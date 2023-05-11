@@ -360,16 +360,16 @@ check: protoc ## Dockerized version of make test
 	$(DOCKER_GO) "make test"
 
 .PHONY: container-build
-container-build:docker-build bundle bundle-build ## Build containers
+container-build: docker-build bundle-build ## Build containers
 
 .PHONY: container-build-check
-container-build-check:docker-build-check bundle bundle-build ## Build containers
+container-build-check: docker-build-check bundle-build ## Build containers
 
 .PHONY: container-push
 container-push: ## Push containers (NOTE: catalog can't be build before bundle was pushed)
 	make docker-push bundle-push catalog-build catalog-push
 
-.PHONY:vendor
+.PHONY: vendor
 vendor: ## Runs go mod vendor
 	go mod vendor
 
@@ -378,7 +378,7 @@ tidy: ## Runs go mod tidy
 	go mod tidy
 
 .PHONY:verify-vendor
-verify-vendor:tidy vendor verify-no-changes ##Verifies vendor and tidy didn't cause changes
+verify-vendor: tidy vendor verify-no-changes ##Verifies vendor and tidy didn't cause changes
 
 .PHONY:verify-bundle
 verify-bundle: manifests bundle bundle-reset verify-no-changes ##Verifies bundle and manifests didn't cause changes
