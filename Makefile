@@ -7,8 +7,8 @@ CONTROLLER_GEN_VERSION = v0.12.0
 # GO_VERSION refers to the version of Golang to be downloaded when running dockerized version
 GO_VERSION = 1.20
 
-# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.23
+# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary, align with k8s.io/client-go in go.mod
+ENVTEST_K8S_VERSION = 1.25
 
 # versions at https://github.com/operator-framework/operator-sdk/releases
 OPERATOR_SDK_VERSION = v1.28.1
