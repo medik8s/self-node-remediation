@@ -14,7 +14,7 @@ ENVTEST_K8S_VERSION = 1.25
 OPERATOR_SDK_VERSION = v1.28.1
 
 # versions at https://github.com/operator-framework/operator-registry/releases
-OPM_VERSION = v1.26.2
+OPM_VERSION = v1.26.5
 
 # versions at https://github.com/kubernetes-sigs/kustomize/releases
 KUSTOMIZE_VERSION = v5.0.2
