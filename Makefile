@@ -401,7 +401,7 @@ test-imports: sort-imports ## Check for sorted imports
 
 .PHONY: fix-imports
 fix-imports: sort-imports ## Sort imports
-	$(SORT_IMPORTS) . -w
+	$(SORT_IMPORTS) -w .
 
 .PHONY: full-gen
 full-gen:  generate manifests vendor tidy bundle fix-imports bundle-reset ## generates all automatically generated content
