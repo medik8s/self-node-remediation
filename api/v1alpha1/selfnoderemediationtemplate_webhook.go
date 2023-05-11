@@ -19,13 +19,12 @@ package v1alpha1
 import (
 	"fmt"
 
-	"github.com/medik8s/self-node-remediation/pkg/utils"
-
 	"k8s.io/apimachinery/pkg/runtime"
-
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
 var (
@@ -68,4 +67,3 @@ func validateStrategy(snrSpec SelfNodeRemediationSpec) error {
 	}
 	return nil
 }
-

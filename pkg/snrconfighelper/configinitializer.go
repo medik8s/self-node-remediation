@@ -2,12 +2,15 @@ package snrconfighelper
 
 import (
 	"context"
+
 	"github.com/go-logr/logr"
-	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/pkg/utils"
 	"github.com/pkg/errors"
+
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
 type ConfigInitializer struct {

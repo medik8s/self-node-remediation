@@ -4,10 +4,10 @@ import (
 	"context"
 	"os"
 
-	ctrl "sigs.k8s.io/controller-runtime"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/medik8s/self-node-remediation/pkg/utils"
 	"github.com/medik8s/self-node-remediation/pkg/watchdog"

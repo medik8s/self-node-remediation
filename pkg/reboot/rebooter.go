@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+
 	"github.com/medik8s/self-node-remediation/pkg/watchdog"
 )
 

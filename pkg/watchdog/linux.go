@@ -2,7 +2,6 @@ package watchdog
 
 import (
 	"fmt"
-	"github.com/pkg/errors"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -13,9 +12,9 @@ import (
 	"time"
 	"unsafe"
 
-	. "golang.org/x/sys/unix"
-
 	"github.com/go-logr/logr"
+	"github.com/pkg/errors"
+	. "golang.org/x/sys/unix"
 )
 
 const (

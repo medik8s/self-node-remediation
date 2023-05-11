@@ -4,9 +4,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/medik8s/self-node-remediation/pkg/utils"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
 var _ = Describe("SelfNodeRemediationTemplate Validation", func() {

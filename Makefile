@@ -2,22 +2,25 @@
 SHELL := /bin/bash
 
 # versions at  https://github.com/kubernetes-sigs/controller-tools/releases
-CONTROLLER_GEN_VERSION = v0.10.0
+CONTROLLER_GEN_VERSION = v0.12.0
 
 # GO_VERSION refers to the version of Golang to be downloaded when running dockerized version
-GO_VERSION = 1.19
+GO_VERSION = 1.20
 
-# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.23
+# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary, align with k8s.io/client-go in go.mod
+ENVTEST_K8S_VERSION = 1.25
 
 # versions at https://github.com/operator-framework/operator-sdk/releases
-OPERATOR_SDK_VERSION = v1.25.3
+OPERATOR_SDK_VERSION = v1.28.1
 
 # versions at https://github.com/operator-framework/operator-registry/releases
-OPM_VERSION = v1.26.2
+OPM_VERSION = v1.26.5
 
 # versions at https://github.com/kubernetes-sigs/kustomize/releases
-KUSTOMIZE_VERSION = v4.5.7
+KUSTOMIZE_VERSION = v5.0.2
+
+# versions at https://github.com/slintes/sort-imports/tags
+SORT_IMPORTS_VERSION = v0.2.1
 
 OPERATOR_NAME ?= self-node-remediation
 
@@ -173,7 +176,11 @@ run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./main.go
 
 .PHONY: docker-build
-docker-build: check ## Build docker image with the manager.
+docker-build: test
+	docker build -t ${IMG} .
+
+.PHONY: docker--build-check
+docker-build-check: check
 	docker build -t ${IMG} .
 
 .PHONY: docker-push
@@ -214,7 +221,7 @@ ifeq (,$(wildcard $(KUSTOMIZE)))
 	@{ \
 	rm -rf $(KUSTOMIZE_BIN_FOLDER) ;\
 	mkdir -p $(dir $(KUSTOMIZE)) ;\
-	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v4@${KUSTOMIZE_VERSION}) ;\
+	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5@${KUSTOMIZE_VERSION}) ;\
 	}
 endif
 
@@ -222,7 +229,7 @@ endif
 envtest: ## Download envtest-setup locally if necessary.
 	$(call go-install-tool,$(ENVTEST_ASSETS_DIR),sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.0.0-20220407132358-188b48630db2) # no tagged versions :/
 
-# go-get-tool will 'go get' any package $2 and install it to $1.
+# go-install-tool will 'go install' any package $2 and install it to $1.
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 define go-install-tool
 @[ -f $(1) ] || { \
@@ -353,14 +360,16 @@ check: protoc ## Dockerized version of make test
 	$(DOCKER_GO) "make test"
 
 .PHONY: container-build
-container-build: ## Build containers
-	make docker-build bundle bundle-build
+container-build: docker-build bundle-build ## Build containers
+
+.PHONY: container-build-check
+container-build-check: docker-build-check bundle-build ## Build containers
 
 .PHONY: container-push
 container-push: ## Push containers (NOTE: catalog can't be build before bundle was pushed)
 	make docker-push bundle-push catalog-build catalog-push
 
-.PHONY:vendor
+.PHONY: vendor
 vendor: ## Runs go mod vendor
 	go mod vendor
 
@@ -368,10 +377,31 @@ vendor: ## Runs go mod vendor
 tidy: ## Runs go mod tidy
 	go mod tidy
 
-
 .PHONY:verify-vendor
-verify-vendor:tidy vendor verify-no-changes ##Verifies vendor and tidy didn't cause changes
-
+verify-vendor: tidy vendor verify-no-changes ##Verifies vendor and tidy didn't cause changes
 
 .PHONY:verify-bundle
-verify-bundle: manifests bundle verify-no-changes ##Verifies bundle and manifests didn't cause changes
+verify-bundle: manifests bundle bundle-reset verify-no-changes ##Verifies bundle and manifests didn't cause changes
+
+# Revert all version or build date related changes
+.PHONY: bundle-reset
+bundle-reset:
+	VERSION=0.0.1 $(MAKE) manifests bundle
+	# empty creation date
+	sed -r -i "s|createdAt: .*|createdAt: \"\"|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+
+SORT_IMPORTS = $(shell pwd)/bin/sort-imports
+.PHONY: sort-imports
+sort-imports: ## Download sort-imports locally if necessary.
+	$(call go-install-tool,$(SORT_IMPORTS),github.com/slintes/sort-imports@$(SORT_IMPORTS_VERSION))
+
+.PHONY: test-imports
+test-imports: sort-imports ## Check for sorted imports
+	$(SORT_IMPORTS) .
+
+.PHONY: fix-imports
+fix-imports: sort-imports ## Sort imports
+	$(SORT_IMPORTS) -w .
+
+.PHONY: full-gen
+full-gen:  generate manifests vendor tidy bundle fix-imports bundle-reset ## generates all automatically generated content

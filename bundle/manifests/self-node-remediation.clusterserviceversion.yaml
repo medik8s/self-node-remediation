@@ -37,11 +37,11 @@ metadata:
     capabilities: Basic Install
     categories: OpenShift Optional
     containerImage: quay.io/medik8s/self-node-remediation-operator:latest
-    createdAt: "2022-11-06 08:57:52"
+    createdAt: ""
     description: Self Node Remediation Operator for remediate itself in case of a
       failure.
     olm.skipRange: '>=0.4.0'
-    operators.operatorframework.io/builder: operator-sdk-v1.25.3
+    operators.operatorframework.io/builder: operator-sdk-v1.28.1
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v3
     repository: https://github.com/medik8s/self-node-remediation
     support: Medik8s
