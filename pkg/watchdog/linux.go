@@ -86,7 +86,7 @@ func NewLinux(log logr.Logger) (Watchdog, error) {
 			return nil, err
 		}
 
-		log.Info("auto detected softog path", "path", newWatchdogDevice)
+		log.Info("auto detected softdog path", "path", newWatchdogDevice)
 
 		if err := checkWatchdogExists(newWatchdogDevice); err != nil {
 			log.Error(err, "softdog file path couldn't be accessed")
