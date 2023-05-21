@@ -127,24 +127,30 @@ all: build
 # More info on the awk command:
 # http://linuxcommand.org/lc3_adv_awk.php
 
+.PHONY: help
 help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
 ##@ Development
 
+.PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 
+.PHONY: generate
 generate: controller-gen protoc ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations. Also generate protoc / gRPC code
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 	PATH=$(PATH):$(shell pwd)/bin/proto/bin && $(PROTOC) --go_out=. --go-grpc_out=. pkg/peerhealth/peerhealth.proto
 
+.PHONY: fmt
 fmt: ## Run go fmt against code.
 	go fmt ./...
 
+.PHONY: vet
 vet: ## Run go vet against code.
 	go vet ./...
 
+.PHONY: verify-no-changes
 verify-no-changes: ## verify there are no un-staged changes
 	./hack/verify-diff.sh
 
@@ -157,6 +163,7 @@ BIN_ASSETS_DIR=$(shell pwd)/bin
 ENVTEST_ASSETS_DIR = ${BIN_ASSETS_DIR}/setup-envtest
 ENVTEST = $(shell pwd)/bin/setup-envtest
 
+.PHONY: test
 test: envtest manifests generate fmt vet ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path --bin-dir $(PROJECT_DIR)/testbin)" \
 		KUBEBUILDER_CONTROLPLANE_STOP_TIMEOUT="60s"\
@@ -169,9 +176,11 @@ bundle-run: operator-sdk ## Run bundle image. Default NS is "openshift-operators
 
 ##@ Build
 
+.PHONY: build
 build: generate fmt vet ## Build manager binary.
 	go build -o bin/manager main.go
 
+.PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./main.go
 
@@ -189,22 +198,28 @@ docker-push: ## Push docker image with the manager.
 
 ##@ Deployment
 
+.PHONY: install
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/crd | $(KUBECTL) apply -f -
 
+.PHONY: uninstall
 uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete -f -
 
+.PHONY: deploy
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
 	$(KUSTOMIZE) build config/default | envsubst | $(KUBECTL) apply -f -
 
+.PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/default | $(KUBECTL) delete -f -
 
+##@ Build Dependencies
 
 CONTROLLER_GEN_BIN_FOLDER = $(shell pwd)/bin/controller-gen
 CONTROLLER_GEN = $(CONTROLLER_GEN_BIN_FOLDER)/$(CONTROLLER_GEN_VERSION)/controller-gen
+.PHONY: controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
 ifeq (,$(wildcard $(CONTROLLER_GEN)))
 	@{ \
@@ -216,6 +231,7 @@ endif
 
 KUSTOMIZE_BIN_FOLDER = $(shell pwd)/bin/kustomize
 KUSTOMIZE = $(KUSTOMIZE_BIN_FOLDER)/$(KUSTOMIZE_VERSION)/kustomize
+.PHONY: kustomize
 kustomize: ## Download kustomize locally if necessary.
 ifeq (,$(wildcard $(KUSTOMIZE)))
 	@{ \
@@ -260,13 +276,12 @@ bundle-community-k8s: bundle-community ## Generate bundle manifests and metadata
 	sed -r -i "s|by default\.|by default.\n    Note that prior to installing SNR on a Kubernetes 1.25+ cluster, a user must manually set a [privileged PSA label](https://kubernetes.io/docs/tasks/configure-pod-container/enforce-standards-namespace-labels/) on SNR's namespace. It gives SNR's agents permissions to reboot the node (in case it needs to be remediated).|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
 
 .PHONY: bundle-community
-bundle-community: bundle
-	#Add Community Edition suffix to operator name
+bundle-community: bundle ##Add Community Edition suffix to operator name
 	sed -r -i "s|displayName: Self Node Remediation Operator.*|displayName: Self Node Remediation Operator - Community Edition|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
 
 .PHONY: bundle-update
-bundle-update:
-    # update container image in the metadata
+bundle-update: ## Update containerImage, createdAt, skipRange, and icon fields in the bundle's CSV, then validate the bundle directory
+	# update container image in the metadata
 	sed -r -i "s|containerImage: .*|containerImage: ${IMG}|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
 	# set creation date
 	sed -r -i "s|createdAt: \".*\"|createdAt: \"`date "+%Y-%m-%d %T" `\"|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
@@ -288,16 +303,17 @@ bundle-build: bundle bundle-update ## Build the bundle image.
 bundle-push: ## Push the bundle image.
 	docker push $(BUNDLE_IMG)
 
-
-.PHONY: protoc ## Download protoc (protocol buffers tool needed for gRPC)
+.PHONY: protoc
 PROTOC = $(shell pwd)/bin/proto/bin/protoc
-protoc: protoc-gen-go protoc-gen-go-grpc
+protoc: protoc-gen-go protoc-gen-go-grpc ## Download protoc (protocol buffers tool needed for gRPC)
 	test -f ${PROTOC} || (cd $(shell pwd)/bin/proto && curl -sSLo protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v3.16.0/protoc-3.16.0-linux-x86_64.zip && unzip protoc.zip && rm protoc.zip)
 
+.PHONY: protoc-gen-go
 PROTOC_GEN_GO = $(shell pwd)/bin/proto/bin/protoc-gen-go
 protoc-gen-go: ## Download protoc-gen-go locally if necessary.
 	$(call go-install-tool,$(PROTOC_GEN_GO),google.golang.org/protobuf/cmd/protoc-gen-go@v1.26)
 
+.PHONY: protoc-gen-go-grpc
 PROTOC_GEN_GO_GRPC = $(shell pwd)/bin/proto/bin/protoc-gen-go-prpc
 protoc-gen-go-grpc: ## Download protoc-gen-go-grpc locally if necessary.
 	$(call go-install-tool,$(PROTOC_GEN_GO_GRPC),google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.1.0)
