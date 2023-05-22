@@ -30,12 +30,12 @@ jobs:
 
       - name: Build and push operator and bundle images, using version 0.0.1, for pushes to main
         if: ${{ github.ref_type != 'tag' }}
-        run: make container-build container-push
+        run: make container-build-community container-push
 
       - name: Build and push versioned CSV and images, for tags
         if: ${{ github.ref_type == 'tag' }}
         # remove leading 'v' from tag!
-        run: export VERSION=$(echo $GITHUB_REF_NAME | sed 's/v//') && make container-build container-push
+        run: export VERSION=$(echo $GITHUB_REF_NAME | sed 's/v//') && make container-build-community container-push
 
       - name: Build and push index image with versioned NHC + SNR images
         if: ${{ github.ref_type != 'tag' }}

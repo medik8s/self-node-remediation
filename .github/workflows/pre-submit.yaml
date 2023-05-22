@@ -35,4 +35,4 @@ jobs:
       run: make test
 
     - name: Test container build
-      run: make container-build-check
+      run: make container-build-community

@@ -188,9 +188,13 @@ run: manifests generate fmt vet ## Run a controller from your host.
 docker-build: test
 	docker build -t ${IMG} .
 
-.PHONY: docker--build-check
+.PHONY: docker-build-check
 docker-build-check: check
 	docker build -t ${IMG} .
+
+.PHONY: bundle-build-community
+bundle-build-community: bundle-community-k8s ## Run bundle community changes in CSV, and then build the bundle image.
+	docker build -f bundle.Dockerfile -t $(BUNDLE_IMG) .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -263,6 +267,7 @@ endef
 
 DEFAULT_ICON_BASE64 := $(shell base64 --wrap=0 ./config/assets/snr_icon_blue.png)
 export ICON_BASE64 ?= ${DEFAULT_ICON_BASE64}
+export BUNDLE_CSV ?= "./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml"
 .PHONY: bundle
 bundle: manifests operator-sdk kustomize ## Generate bundle manifests and metadata, then validate generated files.
 	$(OPERATOR_SDK) generate kustomize manifests -q
@@ -273,22 +278,23 @@ bundle: manifests operator-sdk kustomize ## Generate bundle manifests and metada
 .PHONY: bundle-community-k8s
 bundle-community-k8s: bundle-community ## Generate bundle manifests and metadata customized to k8s community release, then validate generated files.
 	# Note that k8s 1.25+ needs PSA label
-	sed -r -i "s|by default\.|by default.\n    Note that prior to installing SNR on a Kubernetes 1.25+ cluster, a user must manually set a [privileged PSA label](https://kubernetes.io/docs/tasks/configure-pod-container/enforce-standards-namespace-labels/) on SNR's namespace. It gives SNR's agents permissions to reboot the node (in case it needs to be remediated).|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+	sed -r -i "s|by default\.|by default.\n    Note that prior to installing SNR on a Kubernetes 1.25+ cluster, a user must manually set a [privileged PSA label](https://kubernetes.io/docs/tasks/configure-pod-container/enforce-standards-namespace-labels/) on SNR's namespace. It gives SNR's agents permissions to reboot the node (in case it needs to be remediated).|;" ${BUNDLE_CSV}
+	$(MAKE) bundle-update
 
 .PHONY: bundle-community
 bundle-community: bundle ##Add Community Edition suffix to operator name
-	sed -r -i "s|displayName: Self Node Remediation Operator.*|displayName: Self Node Remediation Operator - Community Edition|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+	sed -r -i "s|displayName: Self Node Remediation Operator.*|displayName: Self Node Remediation Operator - Community Edition|;" ${BUNDLE_CSV}
 
 .PHONY: bundle-update
 bundle-update: ## Update containerImage, createdAt, skipRange, and icon fields in the bundle's CSV, then validate the bundle directory
 	# update container image in the metadata
-	sed -r -i "s|containerImage: .*|containerImage: ${IMG}|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+	sed -r -i "s|containerImage: .*|containerImage: ${IMG}|;" ${BUNDLE_CSV}
 	# set creation date
-	sed -r -i "s|createdAt: \".*\"|createdAt: \"`date "+%Y-%m-%d %T" `\"|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+	sed -r -i "s|createdAt: \".*\"|createdAt: \"`date "+%Y-%m-%d %T" `\"|;" ${BUNDLE_CSV}
 	# set skipRange
-	sed -r -i "s|olm.skipRange: .*|olm.skipRange: '>=0.4.0 <${VERSION}'|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+	sed -r -i "s|olm.skipRange: .*|olm.skipRange: '>=0.4.0 <${VERSION}'|;" ${BUNDLE_CSV}
 	# set icon (not version or build date related, but just to not having this huge data permanently in the CSV)
-	sed -r -i "s|base64data:.*|base64data: ${ICON_BASE64}|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+	sed -r -i "s|base64data:.*|base64data: ${ICON_BASE64}|;" ${BUNDLE_CSV}
 	$(MAKE) bundle-validate
 
 .PHONY: bundle-validate
@@ -370,16 +376,19 @@ catalog-push: ## Push a catalog image.
 	$(MAKE) docker-push IMG=$(CATALOG_IMG)
 
 ##@ Targets used by CI
+
 .PHONY: check
 # WORKAROUND: add "protoc" as dependency for downloading binary first, the golang image misses the needed "unzip"tool
 check: protoc ## Dockerized version of make test
 	$(DOCKER_GO) "make test"
 
+.PHONY: container-build-community
+container-build-community: ## Build containers for community
+	make docker-build-check bundle-build-community
+
 .PHONY: container-build
 container-build: docker-build bundle-build ## Build containers
 
-.PHONY: container-build-check
-container-build-check: docker-build-check bundle-build ## Build containers
 
 .PHONY: container-push
 container-push: ## Push containers (NOTE: catalog can't be build before bundle was pushed)
@@ -404,7 +413,7 @@ verify-bundle: manifests bundle bundle-reset verify-no-changes ##Verifies bundle
 bundle-reset:
 	VERSION=0.0.1 $(MAKE) manifests bundle
 	# empty creation date
-	sed -r -i "s|createdAt: .*|createdAt: \"\"|;" ./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml
+	sed -r -i "s|createdAt: .*|createdAt: \"\"|;" ${BUNDLE_CSV}
 
 SORT_IMPORTS = $(shell pwd)/bin/sort-imports
 .PHONY: sort-imports
