@@ -30,12 +30,12 @@ jobs:
 
       - name: Build and push operator and bundle images, using version 0.0.1, for pushes to main
         if: ${{ github.ref_type != 'tag' }}
-        run: make container-build container-push
+        run: make container-build-community container-push
 
       - name: Build and push versioned CSV and images, for tags
         if: ${{ github.ref_type == 'tag' }}
         # remove leading 'v' from tag!
-        run: export VERSION=$(echo $GITHUB_REF_NAME | sed 's/v//') && make container-build container-push
+        run: export VERSION=$(echo $GITHUB_REF_NAME | sed 's/v//') && make container-build-community container-push
 
       - name: Build and push index image with versioned NHC + SNR images
         if: ${{ github.ref_type != 'tag' }}
@@ -53,3 +53,30 @@ jobs:
           
           # build and push images
           ./$NAME --skip-deploy
+
+      - name: Create release with manifests, for tags
+        if: ${{ github.ref_type == 'tag' }}
+        # https://github.com/marketplace/actions/github-release-create-update-and-upload-assets
+        uses: meeDamian/github-release@2.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          draft: true
+          body: |
+            # Self Node Remediation ${{ github.ref_name }}
+            
+            ## Notable Changes
+            
+            * TODO
+
+            ## Release Artifacts
+            
+            ### Images
+            * Operator: quay.io/medik8s/self-node-remediation-operator:${{ github.ref_name }}
+            * Bundle: quay.io/medik8s/self-node-remediation-operator-bundle:${{ github.ref_name }}
+            * Catalog aka Index: quay.io/medik8s/self-node-remediation-operator-catalog:${{ github.ref_name }}
+            
+            ### Source code and OLM manifests
+            Please find the source code and the OLM manifests in the `Assets` section below.
+          gzip: folders
+          files: >
+            Manifests:bundle/
