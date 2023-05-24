@@ -613,7 +613,7 @@ func (r *SelfNodeRemediationReconciler) addFinalizer(snr *v1alpha1.SelfNodeRemed
 	return ctrl.Result{Requeue: true}, nil
 }
 
-// returns the lastHeartbeatTime of the first condition, if exists. Otherwise returns the zero value
+// returns the lastHeartbeatTime of the first condition, if exists. Otherwise, returns the zero value
 func (r *SelfNodeRemediationReconciler) getLastHeartbeatTime(node *v1.Node) time.Time {
 	var lastHeartbeat metav1.Time
 	if node.Status.Conditions != nil && len(node.Status.Conditions) > 0 {
@@ -713,7 +713,7 @@ func (r *SelfNodeRemediationReconciler) getNodeFromMachine(ref metav1.OwnerRefer
 
 // the unhealthy node might reboot itself and take new workloads
 // since we're going to delete the node eventually, we must make sure the node is deleted only
-// when there's no running workload there. Hence we mark it as unschedulable.
+// when there's no running workload there. Hence, we mark it as unschedulable.
 // markNodeAsUnschedulable sets node.Spec.Unschedulable which triggers node controller to add the taint
 func (r *SelfNodeRemediationReconciler) markNodeAsUnschedulable(node *v1.Node) (ctrl.Result, error) {
 	if node.Spec.Unschedulable {
