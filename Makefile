@@ -260,7 +260,7 @@ go mod init tmp ;\
 BIN_DIR=$$(dirname $(1)) ;\
 mkdir -p $$BIN_DIR ;\
 echo "Downloading $(2)" ;\
-GOBIN=$$BIN_DIR GOFLAGS='' go install $(2) ;\
+GOBIN=$$BIN_DIR GOFLAGS='' CGO_ENABLED=0 go install $(2) ;\
 rm -rf $$TMP_DIR ;\
 }
 endef
