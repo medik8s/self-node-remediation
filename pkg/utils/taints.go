@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -66,7 +67,7 @@ func InitOutOfServiceTaintSupportedFlag(config *rest.Config) error {
 			utilTaintsLog.Error(err, "couldn't parse k8s major version", "major version", version.Major)
 			return err
 		}
-		if minorVer, err = strconv.Atoi(version.Minor); err != nil {
+		if minorVer, err = strconv.Atoi(strings.ReplaceAll(version.Minor, "+", "")); err != nil {
 			utilTaintsLog.Error(err, "couldn't parse k8s minor version", "minor version", version.Minor)
 			return err
 		}
