@@ -52,13 +52,13 @@ func InitOutOfServiceTaintSupportedFlag(config *rest.Config) error {
 		if cs == nil {
 			err = fmt.Errorf("k8s client set is nil")
 		}
-		utilTaintsLog.Error(err, "couldn't get retrieve k8s client")
+		utilTaintsLog.Error(err, "couldn't retrieve k8s client")
 		return err
 	} else if version, err := cs.Discovery().ServerVersion(); err != nil || version == nil {
 		if version == nil {
 			err = fmt.Errorf("k8s server version is nil")
 		}
-		utilTaintsLog.Error(err, "couldn't get retrieve k8s server version")
+		utilTaintsLog.Error(err, "couldn't retrieve k8s server version")
 		return err
 	} else {
 		var majorVer, minorVer int
