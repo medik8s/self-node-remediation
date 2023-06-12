@@ -133,7 +133,6 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 	setupLog.Info("Starting as a manager that installs the daemonset")
 
 	if err := utils.InitOutOfServiceTaintSupportedFlag(mgr.GetConfig()); err != nil {
-		utils.IsOutOfServiceTaintSupported = false
 		setupLog.Error(err, "unable to verify out of service taint support. out of service taint isn't supported")
 	}
 

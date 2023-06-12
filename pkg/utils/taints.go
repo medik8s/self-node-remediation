@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
@@ -62,18 +63,23 @@ func InitOutOfServiceTaintSupportedFlag(config *rest.Config) error {
 		utilTaintsLog.Error(err, "couldn't retrieve k8s server version")
 		return err
 	} else {
-		var majorVer, minorVer int
-		if majorVer, err = strconv.Atoi(version.Major); err != nil {
-			utilTaintsLog.Error(err, "couldn't parse k8s major version", "major version", version.Major)
-			return err
-		}
-		if minorVer, err = strconv.Atoi(strings.ReplaceAll(version.Minor, "+", "")); err != nil {
-			utilTaintsLog.Error(err, "couldn't parse k8s minor version", "minor version", version.Minor)
-			return err
-		}
-
-		IsOutOfServiceTaintSupported = majorVer > minK8sMajorVersionSupportingOutOfServiceTaint || (majorVer == minK8sMajorVersionSupportingOutOfServiceTaint && minorVer >= minK8sMinorVersionSupportingOutOfServiceTaint)
-		utilTaintsLog.Info("out of service taint strategy", "isSupported", IsOutOfServiceTaintSupported, "k8sMajorVersion", majorVer, "k8sMinorVersion", minorVer)
-		return nil
+		return setOutOfTaintSupportedFlag(version)
 	}
+}
+
+func setOutOfTaintSupportedFlag(version *version.Info) error {
+	var majorVer, minorVer int
+	var err error
+	if majorVer, err = strconv.Atoi(version.Major); err != nil {
+		utilTaintsLog.Error(err, "couldn't parse k8s major version", "major version", version.Major)
+		return err
+	}
+	if minorVer, err = strconv.Atoi(strings.ReplaceAll(version.Minor, "+", "")); err != nil {
+		utilTaintsLog.Error(err, "couldn't parse k8s minor version", "minor version", version.Minor)
+		return err
+	}
+
+	IsOutOfServiceTaintSupported = majorVer > minK8sMajorVersionSupportingOutOfServiceTaint || (majorVer == minK8sMajorVersionSupportingOutOfServiceTaint && minorVer >= minK8sMinorVersionSupportingOutOfServiceTaint)
+	utilTaintsLog.Info("out of service taint strategy", "isSupported", IsOutOfServiceTaintSupported, "k8sMajorVersion", majorVer, "k8sMinorVersion", minorVer)
+	return nil
 }
