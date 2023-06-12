@@ -2,9 +2,11 @@ package utils
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
@@ -15,6 +17,7 @@ var (
 	utilTaintsLog = logf.Log.WithName("utils-taints")
 	//IsOutOfServiceTaintSupported will be set to true in case OutOfServiceTaint is supported (k8s 1.26 or higher)
 	IsOutOfServiceTaintSupported bool
+	leadingDigits                = regexp.MustCompile(`^(\d+)`)
 )
 
 const (
@@ -52,27 +55,32 @@ func InitOutOfServiceTaintSupportedFlag(config *rest.Config) error {
 		if cs == nil {
 			err = fmt.Errorf("k8s client set is nil")
 		}
-		utilTaintsLog.Error(err, "couldn't get retrieve k8s client")
+		utilTaintsLog.Error(err, "couldn't retrieve k8s client")
 		return err
-	} else if version, err := cs.Discovery().ServerVersion(); err != nil || version == nil {
-		if version == nil {
+	} else if k8sVersion, err := cs.Discovery().ServerVersion(); err != nil || k8sVersion == nil {
+		if k8sVersion == nil {
 			err = fmt.Errorf("k8s server version is nil")
 		}
-		utilTaintsLog.Error(err, "couldn't get retrieve k8s server version")
+		utilTaintsLog.Error(err, "couldn't retrieve k8s server version")
 		return err
 	} else {
-		var majorVer, minorVer int
-		if majorVer, err = strconv.Atoi(version.Major); err != nil {
-			utilTaintsLog.Error(err, "couldn't parse k8s major version", "major version", version.Major)
-			return err
-		}
-		if minorVer, err = strconv.Atoi(version.Minor); err != nil {
-			utilTaintsLog.Error(err, "couldn't parse k8s minor version", "minor version", version.Minor)
-			return err
-		}
-
-		IsOutOfServiceTaintSupported = majorVer > minK8sMajorVersionSupportingOutOfServiceTaint || (majorVer == minK8sMajorVersionSupportingOutOfServiceTaint && minorVer >= minK8sMinorVersionSupportingOutOfServiceTaint)
-		utilTaintsLog.Info("out of service taint strategy", "isSupported", IsOutOfServiceTaintSupported, "k8sMajorVersion", majorVer, "k8sMinorVersion", minorVer)
-		return nil
+		return setOutOfTaintSupportedFlag(k8sVersion)
 	}
+}
+
+func setOutOfTaintSupportedFlag(version *version.Info) error {
+	var majorVer, minorVer int
+	var err error
+	if majorVer, err = strconv.Atoi(version.Major); err != nil {
+		utilTaintsLog.Error(err, "couldn't parse k8s major version", "major version", version.Major)
+		return err
+	}
+	if minorVer, err = strconv.Atoi(leadingDigits.FindString(version.Minor)); err != nil {
+		utilTaintsLog.Error(err, "couldn't parse k8s minor version", "minor version", version.Minor)
+		return err
+	}
+
+	IsOutOfServiceTaintSupported = majorVer > minK8sMajorVersionSupportingOutOfServiceTaint || (majorVer == minK8sMajorVersionSupportingOutOfServiceTaint && minorVer >= minK8sMinorVersionSupportingOutOfServiceTaint)
+	utilTaintsLog.Info("out of service taint strategy", "isSupported", IsOutOfServiceTaintSupported, "k8sMajorVersion", majorVer, "k8sMinorVersion", minorVer)
+	return nil
 }
