@@ -21,6 +21,9 @@ func Test_setOutOfTaintSupportedFlag(t *testing.T) {
 		{name: "validDisabledEnabledNoPlus", args: args{&version.Info{Major: "1", Minor: "24"}}, wantErr: false, isOutOfTaintFlagEnabled: false},
 		{name: "validEnabledWithPlus", args: args{&version.Info{Major: "1", Minor: "26+"}}, wantErr: false, isOutOfTaintFlagEnabled: true},
 		{name: "validDisabledWithPlus", args: args{&version.Info{Major: "1", Minor: "24+"}}, wantErr: false, isOutOfTaintFlagEnabled: false},
+		{name: "validEnabledWithTrailingChars", args: args{&version.Info{Major: "1", Minor: "26.5.2#$%+"}}, wantErr: false, isOutOfTaintFlagEnabled: true},
+		{name: "validDisabledWithTrailingChars", args: args{&version.Info{Major: "1", Minor: "22.5.2#$%+"}}, wantErr: false, isOutOfTaintFlagEnabled: false},
+
 		//invalid use-cases
 		{name: "inValidNoPlus", args: args{&version.Info{Major: "1", Minor: "%24"}}, wantErr: true, isOutOfTaintFlagEnabled: false},
 		{name: "inValidWithPlus", args: args{&version.Info{Major: "1+", Minor: "26"}}, wantErr: true, isOutOfTaintFlagEnabled: false},
