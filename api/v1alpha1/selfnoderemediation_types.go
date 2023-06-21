@@ -67,8 +67,6 @@ type SelfNodeRemediationStatus struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=status,displayName="conditions",xDescriptors="urn:alm:descriptor:com.tectonic.ui:conditions"
 	// Represents the observations of a SelfNodeRemediation's current state.
 	// Known .status.conditions.type are: "Processing"
-	// +patchMergeKey=type
-	// +patchStrategy=merge
 	// +listType=map
 	// +listMapKey=type
 	// +optional
