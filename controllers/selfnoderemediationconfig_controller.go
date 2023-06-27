@@ -20,10 +20,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/go-logr/logr"
 
 	v1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -134,6 +136,12 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 		logger.Error(err, "Fail to render config daemon manifests")
 		return err
 	}
+
+	if err := r.updateDsTolerations(objs, snrConfig.Spec.CustomDsTolerations); err != nil {
+		logger.Error(err, "Fail update daemonset tolerations")
+		return err
+	}
+
 	// Sync DaemonSets
 	for _, obj := range objs {
 		err = r.syncK8sResource(ctx, snrConfig, obj)
@@ -186,6 +194,57 @@ func (r *SelfNodeRemediationConfigReconciler) syncCerts(cr *selfnoderemediationv
 	err = st.StoreCerts(ca, cert, key)
 	if err != nil {
 		r.Log.Error(err, "Failed to store certs in secret")
+		return err
+	}
+	return nil
+}
+
+func (r *SelfNodeRemediationConfigReconciler) updateDsTolerations(objs []*unstructured.Unstructured, tolerations []corev1.Toleration) error {
+	r.Log.Info("Updating DS tolerations")
+	if len(tolerations) == 0 {
+		return nil
+	}
+	for _, toleration := range tolerations {
+		for _, ds := range objs {
+			if err := r.updateTolerationOnDs(ds, toleration); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (r *SelfNodeRemediationConfigReconciler) updateTolerationOnDs(ds *unstructured.Unstructured, toleration corev1.Toleration) error {
+	tolerations, _, err := unstructured.NestedFieldNoCopy(ds.Object, "spec", "template", "spec", "tolerations")
+	if err != nil {
+		r.Log.Error(err, "tolerations not found in ds")
+		return err
+	}
+
+	updatedTolerations, ok := tolerations.([]interface{})
+	if !ok {
+		err := fmt.Errorf(fmt.Sprintf("failed to convert tolerations expected of type %T but got %T", []interface{}{}, tolerations))
+		r.Log.Error(err, err.Error())
+		return err
+	}
+	r.Log.Info("updateTolerationOnDs original tolerations", "tolerations", updatedTolerations)
+
+	configTolerations := map[string]interface{}{
+		"effect":   string(toleration.Effect),
+		"key":      toleration.Key,
+		"operator": string(toleration.Operator),
+	}
+	if len(toleration.Value) > 0 {
+		configTolerations["value"] = toleration.Value
+	}
+
+	if toleration.TolerationSeconds != nil {
+		configTolerations["tolerationseconds"] = strconv.FormatInt(*toleration.TolerationSeconds, 10)
+	}
+
+	updatedTolerations = append(updatedTolerations, configTolerations)
+	if err := unstructured.SetNestedSlice(ds.Object, updatedTolerations, "spec", "template", "spec", "tolerations"); err != nil {
+		r.Log.Error(err, "failed to set tolerations")
 		return err
 	}
 	return nil
