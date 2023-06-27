@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -112,6 +113,9 @@ type SelfNodeRemediationConfigSpec struct {
 	// This is a part of self diagnostics which will decide whether the node should be remediated or not.
 	// It will be ignored when empty (which is the default).
 	EndpointHealthCheckUrl string `json:"endpointHealthCheckUrl,omitempty"`
+
+	// CustomDsTolerations allows to add custom tolerations snr agents that are running on the ds in order to support remediation for different types of nodes.
+	CustomDsTolerations []v1.Toleration `json:"customdstolerations,omitempty"`
 }
 
 // SelfNodeRemediationConfigStatus defines the observed state of SelfNodeRemediationConfig
