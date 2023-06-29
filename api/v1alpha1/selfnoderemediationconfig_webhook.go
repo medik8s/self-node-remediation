@@ -24,6 +24,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -96,19 +97,22 @@ var _ webhook.Validator = &SelfNodeRemediationConfig{}
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
 func (r *SelfNodeRemediationConfig) ValidateCreate() error {
 	selfNodeRemediationConfigLog.Info("validate create", "name", r.Name)
-	if err := r.validateTimes(); err != nil {
-		return err
-	}
-	return r.validateCustomTolerations()
+
+	return errors.NewAggregate([]error{
+		r.validateTimes(),
+		r.validateCustomTolerations(),
+	})
+
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (r *SelfNodeRemediationConfig) ValidateUpdate(_ runtime.Object) error {
 	selfNodeRemediationConfigLog.Info("validate update", "name", r.Name)
-	if err := r.validateTimes(); err != nil {
-		return err
-	}
-	return r.validateCustomTolerations()
+
+	return errors.NewAggregate([]error{
+		r.validateTimes(),
+		r.validateCustomTolerations(),
+	})
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
