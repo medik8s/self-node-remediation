@@ -221,7 +221,7 @@ func (r *SelfNodeRemediationConfigReconciler) updateDsTolerations(objs []*unstru
 	if err != nil {
 		return err
 	}
-	updatedTolerations := append(existingTolerations, convertedTolerations)
+	updatedTolerations := append(existingTolerations, convertedTolerations...)
 	if err := unstructured.SetNestedSlice(ds.Object, updatedTolerations, "spec", "template", "spec", "tolerations"); err != nil {
 		r.Log.Error(err, "failed to set tolerations")
 		return err
@@ -230,8 +230,8 @@ func (r *SelfNodeRemediationConfigReconciler) updateDsTolerations(objs []*unstru
 	return nil
 }
 
-func (r *SelfNodeRemediationConfigReconciler) convertTolerationsToUnstructed(tolerations []corev1.Toleration) ([]map[string]interface{}, error) {
-	var convertedTolerations []map[string]interface{}
+func (r *SelfNodeRemediationConfigReconciler) convertTolerationsToUnstructed(tolerations []corev1.Toleration) ([]interface{}, error) {
+	var convertedTolerations []interface{}
 	for _, toleration := range tolerations {
 
 		convertedToleration, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&toleration)
