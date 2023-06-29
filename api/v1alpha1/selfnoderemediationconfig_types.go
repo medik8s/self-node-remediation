@@ -115,7 +115,7 @@ type SelfNodeRemediationConfigSpec struct {
 	EndpointHealthCheckUrl string `json:"endpointHealthCheckUrl,omitempty"`
 
 	// CustomDsTolerations allows to add custom tolerations snr agents that are running on the ds in order to support remediation for different types of nodes.
-	CustomDsTolerations []v1.Toleration `json:"customdstolerations,omitempty"`
+	CustomDsTolerations []v1.Toleration `json:"customDsTolerations,omitempty"`
 }
 
 // SelfNodeRemediationConfigStatus defines the observed state of SelfNodeRemediationConfig

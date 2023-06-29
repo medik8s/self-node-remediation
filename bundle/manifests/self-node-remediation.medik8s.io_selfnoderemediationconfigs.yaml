@@ -54,7 +54,7 @@ spec:
                   each api-connectivity check
                 pattern: ^(0|([0-9]+(\.[0-9]+)?(ms|s|m|h)))$
                 type: string
-              customdstolerations:
+              customDsTolerations:
                 description: CustomDsTolerations allows to add custom tolerations
                   snr agents that are running on the ds in order to support remediation
                   for different types of nodes.
