@@ -99,7 +99,7 @@ func testSingleInvalidField(validationType string) {
 	}
 
 	Context(fmt.Sprintf("%s validation of customized toleration", validationType), func() {
-		It("should be rejected", func() {
+		It("should be rejected - invalid operator value", func() {
 			snrc := createDefaultSelfNodeRemediationConfigCR()
 			snrc.Spec.CustomDsTolerations = []v1.Toleration{{Key: "validValue", Operator: "dummyInvalidOperatorValue"}}
 
@@ -113,6 +113,21 @@ func testSingleInvalidField(validationType string) {
 
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("invalid operator for tolerarion: dummyInvalidOperatorValue"))
+		})
+		It("should be rejected- non empty value when operator equals Exists", func() {
+			snrc := createDefaultSelfNodeRemediationConfigCR()
+			snrc.Spec.CustomDsTolerations = []v1.Toleration{{Value: "someValue", Operator: "Exists"}}
+
+			var err error
+			if validationType == "update" {
+				snrcOld := createDefaultSelfNodeRemediationConfigCR()
+				err = snrc.ValidateUpdate(snrcOld)
+			} else {
+				err = snrc.ValidateCreate()
+			}
+
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid value for tolerarion, value must be empty for Operator value is Exists"))
 		})
 	})
 }
