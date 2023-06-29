@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
 
 	"github.com/go-logr/logr"
 
@@ -220,34 +219,21 @@ func (r *SelfNodeRemediationConfigReconciler) updateDsTolerations(objs []*unstru
 }
 
 func (r *SelfNodeRemediationConfigReconciler) updateTolerationOnDs(ds *unstructured.Unstructured, toleration corev1.Toleration) error {
-	tolerations, _, err := unstructured.NestedFieldNoCopy(ds.Object, "spec", "template", "spec", "tolerations")
+	existingTolerations, _, err := unstructured.NestedSlice(ds.Object, "spec", "template", "spec", "tolerations")
 	if err != nil {
 		r.Log.Error(err, "tolerations not found in ds")
 		return err
 	}
 
-	updatedTolerations, ok := tolerations.([]interface{})
-	if !ok {
-		err := fmt.Errorf(fmt.Sprintf("failed to convert tolerations expected of type %T but got %T", []interface{}{}, tolerations))
-		r.Log.Error(err, err.Error())
+	r.Log.Info("updateTolerationOnDs original tolerations", "tolerations", existingTolerations)
+
+	newToleration, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&toleration)
+	if err != nil {
+		r.Log.Error(err, "couldn't convert toleration to unstructured")
 		return err
 	}
-	r.Log.Info("updateTolerationOnDs original tolerations", "tolerations", updatedTolerations)
 
-	configTolerations := map[string]interface{}{
-		"effect":   string(toleration.Effect),
-		"key":      toleration.Key,
-		"operator": string(toleration.Operator),
-	}
-	if len(toleration.Value) > 0 {
-		configTolerations["value"] = toleration.Value
-	}
-
-	if toleration.TolerationSeconds != nil {
-		configTolerations["tolerationseconds"] = strconv.FormatInt(*toleration.TolerationSeconds, 10)
-	}
-
-	updatedTolerations = append(updatedTolerations, configTolerations)
+	updatedTolerations := append(existingTolerations, newToleration)
 	if err := unstructured.SetNestedSlice(ds.Object, updatedTolerations, "spec", "template", "spec", "tolerations"); err != nil {
 		r.Log.Error(err, "failed to set tolerations")
 		return err
