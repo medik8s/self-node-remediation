@@ -209,34 +209,37 @@ func (r *SelfNodeRemediationConfigReconciler) updateDsTolerations(objs []*unstru
 	if len(tolerations) == 0 {
 		return nil
 	}
-	ds := objs[0]
-	for _, toleration := range tolerations {
-		if err := r.updateTolerationOnDs(ds, toleration); err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
-func (r *SelfNodeRemediationConfigReconciler) updateTolerationOnDs(ds *unstructured.Unstructured, toleration corev1.Toleration) error {
+	ds := objs[0]
 	existingTolerations, _, err := unstructured.NestedSlice(ds.Object, "spec", "template", "spec", "tolerations")
 	if err != nil {
-		r.Log.Error(err, "tolerations not found in ds")
+		r.Log.Error(err, "error fetching tolerations from ds")
 		return err
 	}
 
-	r.Log.Info("updateTolerationOnDs original tolerations", "tolerations", existingTolerations)
-
-	newToleration, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&toleration)
+	convertedTolerations, err := r.convertTolerationsToUnstructed(tolerations)
 	if err != nil {
-		r.Log.Error(err, "couldn't convert toleration to unstructured")
 		return err
 	}
-
-	updatedTolerations := append(existingTolerations, newToleration)
+	updatedTolerations := append(existingTolerations, convertedTolerations)
 	if err := unstructured.SetNestedSlice(ds.Object, updatedTolerations, "spec", "template", "spec", "tolerations"); err != nil {
 		r.Log.Error(err, "failed to set tolerations")
 		return err
 	}
+
 	return nil
+}
+
+func (r *SelfNodeRemediationConfigReconciler) convertTolerationsToUnstructed(tolerations []corev1.Toleration) ([]map[string]interface{}, error) {
+	var convertedTolerations []map[string]interface{}
+	for _, toleration := range tolerations {
+
+		convertedToleration, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&toleration)
+		if err != nil {
+			r.Log.Error(err, "couldn't convert toleration to unstructured")
+			return nil, err
+		}
+		convertedTolerations = append(convertedTolerations, convertedToleration)
+	}
+	return convertedTolerations, nil
 }
