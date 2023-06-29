@@ -176,13 +176,13 @@ func validateToleration(toleration v1.Toleration) error {
 		//Valid nothing to do
 		case v1.TolerationOpExists:
 			if len(toleration.Value) != 0 {
-				err := fmt.Errorf("invalid value for tolerarion, value must be empty for Operator value is Exists")
-				selfNodeRemediationConfigLog.Error(err, "invalid value for tolerarion, value must be empty for Operator value is Exists")
+				err := fmt.Errorf("invalid value for toleration, value must be empty for Operator value is Exists")
+				selfNodeRemediationConfigLog.Error(err, "invalid value for toleration, value must be empty for Operator value is Exists")
 				return err
 			}
 		default:
-			err := fmt.Errorf("invalid operator for tolerarion: %s", toleration.Operator)
-			selfNodeRemediationConfigLog.Error(err, "invalid operator for tolerarion", "valid values", []v1.TolerationOperator{v1.TolerationOpEqual, v1.TolerationOpExists}, "received value", toleration.Operator)
+			err := fmt.Errorf("invalid operator for toleration: %s", toleration.Operator)
+			selfNodeRemediationConfigLog.Error(err, "invalid operator for toleration", "valid values", []v1.TolerationOperator{v1.TolerationOpEqual, v1.TolerationOpExists}, "received value", toleration.Operator)
 			return err
 		}
 	}
@@ -192,8 +192,8 @@ func validateToleration(toleration v1.Toleration) error {
 		case v1.TaintEffectNoSchedule, v1.TaintEffectPreferNoSchedule, v1.TaintEffectNoExecute:
 			//Valid nothing to do
 		default:
-			err := fmt.Errorf("invalid taint effect for tolerarion: %s", toleration.Effect)
-			selfNodeRemediationConfigLog.Error(err, "invalid taint effect for tolerarion", "valid values", []v1.TaintEffect{v1.TaintEffectNoSchedule, v1.TaintEffectPreferNoSchedule, v1.TaintEffectNoExecute}, "received value", toleration.Effect)
+			err := fmt.Errorf("invalid taint effect for toleration: %s", toleration.Effect)
+			selfNodeRemediationConfigLog.Error(err, "invalid taint effect for toleration", "valid values", []v1.TaintEffect{v1.TaintEffectNoSchedule, v1.TaintEffectPreferNoSchedule, v1.TaintEffectNoExecute}, "received value", toleration.Effect)
 			return err
 		}
 	}

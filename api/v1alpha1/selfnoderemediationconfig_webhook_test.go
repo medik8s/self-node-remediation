@@ -112,7 +112,7 @@ func testSingleInvalidField(validationType string) {
 			}
 
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("invalid operator for tolerarion: dummyInvalidOperatorValue"))
+			Expect(err.Error()).To(ContainSubstring("invalid operator for toleration: dummyInvalidOperatorValue"))
 		})
 		It("should be rejected- non empty value when operator equals Exists", func() {
 			snrc := createDefaultSelfNodeRemediationConfigCR()
@@ -127,7 +127,7 @@ func testSingleInvalidField(validationType string) {
 			}
 
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("invalid value for tolerarion, value must be empty for Operator value is Exists"))
+			Expect(err.Error()).To(ContainSubstring("invalid value for toleration, value must be empty for Operator value is Exists"))
 		})
 	})
 }
