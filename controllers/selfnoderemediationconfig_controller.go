@@ -201,14 +201,19 @@ func (r *SelfNodeRemediationConfigReconciler) syncCerts(cr *selfnoderemediationv
 
 func (r *SelfNodeRemediationConfigReconciler) updateDsTolerations(objs []*unstructured.Unstructured, tolerations []corev1.Toleration) error {
 	r.Log.Info("Updating DS tolerations")
+	//Expecting to find a single DS object
+	if len(objs) != 1 {
+		err := fmt.Errorf("/install folder does not contain exectly one ds object")
+		r.Log.Error(err, "expecting exactly one ds element in /install folder", "actual number of elements", len(objs))
+		return err
+	}
 	if len(tolerations) == 0 {
 		return nil
 	}
+	ds := objs[0]
 	for _, toleration := range tolerations {
-		for _, ds := range objs {
-			if err := r.updateTolerationOnDs(ds, toleration); err != nil {
-				return err
-			}
+		if err := r.updateTolerationOnDs(ds, toleration); err != nil {
+			return err
 		}
 	}
 	return nil
