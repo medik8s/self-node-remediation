@@ -161,9 +161,6 @@ func (f *field) validate() error {
 
 func (r *SelfNodeRemediationConfig) validateCustomTolerations() error {
 	customTolerations := r.Spec.CustomDsTolerations
-	if len(customTolerations) == 0 {
-		return nil
-	}
 	for _, toleration := range customTolerations {
 		if err := validateToleration(toleration); err != nil {
 			return err
