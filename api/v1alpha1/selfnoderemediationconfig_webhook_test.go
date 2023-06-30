@@ -142,6 +142,9 @@ func testMultipleInvalidFields(validationType string) {
 		errorMsg += "\n" + item.name + " cannot be less than " + item.minDurationValue.String()
 	}
 
+	snrc.Spec.CustomDsTolerations = []v1.Toleration{{Key: "validValue", Operator: "dummyInvalidOperatorValue"}}
+	errorMsg += ", invalid operator for toleration: dummyInvalidOperatorValue"
+
 	Context("for CR multiple invalid fields", func() {
 		It("should be rejected", func() {
 			var err error
