@@ -22,7 +22,9 @@ import (
 	"path/filepath"
 	"time"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -96,14 +98,21 @@ var _ webhook.Validator = &SelfNodeRemediationConfig{}
 func (r *SelfNodeRemediationConfig) ValidateCreate() error {
 	selfNodeRemediationConfigLog.Info("validate create", "name", r.Name)
 
-	return r.validateTimes()
+	return errors.NewAggregate([]error{
+		r.validateTimes(),
+		r.validateCustomTolerations(),
+	})
+
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (r *SelfNodeRemediationConfig) ValidateUpdate(_ runtime.Object) error {
 	selfNodeRemediationConfigLog.Info("validate update", "name", r.Name)
 
-	return r.validateTimes()
+	return errors.NewAggregate([]error{
+		r.validateTimes(),
+		r.validateCustomTolerations(),
+	})
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
@@ -147,5 +156,46 @@ func (f *field) validate() error {
 		return err
 	}
 
+	return nil
+}
+
+func (r *SelfNodeRemediationConfig) validateCustomTolerations() error {
+	customTolerations := r.Spec.CustomDsTolerations
+	for _, toleration := range customTolerations {
+		if err := validateToleration(toleration); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateToleration(toleration v1.Toleration) error {
+	if len(toleration.Operator) > 0 {
+		switch toleration.Operator {
+		case v1.TolerationOpEqual:
+		//Valid nothing to do
+		case v1.TolerationOpExists:
+			if len(toleration.Value) != 0 {
+				err := fmt.Errorf("invalid value for toleration, value must be empty for Operator value is Exists")
+				selfNodeRemediationConfigLog.Error(err, "invalid value for toleration, value must be empty for Operator value is Exists")
+				return err
+			}
+		default:
+			err := fmt.Errorf("invalid operator for toleration: %s", toleration.Operator)
+			selfNodeRemediationConfigLog.Error(err, "invalid operator for toleration", "valid values", []v1.TolerationOperator{v1.TolerationOpEqual, v1.TolerationOpExists}, "received value", toleration.Operator)
+			return err
+		}
+	}
+
+	if len(toleration.Effect) > 0 {
+		switch toleration.Effect {
+		case v1.TaintEffectNoSchedule, v1.TaintEffectPreferNoSchedule, v1.TaintEffectNoExecute:
+			//Valid nothing to do
+		default:
+			err := fmt.Errorf("invalid taint effect for toleration: %s", toleration.Effect)
+			selfNodeRemediationConfigLog.Error(err, "invalid taint effect for toleration", "valid values", []v1.TaintEffect{v1.TaintEffectNoSchedule, v1.TaintEffectPreferNoSchedule, v1.TaintEffectNoExecute}, "received value", toleration.Effect)
+			return err
+		}
+	}
 	return nil
 }

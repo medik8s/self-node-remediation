@@ -1,12 +1,15 @@
 package v1alpha1
 
 import (
+	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/pointer"
 )
 
 // default CR fields durations
@@ -94,6 +97,39 @@ func testSingleInvalidField(validationType string) {
 			})
 		})
 	}
+
+	Context(fmt.Sprintf("%s validation of customized toleration", validationType), func() {
+		It("should be rejected - invalid operator value", func() {
+			snrc := createDefaultSelfNodeRemediationConfigCR()
+			snrc.Spec.CustomDsTolerations = []v1.Toleration{{Key: "validValue", Operator: "dummyInvalidOperatorValue"}}
+
+			var err error
+			if validationType == "update" {
+				snrcOld := createDefaultSelfNodeRemediationConfigCR()
+				err = snrc.ValidateUpdate(snrcOld)
+			} else {
+				err = snrc.ValidateCreate()
+			}
+
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid operator for toleration: dummyInvalidOperatorValue"))
+		})
+		It("should be rejected- non empty value when operator equals Exists", func() {
+			snrc := createDefaultSelfNodeRemediationConfigCR()
+			snrc.Spec.CustomDsTolerations = []v1.Toleration{{Value: "someValue", Operator: "Exists"}}
+
+			var err error
+			if validationType == "update" {
+				snrcOld := createDefaultSelfNodeRemediationConfigCR()
+				err = snrc.ValidateUpdate(snrcOld)
+			} else {
+				err = snrc.ValidateCreate()
+			}
+
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid value for toleration, value must be empty for Operator value is Exists"))
+		})
+	})
 }
 
 func testMultipleInvalidFields(validationType string) {
@@ -105,6 +141,9 @@ func testMultipleInvalidFields(validationType string) {
 		setFieldValue(snrc, item.name, item.durationValue)
 		errorMsg += "\n" + item.name + " cannot be less than " + item.minDurationValue.String()
 	}
+
+	snrc.Spec.CustomDsTolerations = []v1.Toleration{{Key: "validValue", Operator: "dummyInvalidOperatorValue"}}
+	errorMsg += ", invalid operator for toleration: dummyInvalidOperatorValue"
 
 	Context("for CR multiple invalid fields", func() {
 		It("should be rejected", func() {
@@ -134,6 +173,7 @@ func testValidCR(validationType string) {
 	snrc.Spec.PeerRequestTimeout = &metav1.Duration{Duration: 30 * time.Second}
 	snrc.Spec.ApiCheckInterval = &metav1.Duration{Duration: 10*time.Second + 500*time.Millisecond}
 	snrc.Spec.PeerUpdateInterval = &metav1.Duration{Duration: 10 * time.Second}
+	snrc.Spec.CustomDsTolerations = []v1.Toleration{{Key: "validValue", Effect: v1.TaintEffectNoExecute}, {}, {Operator: v1.TolerationOpEqual, TolerationSeconds: pointer.Int64(-5)}, {Value: "SomeValidValue"}}
 
 	Context("for valid CR", func() {
 		It("should not be rejected", func() {

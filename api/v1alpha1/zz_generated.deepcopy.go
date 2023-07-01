@@ -22,6 +22,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -144,6 +145,13 @@ func (in *SelfNodeRemediationConfigSpec) DeepCopyInto(out *SelfNodeRemediationCo
 		in, out := &in.PeerRequestTimeout, &out.PeerRequestTimeout
 		*out = new(v1.Duration)
 		**out = **in
+	}
+	if in.CustomDsTolerations != nil {
+		in, out := &in.CustomDsTolerations, &out.CustomDsTolerations
+		*out = make([]corev1.Toleration, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
 	}
 }
 

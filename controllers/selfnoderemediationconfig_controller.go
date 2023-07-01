@@ -24,6 +24,7 @@ import (
 	"github.com/go-logr/logr"
 
 	v1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -134,6 +135,12 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 		logger.Error(err, "Fail to render config daemon manifests")
 		return err
 	}
+
+	if err := r.updateDsTolerations(objs, snrConfig.Spec.CustomDsTolerations); err != nil {
+		logger.Error(err, "Fail update daemonset tolerations")
+		return err
+	}
+
 	// Sync DaemonSets
 	for _, obj := range objs {
 		err = r.syncK8sResource(ctx, snrConfig, obj)
@@ -189,4 +196,50 @@ func (r *SelfNodeRemediationConfigReconciler) syncCerts(cr *selfnoderemediationv
 		return err
 	}
 	return nil
+}
+
+func (r *SelfNodeRemediationConfigReconciler) updateDsTolerations(objs []*unstructured.Unstructured, tolerations []corev1.Toleration) error {
+	r.Log.Info("Updating DS tolerations")
+	//Expecting to find a single DS object
+	if len(objs) != 1 {
+		err := fmt.Errorf("/install folder does not contain exectly one ds object")
+		r.Log.Error(err, "expecting exactly one ds element in /install folder", "actual number of elements", len(objs))
+		return err
+	}
+	if len(tolerations) == 0 {
+		return nil
+	}
+
+	ds := objs[0]
+	existingTolerations, _, err := unstructured.NestedSlice(ds.Object, "spec", "template", "spec", "tolerations")
+	if err != nil {
+		r.Log.Error(err, "error fetching tolerations from ds")
+		return err
+	}
+
+	convertedTolerations, err := r.convertTolerationsToUnstructed(tolerations)
+	if err != nil {
+		return err
+	}
+	updatedTolerations := append(existingTolerations, convertedTolerations...)
+	if err := unstructured.SetNestedSlice(ds.Object, updatedTolerations, "spec", "template", "spec", "tolerations"); err != nil {
+		r.Log.Error(err, "failed to set tolerations")
+		return err
+	}
+
+	return nil
+}
+
+func (r *SelfNodeRemediationConfigReconciler) convertTolerationsToUnstructed(tolerations []corev1.Toleration) ([]interface{}, error) {
+	var convertedTolerations []interface{}
+	for _, toleration := range tolerations {
+
+		convertedToleration, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&toleration)
+		if err != nil {
+			r.Log.Error(err, "couldn't convert toleration to unstructured")
+			return nil, err
+		}
+		convertedTolerations = append(convertedTolerations, convertedToleration)
+	}
+	return convertedTolerations, nil
 }
