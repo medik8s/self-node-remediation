@@ -160,25 +160,9 @@ github.com/onsi/gomega/matchers/support/goraph/edge
 github.com/onsi/gomega/matchers/support/goraph/node
 github.com/onsi/gomega/matchers/support/goraph/util
 github.com/onsi/gomega/types
-# github.com/openshift/api v0.0.0-20201216151826-78a19e96f9eb
-## explicit; go 1.15
-github.com/openshift/api/config/v1
-# github.com/openshift/client-go v0.0.0-20201214125552-e615e336eb49
-## explicit; go 1.13
-github.com/openshift/client-go/config/clientset/versioned
-github.com/openshift/client-go/config/clientset/versioned/scheme
-github.com/openshift/client-go/config/clientset/versioned/typed/config/v1
-# github.com/openshift/cluster-api-provider-gcp v0.0.1-0.20201201000827-1117a4fc438c
-## explicit; go 1.15
-github.com/openshift/cluster-api-provider-gcp/pkg/apis/gcpprovider/v1beta1
-# github.com/openshift/machine-api-operator v0.2.1-0.20210104142355-8e6ae0acdfcf
-## explicit; go 1.13
-github.com/openshift/machine-api-operator/pkg/apis/machine
-github.com/openshift/machine-api-operator/pkg/apis/machine/v1beta1
-github.com/openshift/machine-api-operator/pkg/apis/vsphereprovider/v1beta1
-# github.com/openshift/machine-config-operator v0.0.1-0.20201023110058-6c8bd9b2915c
-## explicit; go 1.13
-github.com/openshift/machine-config-operator/pkg/apis/machineconfiguration.openshift.io/v1
+# github.com/openshift/api v0.0.0-20230414143018-3367bc7e6ac7
+## explicit; go 1.19
+github.com/openshift/api/machine/v1beta1
 # github.com/pkg/errors v0.9.1
 ## explicit
 github.com/pkg/errors
@@ -469,7 +453,6 @@ k8s.io/apimachinery/pkg/apis/meta/internalversion
 k8s.io/apimachinery/pkg/apis/meta/internalversion/scheme
 k8s.io/apimachinery/pkg/apis/meta/v1
 k8s.io/apimachinery/pkg/apis/meta/v1/unstructured
-k8s.io/apimachinery/pkg/apis/meta/v1/validation
 k8s.io/apimachinery/pkg/apis/meta/v1beta1
 k8s.io/apimachinery/pkg/conversion
 k8s.io/apimachinery/pkg/conversion/queryparams
@@ -683,12 +666,6 @@ k8s.io/utils/net
 k8s.io/utils/pointer
 k8s.io/utils/strings/slices
 k8s.io/utils/trace
-# sigs.k8s.io/cluster-api-provider-aws v0.0.0-00010101000000-000000000000 => github.com/openshift/cluster-api-provider-aws v0.2.1-0.20201216171336-0b00fb8d96ac
-## explicit; go 1.15
-sigs.k8s.io/cluster-api-provider-aws/pkg/apis/awsprovider/v1beta1
-# sigs.k8s.io/cluster-api-provider-azure v0.0.0-00010101000000-000000000000 => github.com/openshift/cluster-api-provider-azure v0.1.0-alpha.3.0.20201209184807-075372e2ed03
-## explicit; go 1.15
-sigs.k8s.io/cluster-api-provider-azure/pkg/apis/azureprovider/v1beta1
 # sigs.k8s.io/controller-runtime v0.14.5
 ## explicit; go 1.19
 sigs.k8s.io/controller-runtime
