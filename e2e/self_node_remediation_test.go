@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	commonlabels "github.com/medik8s/common/pkg/labels"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	gomegatypes "github.com/onsi/gomega/types"
@@ -25,7 +26,6 @@ import (
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/controllers"
 	"github.com/medik8s/self-node-remediation/e2e/utils"
-	labelUtils "github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
 const (
@@ -51,7 +51,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 			if node == nil {
 				// get worker node(s)
 				selector := labels.NewSelector()
-				req, _ := labels.NewRequirement(labelUtils.WorkerLabelName, selection.Exists, []string{})
+				req, _ := labels.NewRequirement(commonlabels.WorkerRole, selection.Exists, []string{})
 				selector = selector.Add(*req)
 				Expect(k8sClient.List(context.Background(), workers, &client.ListOptions{LabelSelector: selector})).ToNot(HaveOccurred())
 				Expect(len(workers.Items)).To(BeNumerically(">=", 2))
@@ -281,11 +281,11 @@ var _ = Describe("Self Node Remediation E2E", func() {
 			if controlPlaneNode == nil {
 				// get worker node(s)
 				selector := labels.NewSelector()
-				req, _ := labels.NewRequirement(labelUtils.MasterLabelName, selection.Exists, []string{})
+				req, _ := labels.NewRequirement(commonlabels.MasterRole, selection.Exists, []string{})
 				selector = selector.Add(*req)
 				if err := k8sClient.List(context.Background(), controlPlaneNodes, &client.ListOptions{LabelSelector: selector}); err != nil && errors.IsNotFound(err) {
 					selector = labels.NewSelector()
-					req, _ = labels.NewRequirement(labelUtils.ControlPlaneLabelName, selection.Exists, []string{})
+					req, _ = labels.NewRequirement(commonlabels.ControlPlaneRole, selection.Exists, []string{})
 					selector = selector.Add(*req)
 					Expect(k8sClient.List(context.Background(), controlPlaneNodes, &client.ListOptions{LabelSelector: selector})).ToNot(HaveOccurred())
 				}

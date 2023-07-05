@@ -14,8 +14,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/yaml"
-
-	mcfgv1 "github.com/openshift/machine-config-operator/pkg/apis/machineconfiguration.openshift.io/v1"
 )
 
 type Data struct {
@@ -24,7 +22,6 @@ type Data struct {
 }
 
 type Config struct {
-	*mcfgv1.ControllerConfigSpec
 	PullSecret string
 }
 

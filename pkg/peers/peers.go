@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	commonlabels "github.com/medik8s/common/pkg/labels"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -14,8 +15,6 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
 const (
@@ -73,8 +72,8 @@ func (p *Peers) Start(ctx context.Context) error {
 		p.log.Error(err, "failed to get own hostname")
 		return err
 	} else {
-		p.workerPeerSelector = createSelector(hostname, utils.WorkerLabelName)
-		p.controlPlanePeerSelector = createSelector(hostname, utils.GetControlPlaneLabel(myNode))
+		p.workerPeerSelector = createSelector(hostname, commonlabels.WorkerRole)
+		p.controlPlanePeerSelector = createSelector(hostname, getControlPlaneLabel(myNode))
 	}
 
 	go wait.UntilWithContext(ctx, func(ctx context.Context) {
@@ -153,4 +152,11 @@ func createSelector(hostNameToExclude string, nodeTypeLabel string) labels.Selec
 	selector := labels.NewSelector()
 	selector = selector.Add(*reqNotMe, *reqPeers)
 	return selector
+}
+
+func getControlPlaneLabel(node *v1.Node) string {
+	if _, isControlPlaneLabelExist := node.Labels[commonlabels.ControlPlaneRole]; isControlPlaneLabelExist {
+		return commonlabels.ControlPlaneRole
+	}
+	return commonlabels.MasterRole
 }

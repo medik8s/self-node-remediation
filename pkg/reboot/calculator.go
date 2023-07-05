@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	commonlabels "github.com/medik8s/common/pkg/labels"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -12,7 +13,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/medik8s/self-node-remediation/pkg/utils"
 	"github.com/medik8s/self-node-remediation/pkg/watchdog"
 )
 
@@ -82,7 +82,7 @@ func (s *safeTimeCalculator) calcMinTimeAssumeRebooted() {
 
 func (s *safeTimeCalculator) calcNumOfBatches() int {
 
-	reqPeers, _ := labels.NewRequirement(utils.WorkerLabelName, selection.Exists, []string{})
+	reqPeers, _ := labels.NewRequirement(commonlabels.WorkerRole, selection.Exists, []string{})
 	selector := labels.NewSelector()
 	selector = selector.Add(*reqPeers)
 
