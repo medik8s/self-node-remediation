@@ -8,7 +8,7 @@ metadata:
 spec:
   selector:
     matchLabels:
-      control-plane: controller-manager
+      app: self-node-remediation-agent
   template:
     metadata:
       creationTimestamp: null
