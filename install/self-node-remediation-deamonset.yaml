@@ -23,7 +23,6 @@ spec:
             type: Directory
       serviceAccountName: self-node-remediation-controller-manager
       priorityClassName: system-node-critical
-      hostPID: true
       containers:
       - args:
         - --is-manager=false
@@ -67,7 +66,6 @@ spec:
             mountPath: /dev
         securityContext:
           privileged: true
-          hostPID: true
         name: manager
         ports:
         - containerPort: 30001
