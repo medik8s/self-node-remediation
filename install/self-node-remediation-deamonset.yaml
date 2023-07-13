@@ -8,13 +8,14 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app: self-node-remediation-agent
+      app.kubernetes.io/name: self-node-remediation
+      app.kubernetes.io/component: agent
   template:
     metadata:
       creationTimestamp: null
       labels:
-        control-plane: controller-manager
-        app: self-node-remediation-agent
+        app.kubernetes.io/name: self-node-remediation
+        app.kubernetes.io/component: agent
     spec:
       volumes:
         - name: devices
