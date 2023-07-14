@@ -1,6 +1,6 @@
 # Build the manager binary
 FROM quay.io/centos/centos:stream8 AS builder
-RUN yum install golang -y
+RUN yum install golang -y && yum clean all
 
 # Ensure correct Go version
 ENV GO_VERSION=1.20
