@@ -163,11 +163,13 @@ BIN_ASSETS_DIR=$(shell pwd)/bin
 ENVTEST_ASSETS_DIR = ${BIN_ASSETS_DIR}/setup-envtest
 ENVTEST = $(shell pwd)/bin/setup-envtest
 
+# Use TEST_OPS to pass further options to `go test` (e.g. -gingo.v and/or -ginkgo.focus)
+export TEST_OPS ?= ""
 .PHONY: test
 test: envtest manifests generate fmt vet ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path --bin-dir $(PROJECT_DIR)/testbin)" \
 		KUBEBUILDER_CONTROLPLANE_STOP_TIMEOUT="60s"\
-		go test ./api/... ./controllers/... ./pkg/... -coverprofile cover.out -v
+		go test ./api/... ./controllers/... ./pkg/... -coverprofile cover.out -v ${TEST_OPS}
 
 .PHONY: bundle-run
 export BUNDLE_RUN_NAMESPACE ?= openshift-operators
@@ -328,7 +330,7 @@ protoc-gen-go-grpc: ## Download protoc-gen-go-grpc locally if necessary.
 e2e-test:
 	# KUBECONFIG must be set to the cluster, and PP needs to be deployed already
     # count arg makes the test ignoring cached test results
-	go test ./e2e -ginkgo.v -ginkgo.progress -test.v -timeout 60m -count=1
+	go test ./e2e -ginkgo.v -ginkgo.progress -test.v -timeout 60m -count=1 ${TEST_OPS}
 
 .PHONY: operator-sdk
 OPERATOR_SDK_BIN_FOLDER = ./bin/operator-sdk
