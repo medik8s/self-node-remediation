@@ -543,8 +543,9 @@ func verifyNodeIsUnschedulable() *v1.Node {
 func verifySelfNodeRemediationPodExist() {
 	podList := &v1.PodList{}
 	selector := labels.NewSelector()
-	requirement, _ := labels.NewRequirement("app", selection.Equals, []string{"self-node-remediation-agent"})
-	selector = selector.Add(*requirement)
+	nameRequirement, _ := labels.NewRequirement("app.kubernetes.io/name", selection.Equals, []string{"self-node-remediation"})
+	componentRequirement, _ := labels.NewRequirement("app.kubernetes.io/component", selection.Equals, []string{"agent"})
+	selector = selector.Add(*nameRequirement, *componentRequirement)
 
 	EventuallyWithOffset(1, func() (int, error) {
 		err := k8sClient.Client.List(context.Background(), podList, &client.ListOptions{LabelSelector: selector})
@@ -567,7 +568,9 @@ func createSNR(strategy v1alpha1.RemediationStrategyType) {
 func createSelfNodeRemediationPod() {
 	pod := &v1.Pod{}
 	pod.Spec.NodeName = unhealthyNodeName
-	pod.Labels = map[string]string{"app": "self-node-remediation-agent"}
+	pod.Labels = map[string]string{"app.kubernetes.io/name": "self-node-remediation",
+		"app.kubernetes.io/component": "agent"}
+
 	pod.Name = "self-node-remediation"
 	pod.Namespace = namespace
 	container := v1.Container{

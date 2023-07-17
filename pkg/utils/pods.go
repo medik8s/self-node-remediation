@@ -14,8 +14,9 @@ func GetSelfNodeRemediationAgentPod(nodeName string, r client.Reader) (*v1.Pod, 
 	podList := &v1.PodList{}
 
 	selector := labels.NewSelector()
-	requirement, _ := labels.NewRequirement("app", selection.Equals, []string{"self-node-remediation-agent"})
-	selector = selector.Add(*requirement)
+	nameRequirement, _ := labels.NewRequirement("app.kubernetes.io/name", selection.Equals, []string{"self-node-remediation"})
+	componentRequirement, _ := labels.NewRequirement("app.kubernetes.io/component", selection.Equals, []string{"agent"})
+	selector = selector.Add(*nameRequirement, *componentRequirement)
 
 	err := r.List(context.Background(), podList, &client.ListOptions{LabelSelector: selector})
 	if err != nil {
