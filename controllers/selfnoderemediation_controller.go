@@ -871,6 +871,7 @@ func (r *SelfNodeRemediationReconciler) removeOutOfServiceTaint(node *v1.Node) e
 		r.logger.Error(err, "Failed to remove taint from node,", "node name", node.Name, "taint key", OutOfServiceTaint.Key, "taint effect", OutOfServiceTaint.Effect)
 		return err
 	}
+	r.logger.Info("outofservice taint removed", "new taints", node.Spec.Taints)
 	return nil
 }
 
@@ -882,6 +883,7 @@ func (r *SelfNodeRemediationReconciler) isResourceDeletionCompleted(node *v1.Nod
 	}
 	for _, pod := range pods.Items {
 		if pod.Spec.NodeName == node.Name && r.isPodTerminating(&pod) {
+			r.logger.Info("waiting for terminating pod ", "pod name", pod.Name, "phase", pod.Status.Phase)
 			return false
 		}
 	}
@@ -892,6 +894,7 @@ func (r *SelfNodeRemediationReconciler) isResourceDeletionCompleted(node *v1.Nod
 	}
 	for _, va := range volumeAttachments.Items {
 		if va.Spec.NodeName == node.Name {
+			r.logger.Info("waiting for deleting volumeAttachement", "name", va.Name)
 			return false
 		}
 	}
