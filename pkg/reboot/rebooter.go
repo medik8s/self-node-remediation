@@ -82,7 +82,7 @@ func (r *watchdogRebooter) Reboot() error {
 func (r *watchdogRebooter) softwareReboot() error {
 	r.log.Info("about to try software reboot")
 	// hostPID: true and privileged:true required to run this
-	rebootCmd := exec.Command("bash", "-b", "echo c > /proc/sysrq-trigger")
+	rebootCmd := exec.Command("/usr/bin/nsenter", "-m/proc/1/ns/mnt", "bash", "-b", "echo c > /proc/sysrq-trigger")
 
 	if err := rebootCmd.Run(); err != nil {
 		r.log.Error(err, "failed to run reboot command")
