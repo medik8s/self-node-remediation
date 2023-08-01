@@ -5,6 +5,8 @@ metadata:
   namespace: {{.Namespace}}
   labels:
     k8s-app: self-node-remediation
+  annotations:
+    dsLastChangeVersion: rhwa-23.3
 spec:
   selector:
     matchLabels:

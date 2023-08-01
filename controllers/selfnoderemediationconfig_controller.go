@@ -40,7 +40,11 @@ import (
 	"github.com/medik8s/self-node-remediation/pkg/render"
 )
 
-const dsName = "self-node-remediation-ds"
+const (
+	dsName                   = "self-node-remediation-ds"
+	lastChangedAnnotationKey = "dsLastChangeVersion"
+	lastChangeAnnotationVal  = "rhwa-23.3"
+)
 
 // SelfNodeRemediationConfigReconciler reconciles a SelfNodeRemediationConfig object
 type SelfNodeRemediationConfigReconciler struct {
@@ -107,7 +111,7 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 	logger := r.Log.WithName("syncConfigDaemonset")
 	logger.Info("Start to sync config daemonset")
 
-	if err := r.removeOldDS(ctx); err != nil {
+	if err := r.removeOldDsOnUpdateOperator(ctx); err != nil {
 		return err
 	}
 
@@ -252,7 +256,7 @@ func (r *SelfNodeRemediationConfigReconciler) convertTolerationsToUnstructed(tol
 	return convertedTolerations, nil
 }
 
-func (r *SelfNodeRemediationConfigReconciler) removeOldDS(ctx context.Context) error {
+func (r *SelfNodeRemediationConfigReconciler) removeOldDsOnUpdateOperator(ctx context.Context) error {
 	ds := &v1.DaemonSet{}
 	key := types.NamespacedName{
 		Namespace: r.Namespace,
@@ -260,6 +264,11 @@ func (r *SelfNodeRemediationConfigReconciler) removeOldDS(ctx context.Context) e
 	}
 
 	if err := r.Client.Get(ctx, key, ds); err == nil {
+		if lastChangedActualVal, _ := ds.Annotations[lastChangedAnnotationKey]; lastChangedActualVal == lastChangeAnnotationVal {
+			//ds is up-to-date this is not an update scenario
+			return nil
+		}
+
 		if err = r.Client.Delete(ctx, ds); err != nil {
 			r.Log.Error(err, "snr update failed could not delete old daemonset")
 			return pkgerrors.Wrap(err, "unable to delete old daemon set")
