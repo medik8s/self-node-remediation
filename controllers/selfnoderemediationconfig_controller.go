@@ -41,9 +41,7 @@ import (
 )
 
 const (
-	dsName                   = "self-node-remediation-ds"
 	lastChangedAnnotationKey = "snr.medik8s.io/force-deletion-revision"
-	lastChangeAnnotationVal  = "1"
 )
 
 // SelfNodeRemediationConfigReconciler reconciles a SelfNodeRemediationConfig object
@@ -111,10 +109,6 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 	logger := r.Log.WithName("syncConfigDaemonset")
 	logger.Info("Start to sync config daemonset")
 
-	if err := r.removeOldDsOnUpdateOperator(ctx); err != nil {
-		return err
-	}
-
 	data := render.MakeRenderData()
 	data.Data["Image"] = os.Getenv("SELF_NODE_REMEDIATION_IMAGE")
 	data.Data["Namespace"] = snrConfig.Namespace
@@ -155,6 +149,9 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 
 	// Sync DaemonSets
 	for _, obj := range objs {
+		if err := r.removeOldDsOnUpdateOperator(ctx, obj.GetName(), obj.GetAnnotations()[lastChangedAnnotationKey]); err != nil {
+			return err
+		}
 		err = r.syncK8sResource(ctx, snrConfig, obj)
 		if err != nil {
 			logger.Error(err, "Couldn't sync self-node-remediation daemons objects")
@@ -256,7 +253,7 @@ func (r *SelfNodeRemediationConfigReconciler) convertTolerationsToUnstructed(tol
 	return convertedTolerations, nil
 }
 
-func (r *SelfNodeRemediationConfigReconciler) removeOldDsOnUpdateOperator(ctx context.Context) error {
+func (r *SelfNodeRemediationConfigReconciler) removeOldDsOnUpdateOperator(ctx context.Context, dsName string, lastVersion string) error {
 	ds := &v1.DaemonSet{}
 	key := types.NamespacedName{
 		Namespace: r.Namespace,
@@ -264,7 +261,7 @@ func (r *SelfNodeRemediationConfigReconciler) removeOldDsOnUpdateOperator(ctx co
 	}
 
 	if err := r.Client.Get(ctx, key, ds); err == nil {
-		if lastChangedFoundVal, _ := ds.Annotations[lastChangedAnnotationKey]; lastChangedFoundVal == lastChangeAnnotationVal {
+		if lastChangedFoundVal, _ := ds.Annotations[lastChangedAnnotationKey]; lastChangedFoundVal == lastVersion {
 			//ds is up-to-date this is not an update scenario
 			return nil
 		}
