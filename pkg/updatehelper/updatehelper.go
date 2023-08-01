@@ -40,14 +40,14 @@ func (ui *UpdateInitializer) Start(ctx context.Context) error {
 	}
 	if err := ui.client.Get(ctx, key, ds); err == nil {
 		if err = ui.client.Delete(ctx, ds); err != nil {
-			ui.log.Error(err, "snr update failed could not delete old damenoset")
+			ui.log.Error(err, "snr update failed could not delete old daemonset")
 			return errors.Wrap(err, "unable to delete old daemon set")
 		}
 		ui.log.Info("snr update old daemonset deleted")
 		return nil
 
 	} else if !apierrors.IsNotFound(err) {
-		ui.log.Error(err, "snr install/update failed error when trying to fetch old damenoset")
+		ui.log.Error(err, "snr install/update failed error when trying to fetch old daemonset")
 		return errors.Wrap(err, "unable to fetch daemon set")
 	}
 
