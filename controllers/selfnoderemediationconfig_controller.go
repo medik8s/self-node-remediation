@@ -42,8 +42,8 @@ import (
 
 const (
 	dsName                   = "self-node-remediation-ds"
-	lastChangedAnnotationKey = "dsLastChangeVersion"
-	lastChangeAnnotationVal  = "rhwa-23.3"
+	lastChangedAnnotationKey = "snr.medik8s.io/force-deletion-revision"
+	lastChangeAnnotationVal  = "1"
 )
 
 // SelfNodeRemediationConfigReconciler reconciles a SelfNodeRemediationConfig object
@@ -264,7 +264,7 @@ func (r *SelfNodeRemediationConfigReconciler) removeOldDsOnUpdateOperator(ctx co
 	}
 
 	if err := r.Client.Get(ctx, key, ds); err == nil {
-		if lastChangedActualVal, _ := ds.Annotations[lastChangedAnnotationKey]; lastChangedActualVal == lastChangeAnnotationVal {
+		if lastChangedFoundVal, _ := ds.Annotations[lastChangedAnnotationKey]; lastChangedFoundVal == lastChangeAnnotationVal {
 			//ds is up-to-date this is not an update scenario
 			return nil
 		}

@@ -6,7 +6,7 @@ metadata:
   labels:
     k8s-app: self-node-remediation
   annotations:
-    dsLastChangeVersion: rhwa-23.3
+    snr.medik8s.io/force-deletion-revision: 1
 spec:
   selector:
     matchLabels:
