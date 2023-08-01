@@ -22,12 +22,14 @@ import (
 	"os"
 
 	"github.com/go-logr/logr"
+	pkgerrors "github.com/pkg/errors"
 
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -37,6 +39,8 @@ import (
 	"github.com/medik8s/self-node-remediation/pkg/certificates"
 	"github.com/medik8s/self-node-remediation/pkg/render"
 )
+
+const dsName = "self-node-remediation-ds"
 
 // SelfNodeRemediationConfigReconciler reconciles a SelfNodeRemediationConfig object
 type SelfNodeRemediationConfigReconciler struct {
@@ -102,6 +106,10 @@ func (r *SelfNodeRemediationConfigReconciler) SetupWithManager(mgr ctrl.Manager)
 func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Context, snrConfig *selfnoderemediationv1alpha1.SelfNodeRemediationConfig) error {
 	logger := r.Log.WithName("syncConfigDaemonset")
 	logger.Info("Start to sync config daemonset")
+
+	if err := r.removeOldDS(ctx); err != nil {
+		return err
+	}
 
 	data := render.MakeRenderData()
 	data.Data["Image"] = os.Getenv("SELF_NODE_REMEDIATION_IMAGE")
@@ -242,4 +250,28 @@ func (r *SelfNodeRemediationConfigReconciler) convertTolerationsToUnstructed(tol
 		convertedTolerations = append(convertedTolerations, convertedToleration)
 	}
 	return convertedTolerations, nil
+}
+
+func (r *SelfNodeRemediationConfigReconciler) removeOldDS(ctx context.Context) error {
+	ds := &v1.DaemonSet{}
+	key := types.NamespacedName{
+		Namespace: r.Namespace,
+		Name:      dsName,
+	}
+
+	if err := r.Client.Get(ctx, key, ds); err == nil {
+		if err = r.Client.Delete(ctx, ds); err != nil {
+			r.Log.Error(err, "snr update failed could not delete old daemonset")
+			return pkgerrors.Wrap(err, "unable to delete old daemon set")
+		}
+		r.Log.Info("snr update old daemonset deleted")
+		return nil
+
+	} else if !errors.IsNotFound(err) {
+		r.Log.Error(err, "snr install/update failed error when trying to fetch old daemonset")
+		return pkgerrors.Wrap(err, "unable to fetch daemon set")
+	}
+
+	r.Log.Info("snr didn't find old daemonset to be deleted")
+	return nil
 }

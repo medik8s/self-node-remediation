@@ -49,7 +49,6 @@ import (
 	"github.com/medik8s/self-node-remediation/pkg/reboot"
 	"github.com/medik8s/self-node-remediation/pkg/snrconfighelper"
 	"github.com/medik8s/self-node-remediation/pkg/template"
-	"github.com/medik8s/self-node-remediation/pkg/updatehelper"
 	"github.com/medik8s/self-node-remediation/pkg/utils"
 	"github.com/medik8s/self-node-remediation/pkg/watchdog"
 	//+kubebuilder:scaffold:imports
@@ -183,13 +182,6 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 		setupLog.Error(err, "failed to add template creator to the manager")
 		os.Exit(1)
 	}
-
-	updateInitializer := updatehelper.New(mgr.GetClient(), ctrl.Log.WithName("update initializer"))
-	if err = mgr.Add(updateInitializer); err != nil {
-		setupLog.Error(err, "failed to add update initializer to the manager")
-		os.Exit(1)
-	}
-
 }
 
 func getDurEnvVarOrDie(varName string) time.Duration {
