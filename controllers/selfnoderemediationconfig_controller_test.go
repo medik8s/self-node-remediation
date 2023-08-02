@@ -38,6 +38,11 @@ var _ = Describe("snrc controller Test", func() {
 	})
 
 	Context("DS installation", func() {
+		key := types.NamespacedName{
+			Namespace: namespace,
+			Name:      dsName,
+		}
+
 		JustBeforeEach(func() {
 			Expect(k8sClient.Create(context.Background(), config)).To(Succeed())
 			DeferCleanup(func() {
@@ -69,10 +74,6 @@ var _ = Describe("snrc controller Test", func() {
 		})
 
 		It("Daemonset should be created", func() {
-			key := types.NamespacedName{
-				Namespace: namespace,
-				Name:      dsName,
-			}
 			Eventually(func() error {
 				return k8sClient.Get(context.Background(), key, ds)
 			}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
@@ -96,10 +97,6 @@ var _ = Describe("snrc controller Test", func() {
 				config.Spec.CustomDsTolerations = []corev1.Toleration{expectedToleration}
 			})
 			It("Daemonset should have customized tolerations", func() {
-				key := types.NamespacedName{
-					Namespace: namespace,
-					Name:      dsName,
-				}
 				Eventually(func() error {
 					return k8sClient.Get(context.Background(), key, ds)
 				}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
@@ -120,6 +117,49 @@ var _ = Describe("snrc controller Test", func() {
 				//verify toleration remains on ds
 				verifyExpectedToleration(ds, &expectedToleration)
 
+			})
+		})
+
+		Context("DS Recreation on Operator Update", func() {
+			var timeToWaitForDsUpdate = 6 * time.Second
+			var oldDsVersion, currentDsVersion = "0", "1"
+
+			JustBeforeEach(func() {
+				Expect(k8sClient.Create(context.Background(), ds)).To(Succeed())
+				Eventually(func() error {
+					return k8sClient.Get(context.Background(), key, ds)
+				}, 2*time.Second, 250*time.Millisecond).Should(BeNil())
+
+			})
+			When("ds version has not changed", func() {
+				BeforeEach(func() {
+					ds = generateDs(dsName, namespace, currentDsVersion)
+				})
+				It("Daemonset should not recreated", func() {
+					//Wait to make sure DS isn't recreated
+					time.Sleep(timeToWaitForDsUpdate)
+					Expect(k8sClient.Get(context.Background(), key, ds)).To(BeNil())
+					Expect(ds.Annotations["original-ds"]).To(Equal("true"))
+
+				})
+			})
+
+			When("ds version has changed", func() {
+				BeforeEach(func() {
+					//creating an DS with old version
+					ds = generateDs(dsName, namespace, oldDsVersion)
+				})
+				It("Daemonset should be recreated", func() {
+					//Wait until DS is recreated
+					Eventually(func() bool {
+						if err := k8sClient.Get(context.Background(), key, ds); err == nil {
+							return ds.Annotations["snr.medik8s.io/force-deletion-revision"] == currentDsVersion
+						}
+						return false
+					}, timeToWaitForDsUpdate, 250*time.Millisecond).Should(BeTrue())
+					Expect(ds.Annotations["original-ds"]).To(Equal(""))
+
+				})
 			})
 		})
 	})
@@ -218,4 +258,45 @@ func getEnvVarMap(vars []corev1.EnvVar) map[string]corev1.EnvVar {
 		m[envVar.Name] = envVar
 	}
 	return m
+}
+
+func generateDs(name, namespace, version string) *appsv1.DaemonSet {
+	return &appsv1.DaemonSet{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "DaemonSet",
+			APIVersion: "apps/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        name,
+			Namespace:   namespace,
+			Annotations: map[string]string{"snr.medik8s.io/force-deletion-revision": version, "original-ds": "true"},
+		},
+		Spec: appsv1.DaemonSetSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"app": "example",
+				},
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{
+						"app": "example",
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "example-container",
+							Image: "busybox",
+							Command: []string{
+								"/bin/sh",
+								"-c",
+								"while true; do echo hello; sleep 10;done",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
 }
