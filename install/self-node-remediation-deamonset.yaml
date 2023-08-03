@@ -5,16 +5,19 @@ metadata:
   namespace: {{.Namespace}}
   labels:
     k8s-app: self-node-remediation
+  annotations:
+    snr.medik8s.io/force-deletion-revision: "1"
 spec:
   selector:
     matchLabels:
-      control-plane: controller-manager
+      app.kubernetes.io/name: self-node-remediation
+      app.kubernetes.io/component: agent
   template:
     metadata:
       creationTimestamp: null
       labels:
-        control-plane: controller-manager
-        app: self-node-remediation-agent
+        app.kubernetes.io/name: self-node-remediation
+        app.kubernetes.io/component: agent
     spec:
       volumes:
         - name: devices

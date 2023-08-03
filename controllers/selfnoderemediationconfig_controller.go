@@ -22,12 +22,14 @@ import (
 	"os"
 
 	"github.com/go-logr/logr"
+	pkgerrors "github.com/pkg/errors"
 
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -36,6 +38,10 @@ import (
 	"github.com/medik8s/self-node-remediation/pkg/apply"
 	"github.com/medik8s/self-node-remediation/pkg/certificates"
 	"github.com/medik8s/self-node-remediation/pkg/render"
+)
+
+const (
+	lastChangedAnnotationKey = "snr.medik8s.io/force-deletion-revision"
 )
 
 // SelfNodeRemediationConfigReconciler reconciles a SelfNodeRemediationConfig object
@@ -143,6 +149,9 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 
 	// Sync DaemonSets
 	for _, obj := range objs {
+		if err := r.removeOldDsOnOperatorUpdate(ctx, obj.GetName(), obj.GetAnnotations()[lastChangedAnnotationKey]); err != nil {
+			return err
+		}
 		err = r.syncK8sResource(ctx, snrConfig, obj)
 		if err != nil {
 			logger.Error(err, "Couldn't sync self-node-remediation daemons objects")
@@ -242,4 +251,35 @@ func (r *SelfNodeRemediationConfigReconciler) convertTolerationsToUnstructed(tol
 		convertedTolerations = append(convertedTolerations, convertedToleration)
 	}
 	return convertedTolerations, nil
+}
+
+func (r *SelfNodeRemediationConfigReconciler) removeOldDsOnOperatorUpdate(ctx context.Context, dsName string, lastVersion string) error {
+	ds := &v1.DaemonSet{}
+	key := types.NamespacedName{
+		Namespace: r.Namespace,
+		Name:      dsName,
+	}
+
+	if err := r.Client.Get(ctx, key, ds); err != nil {
+		if !errors.IsNotFound(err) {
+			r.Log.Error(err, "snr install/update failed error when trying to fetch old daemonset")
+			return pkgerrors.Wrap(err, "unable to fetch daemon set")
+		}
+		r.Log.Info("snr didn't find old daemonset to be deleted")
+		return nil
+
+	}
+
+	if lastChangedFoundVal, _ := ds.Annotations[lastChangedAnnotationKey]; lastChangedFoundVal == lastVersion {
+		//ds is up-to-date this is not an update scenario
+		return nil
+	}
+
+	if err := r.Client.Delete(ctx, ds); err != nil {
+		r.Log.Error(err, "snr update failed could not delete old daemonset")
+		return pkgerrors.Wrap(err, "unable to delete old daemon set")
+	}
+	r.Log.Info("snr update old daemonset deleted")
+	return nil
+
 }
