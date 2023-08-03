@@ -17,6 +17,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/medik8s/self-node-remediation/pkg/certificates"
 	"github.com/medik8s/self-node-remediation/pkg/peers"
 )
 
@@ -150,7 +151,10 @@ func (manager *Manager) isEndpointAccessible() bool {
 func (manager *Manager) isKubeletServiceRunning() bool {
 	url := fmt.Sprintf("https://%s:%s/pods", manager.nodeName, kubeletPort)
 	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+			MinVersion:         certificates.TLSMinVersion,
+		},
 	}
 	httpClient := &http.Client{Transport: tr}
 

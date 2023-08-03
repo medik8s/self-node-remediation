@@ -8,6 +8,8 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
+const TLSMinVersion = tls.VersionTLS13
+
 func GetServerCredentialsFromCerts(certReader CertStorageReader) (credentials.TransportCredentials, error) {
 
 	keyPair, pool, err := prepareCredentials(certReader)
@@ -19,6 +21,7 @@ func GetServerCredentialsFromCerts(certReader CertStorageReader) (credentials.Tr
 		Certificates: []tls.Certificate{*keyPair},
 		ClientAuth:   tls.RequireAndVerifyClientCert,
 		ClientCAs:    pool,
+		MinVersion:   TLSMinVersion,
 	}), nil
 }
 
@@ -33,6 +36,7 @@ func GetClientCredentialsFromCerts(certReader CertStorageReader) (credentials.Tr
 		Certificates: []tls.Certificate{*keyPair},
 		RootCAs:      pool,
 		ServerName:   fixedCertIP.String(),
+		MinVersion:   TLSMinVersion,
 	}), nil
 }
 

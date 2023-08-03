@@ -82,7 +82,7 @@ func (r *watchdogRebooter) Reboot() error {
 func (r *watchdogRebooter) softwareReboot() error {
 	r.log.Info("about to try software reboot")
 	// privileged:true required to run this
-	rebootCmd := exec.Command("/usr/bin/nsenter", "-m/proc/1/ns/mnt", "/bin/systemctl", "reboot", "--force", "--force")
+	rebootCmd := exec.Command("/usr/bin/nsenter", "-m/proc/1/ns/mnt", "/bin/bash", "-c", "echo b > /proc/sysrq-trigger")
 
 	if err := rebootCmd.Run(); err != nil {
 		r.log.Error(err, "failed to run reboot command")
