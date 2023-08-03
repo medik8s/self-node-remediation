@@ -28,12 +28,13 @@ const (
 )
 
 var _ = Describe("snr Controller", func() {
-	snr := &v1alpha1.SelfNodeRemediation{}
-	snr.Name = unhealthyNodeName
-	snr.Namespace = snrNamespace
+	var snr *v1alpha1.SelfNodeRemediation
 
 	BeforeEach(func() {
 		k8sClient.ShouldSimulateFailure = false
+		snr = &v1alpha1.SelfNodeRemediation{}
+		snr.Name = unhealthyNodeName
+		snr.Namespace = snrNamespace
 	})
 
 	AfterEach(func() {
@@ -66,7 +67,7 @@ var _ = Describe("snr Controller", func() {
 		//be in a safe state (i.e. rebooted)
 		var remediationStrategy v1alpha1.RemediationStrategyType
 		JustBeforeEach(func() {
-			createSNR(remediationStrategy)
+			createSNR(snr, remediationStrategy)
 		})
 
 		AfterEach(func() {
@@ -104,7 +105,7 @@ var _ = Describe("snr Controller", func() {
 
 			BeforeEach(func() {
 				createSelfNodeRemediationPod()
-				createSNR(v1alpha1.ResourceDeletionRemediationStrategy)
+				createSNR(snr, v1alpha1.ResourceDeletionRemediationStrategy)
 			})
 
 			AfterEach(func() {
@@ -139,13 +140,22 @@ var _ = Describe("snr Controller", func() {
 	Context("Unhealthy node with api-server access", func() {
 		var remediationStrategy v1alpha1.RemediationStrategyType
 		var isSNRNeedsDeletion = true
+		var vaName = "some-va"
+		var isSetResources = true
 		JustBeforeEach(func() {
-			createSelfNodeRemediationPod()
-			updateIsRebootCapable("true")
-			createSNR(remediationStrategy)
+			if isSetResources {
+				createVolumeAttachment(vaName)
+				createSelfNodeRemediationPod()
+				updateIsRebootCapable("true")
+				By("make sure self node remediation exists with correct label")
+				verifySelfNodeRemediationPodExist()
+			}
 
-			By("make sure self node remediation exists with correct label")
-			verifySelfNodeRemediationPodExist()
+			createSNR(snr, remediationStrategy)
+		})
+
+		BeforeEach(func() {
+			isSetResources = true
 		})
 
 		AfterEach(func() {
@@ -156,11 +166,9 @@ var _ = Describe("snr Controller", func() {
 		})
 
 		Context("ResourceDeletion strategy", func() {
-			var vaName = "some-va"
 
 			BeforeEach(func() {
 				remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
-				createVolumeAttachment(vaName)
 			})
 
 			AfterEach(func() {
@@ -172,7 +180,7 @@ var _ = Describe("snr Controller", func() {
 
 				addUnschedulableTaint(node)
 
-				verifyTypeConditions(metav1.ConditionTrue, metav1.ConditionUnknown)
+				verifyTypeConditions(snr.Name, metav1.ConditionTrue, metav1.ConditionUnknown, "RemediationStarted")
 
 				verifyTimeHasBeenRebootedExists()
 
@@ -186,7 +194,7 @@ var _ = Describe("snr Controller", func() {
 
 				verifyNoExecuteTaintExist()
 
-				verifyTypeConditions(metav1.ConditionFalse, metav1.ConditionTrue)
+				verifyTypeConditions(snr.Name, metav1.ConditionFalse, metav1.ConditionTrue, "RemediationFinishedSuccessfully")
 
 				deleteSNR(snr)
 				isSNRNeedsDeletion = false
@@ -208,7 +216,7 @@ var _ = Describe("snr Controller", func() {
 
 				addUnschedulableTaint(node)
 
-				verifyTypeConditions(metav1.ConditionTrue, metav1.ConditionUnknown)
+				verifyTypeConditions(snr.Name, metav1.ConditionTrue, metav1.ConditionUnknown, "RemediationStarted")
 
 				verifyTimeHasBeenRebootedExists()
 
@@ -236,15 +244,21 @@ var _ = Describe("snr Controller", func() {
 				verifySNRDoesNotExists()
 
 			})
+			When("Node isn't found", func() {
+				BeforeEach(func() {
+					isSetResources = false
+					snr.Name = "non-existing-node"
+				})
 
+				It("remediation should stop and update conditions", func() {
+					verifyTypeConditions(snr.Name, metav1.ConditionFalse, metav1.ConditionFalse, "RemediationFinishedNodeNotFound")
+				})
+			})
 		})
 
 		Context("OutOfServiceTaint strategy", func() {
-			var vaName = "some-va"
-
 			BeforeEach(func() {
 				remediationStrategy = v1alpha1.OutOfServiceTaintRemediationStrategy
-				createVolumeAttachment(vaName)
 			})
 
 			AfterEach(func() {
@@ -256,7 +270,7 @@ var _ = Describe("snr Controller", func() {
 
 				addUnschedulableTaint(node)
 
-				verifyTypeConditions(metav1.ConditionTrue, metav1.ConditionUnknown)
+				verifyTypeConditions(snr.Name, metav1.ConditionTrue, metav1.ConditionUnknown, "RemediationStarted")
 
 				// The normal NoExecute taint tries to delete pods, however it can't delete pods
 				// with stateful workloads like volumes and they are stuck in terminating status.
@@ -278,7 +292,7 @@ var _ = Describe("snr Controller", func() {
 
 				verifyOutOfServiceTaintRemoved()
 
-				verifyTypeConditions(metav1.ConditionFalse, metav1.ConditionTrue)
+				verifyTypeConditions(snr.Name, metav1.ConditionFalse, metav1.ConditionTrue, "RemediationFinishedSuccessfully")
 
 				deleteSNR(snr)
 				isSNRNeedsDeletion = false
@@ -303,7 +317,7 @@ var _ = Describe("snr Controller", func() {
 		BeforeEach(func() {
 			By("Simulate api-server failure")
 			k8sClient.ShouldSimulateFailure = true
-			createSNR(v1alpha1.ResourceDeletionRemediationStrategy)
+			createSNR(snr, v1alpha1.ResourceDeletionRemediationStrategy)
 		})
 
 		AfterEach(func() {
@@ -346,18 +360,20 @@ func createVolumeAttachment(vaName string) {
 	ExpectWithOffset(1, k8sClient.Create(context.Background(), va)).To(Succeed())
 }
 
-func verifyTypeConditions(expectedProcessingConditionStatus, expectedSucceededConditionStatus metav1.ConditionStatus) {
+func verifyTypeConditions(nodeName string, expectedProcessingConditionStatus, expectedSucceededConditionStatus metav1.ConditionStatus, expectedReason string) {
 	By("Verify that SNR Processing status condition is correct")
 	snr := &v1alpha1.SelfNodeRemediation{}
 	Eventually(func() bool {
-		snrNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: snrNamespace}
+		snrNamespacedName := client.ObjectKey{Name: nodeName, Namespace: snrNamespace}
 		if err := k8sClient.Client.Get(context.Background(), snrNamespacedName, snr); err != nil {
 			return false
 		}
-		isActualProcessingMatchExpected := meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, v1alpha1.ProcessingConditionType, expectedProcessingConditionStatus)
+		actualProcessingCondition := meta.FindStatusCondition(snr.Status.Conditions, v1alpha1.ProcessingConditionType)
+		isActualProcessingMatchExpected := actualProcessingCondition != nil && actualProcessingCondition.Status == expectedProcessingConditionStatus
 		isActualSucceededMatchExpected := meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, v1alpha1.SucceededConditionType, expectedSucceededConditionStatus)
+
 		return isActualProcessingMatchExpected &&
-			isActualSucceededMatchExpected
+			isActualSucceededMatchExpected && actualProcessingCondition.Reason == expectedReason
 
 	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
 }
@@ -556,10 +572,7 @@ func deleteSNR(snr *v1alpha1.SelfNodeRemediation) {
 	ExpectWithOffset(1, k8sClient.Client.Delete(context.Background(), snr)).To(Succeed(), "failed to delete snr CR")
 }
 
-func createSNR(strategy v1alpha1.RemediationStrategyType) {
-	snr := &v1alpha1.SelfNodeRemediation{}
-	snr.Name = unhealthyNodeName
-	snr.Namespace = snrNamespace
+func createSNR(snr *v1alpha1.SelfNodeRemediation, strategy v1alpha1.RemediationStrategyType) {
 	snr.Spec.RemediationStrategy = strategy
 	ExpectWithOffset(1, k8sClient.Client.Create(context.TODO(), snr)).To(Succeed(), "failed to create snr CR")
 }
