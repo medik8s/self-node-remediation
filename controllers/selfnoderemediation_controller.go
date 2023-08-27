@@ -76,7 +76,7 @@ type processingChangeReason string
 
 const (
 	remediationStarted              processingChangeReason = "RemediationStarted"
-	remediationTerminatedByNHC      processingChangeReason = "RemediationStoppedByNHC"
+	remediationTimeoutByNHC         processingChangeReason = "RemediationTimeoutByNHC"
 	remediationFinishedSuccessfully processingChangeReason = "RemediationFinishedSuccessfully"
 	remediationFinishedNodeNotFound processingChangeReason = "RemediationFinishedNodeNotFound"
 )
@@ -184,7 +184,7 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	if r.isStoppedByNHC(snr) {
 		r.logger.Info("SNR remediation was stopped by Node Healthcheck")
-		return ctrl.Result{}, r.updateConditions(remediationTerminatedByNHC, snr)
+		return ctrl.Result{}, r.updateConditions(remediationTimeoutByNHC, snr)
 	}
 
 	if r.getPhase(snr) != fencingCompletedPhase {
@@ -223,7 +223,7 @@ func (r *SelfNodeRemediationReconciler) updateConditions(processingTypeReason pr
 	case remediationFinishedSuccessfully:
 		processingConditionStatus = metav1.ConditionFalse
 		succeededConditionStatus = metav1.ConditionTrue
-	case remediationTerminatedByNHC:
+	case remediationTimeoutByNHC:
 		processingConditionStatus = metav1.ConditionFalse
 		succeededConditionStatus = metav1.ConditionFalse
 	case remediationFinishedNodeNotFound:
