@@ -75,9 +75,10 @@ var (
 type processingChangeReason string
 
 const (
-	remediationStarted         processingChangeReason = "RemediationStarted"
-	remediationTerminatedByNHC processingChangeReason = "RemediationStoppedByNHC"
-	remediationFinished        processingChangeReason = "RemediationFinished"
+	remediationStarted              processingChangeReason = "RemediationStarted"
+	remediationTimeoutByNHC         processingChangeReason = "RemediationTimeoutByNHC"
+	remediationFinishedSuccessfully processingChangeReason = "RemediationFinishedSuccessfully"
+	remediationFinishedNodeNotFound processingChangeReason = "RemediationFinishedNodeNotFound"
 )
 
 type remediationPhase string
@@ -183,7 +184,7 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	if r.isStoppedByNHC(snr) {
 		r.logger.Info("SNR remediation was stopped by Node Healthcheck")
-		return ctrl.Result{}, r.updateConditions(remediationTerminatedByNHC, snr)
+		return ctrl.Result{}, r.updateConditions(remediationTimeoutByNHC, snr)
 	}
 
 	if r.getPhase(snr) != fencingCompletedPhase {
@@ -219,10 +220,13 @@ func (r *SelfNodeRemediationReconciler) updateConditions(processingTypeReason pr
 	case remediationStarted:
 		processingConditionStatus = metav1.ConditionTrue
 		succeededConditionStatus = metav1.ConditionUnknown
-	case remediationFinished:
+	case remediationFinishedSuccessfully:
 		processingConditionStatus = metav1.ConditionFalse
 		succeededConditionStatus = metav1.ConditionTrue
-	case remediationTerminatedByNHC:
+	case remediationTimeoutByNHC:
+		processingConditionStatus = metav1.ConditionFalse
+		succeededConditionStatus = metav1.ConditionFalse
+	case remediationFinishedNodeNotFound:
 		processingConditionStatus = metav1.ConditionFalse
 		succeededConditionStatus = metav1.ConditionFalse
 	default:
@@ -243,11 +247,10 @@ func (r *SelfNodeRemediationReconciler) updateConditions(processingTypeReason pr
 	})
 
 	//Reason is mandatory, and reason for processing matches succeeded
-	succeededTypeReason := string(processingTypeReason)
 	meta.SetStatusCondition(&snr.Status.Conditions, metav1.Condition{
 		Type:   v1alpha1.SucceededConditionType,
 		Status: succeededConditionStatus,
-		Reason: succeededTypeReason,
+		Reason: string(processingTypeReason),
 	})
 
 	return nil
@@ -377,6 +380,13 @@ type removeNodeResources func(*v1.Node, *v1alpha1.SelfNodeRemediation) (time.Dur
 func (r *SelfNodeRemediationReconciler) remediateWithResourceRemoval(snr *v1alpha1.SelfNodeRemediation, rmNodeResources removeNodeResources) (ctrl.Result, error) {
 	node, err := r.getNodeFromSnr(snr)
 	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			r.logger.Info("couldn't find node matching remediation", "node name", snr.Name)
+			if err = r.updateConditions(remediationFinishedNodeNotFound, snr); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
+		}
 		r.logger.Error(err, "failed to get node", "node name", snr.Name)
 		return ctrl.Result{}, err
 	}
@@ -469,7 +479,7 @@ func (r *SelfNodeRemediationReconciler) handleRebootCompletedPhase(node *v1.Node
 	fencingCompleted := string(fencingCompletedPhase)
 	snr.Status.Phase = &fencingCompleted
 
-	return ctrl.Result{}, r.updateConditions(remediationFinished, snr)
+	return ctrl.Result{}, r.updateConditions(remediationFinishedSuccessfully, snr)
 }
 
 func (r *SelfNodeRemediationReconciler) handleFencingCompletedPhase(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
