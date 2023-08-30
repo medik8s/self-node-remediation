@@ -103,6 +103,12 @@ spec:
                   will decide whether the node should be remediated or not. It will
                   be ignored when empty (which is the default).
                 type: string
+              hostPort:
+                default: 30001
+                description: HostPort is used for internal communication between SNR
+                  agents.
+                minimum: 1
+                type: integer
               isSoftwareRebootEnabled:
                 default: true
                 description: IsSoftwareRebootEnabled indicates whether self node remediation

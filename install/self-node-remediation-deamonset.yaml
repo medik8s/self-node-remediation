@@ -63,6 +63,8 @@ spec:
             value: {{.IsSoftwareRebootEnabled}}
           - name: END_POINT_HEALTH_CHECK_URL
             value: {{.EndpointHealthCheckUrl}}
+          - name: HOST_PORT
+            value: "{{.HostPort}}"
         image: {{.Image}}
         imagePullPolicy: Always
         volumeMounts:
@@ -73,8 +75,8 @@ spec:
           hostPID: true
         name: manager
         ports:
-        - containerPort: 30001
-          hostPort: 30001
+        - containerPort: {{.HostPort}}
+          hostPort: {{.HostPort}}
           name: self-n-r-port
           protocol: TCP
         resources:

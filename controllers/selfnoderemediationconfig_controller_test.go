@@ -34,6 +34,7 @@ var _ = Describe("snrc controller Test", func() {
 		config.Spec.SafeTimeToAssumeNodeRebootedSeconds = 123
 		config.Name = selfnoderemediationv1alpha1.ConfigCRName
 		config.Namespace = namespace
+		config.Spec.HostPort = 30111
 
 	})
 
@@ -64,6 +65,7 @@ var _ = Describe("snrc controller Test", func() {
 
 			Expect(createdConfig.Spec.WatchdogFilePath).To(Equal(config.Spec.WatchdogFilePath))
 			Expect(createdConfig.Spec.SafeTimeToAssumeNodeRebootedSeconds).To(Equal(config.Spec.SafeTimeToAssumeNodeRebootedSeconds))
+			Expect(createdConfig.Spec.HostPort).To(Equal(30111))
 		})
 
 		It("Cert Secret should be created", func() {
@@ -89,6 +91,10 @@ var _ = Describe("snrc controller Test", func() {
 			Expect(len(ds.OwnerReferences)).To(Equal(1))
 			Expect(ds.OwnerReferences[0].Name).To(Equal(config.Name))
 			Expect(ds.OwnerReferences[0].Kind).To(Equal("SelfNodeRemediationConfig"))
+			Expect(len(container.Ports)).To(BeNumerically("==", 1))
+			port := container.Ports[0]
+			Expect(port.ContainerPort).To(BeEquivalentTo(30111))
+			Expect(port.HostPort).To(BeEquivalentTo(30111))
 		})
 		When("Configuration has customized tolerations", func() {
 			var expectedToleration corev1.Toleration
