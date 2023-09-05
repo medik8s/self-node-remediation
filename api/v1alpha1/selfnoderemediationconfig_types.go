@@ -25,10 +25,10 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 const (
-	ConfigCRName                          = "self-node-remediation-config"
-	defaultWatchdogPath                   = "/dev/watchdog"
-	defaultSafetToAssumeNodeRebootTimeout = 180
-	defaultIsSoftwareRebootEnabled        = true
+	ConfigCRName                         = "self-node-remediation-config"
+	defaultWatchdogPath                  = "/dev/watchdog"
+	DefaultSafeToAssumeNodeRebootTimeout = 180
+	defaultIsSoftwareRebootEnabled       = true
 )
 
 // SelfNodeRemediationConfigSpec defines the desired state of SelfNodeRemediationConfig
@@ -156,7 +156,7 @@ func NewDefaultSelfNodeRemediationConfig() SelfNodeRemediationConfig {
 		ObjectMeta: metav1.ObjectMeta{Name: ConfigCRName},
 		Spec: SelfNodeRemediationConfigSpec{
 			WatchdogFilePath:                    defaultWatchdogPath,
-			SafeTimeToAssumeNodeRebootedSeconds: defaultSafetToAssumeNodeRebootTimeout,
+			SafeTimeToAssumeNodeRebootedSeconds: DefaultSafeToAssumeNodeRebootTimeout,
 			IsSoftwareRebootEnabled:             defaultIsSoftwareRebootEnabled,
 		},
 	}
