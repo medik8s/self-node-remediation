@@ -55,8 +55,7 @@ import (
 )
 
 const (
-	nodeNameEnvVar        = "MY_NODE_NAME"
-	peerHealthDefaultPort = 30001
+	nodeNameEnvVar = "MY_NODE_NAME"
 )
 
 var (
@@ -251,6 +250,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	peerDialTimeout := getDurEnvVarOrDie("PEER_DIAL_TIMEOUT")         //timeout for establishing connection to peer
 	peerRequestTimeout := getDurEnvVarOrDie("PEER_REQUEST_TIMEOUT")   //timeout for each peer request
 	timeToAssumeNodeRebootedInSeconds := getIntEnvVarOrDie("TIME_TO_ASSUME_NODE_REBOOTED")
+	peerHealthDefaultPort := getIntEnvVarOrDie("HOST_PORT")
 
 	safeRebootCalc := reboot.NewSafeTimeCalculator(mgr.GetClient(), wd, maxErrorThreshold, apiCheckInterval, apiServerTimeout, peerDialTimeout, peerRequestTimeout, time.Duration(timeToAssumeNodeRebootedInSeconds)*time.Second)
 	if err = mgr.Add(safeRebootCalc); err != nil {
