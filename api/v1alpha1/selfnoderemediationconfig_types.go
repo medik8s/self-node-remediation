@@ -114,6 +114,12 @@ type SelfNodeRemediationConfigSpec struct {
 	// It will be ignored when empty (which is the default).
 	EndpointHealthCheckUrl string `json:"endpointHealthCheckUrl,omitempty"`
 
+	// HostPort is used for internal communication between SNR agents.
+	// +optional
+	// +kubebuilder:default:=30001
+	// +kubebuilder:validation:Minimum=1
+	HostPort int `json:"hostPort,omitempty"`
+
 	// CustomDsTolerations allows to add custom tolerations snr agents that are running on the ds in order to support remediation for different types of nodes.
 	CustomDsTolerations []v1.Toleration `json:"customDsTolerations,omitempty"`
 }
