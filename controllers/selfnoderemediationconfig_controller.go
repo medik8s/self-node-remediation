@@ -129,11 +129,11 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 	data.Data["EndpointHealthCheckUrl"] = snrConfig.Spec.EndpointHealthCheckUrl
 	data.Data["HostPort"] = snrConfig.Spec.HostPort
 
-	timeToAssumeNodeRebooted := snrConfig.Spec.SafeTimeToAssumeNodeRebootedSeconds
-	if timeToAssumeNodeRebooted == 0 {
-		timeToAssumeNodeRebooted = 180
+	safeTimeToAssumeNodeRebootedSeconds := snrConfig.Spec.SafeTimeToAssumeNodeRebootedSeconds
+	if safeTimeToAssumeNodeRebootedSeconds == 0 {
+		safeTimeToAssumeNodeRebootedSeconds = selfnoderemediationv1alpha1.DefaultSafeToAssumeNodeRebootTimeout
 	}
-	data.Data["TimeToAssumeNodeRebooted"] = fmt.Sprintf("\"%d\"", timeToAssumeNodeRebooted)
+	data.Data["TimeToAssumeNodeRebooted"] = fmt.Sprintf("\"%d\"", safeTimeToAssumeNodeRebootedSeconds)
 
 	data.Data["IsSoftwareRebootEnabled"] = fmt.Sprintf("\"%t\"", snrConfig.Spec.IsSoftwareRebootEnabled)
 
