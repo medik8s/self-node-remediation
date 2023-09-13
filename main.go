@@ -158,13 +158,20 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
+	safeRebootCalc := reboot.NewManagerSafeTimeCalculator(mgr.GetClient(), selfnoderemediationv1alpha1.DefaultSafeToAssumeNodeRebootTimeout*time.Second)
+	if err = mgr.Add(safeRebootCalc); err != nil {
+		setupLog.Error(err, "failed to add safe reboot time calculator to the manager")
+		os.Exit(1)
+	}
+
 	if err := (&controllers.SelfNodeRemediationConfigReconciler{
-		Client:            mgr.GetClient(),
-		Log:               ctrl.Log.WithName("controllers").WithName("SelfNodeRemediationConfig"),
-		Scheme:            mgr.GetScheme(),
-		InstallFileFolder: "./install",
-		DefaultPpcCreator: snrconfighelper.NewConfigIfNotExist,
-		Namespace:         ns,
+		Client:                    mgr.GetClient(),
+		Log:                       ctrl.Log.WithName("controllers").WithName("SelfNodeRemediationConfig"),
+		Scheme:                    mgr.GetScheme(),
+		InstallFileFolder:         "./install",
+		DefaultPpcCreator:         snrconfighelper.NewConfigIfNotExist,
+		Namespace:                 ns,
+		ManagerSafeTimeCalculator: safeRebootCalc,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SelfNodeRemediationConfig")
 		os.Exit(1)
@@ -179,6 +186,29 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 	templateCreator := template.New(mgr.GetClient(), ctrl.Log.WithName("template creator"))
 	if err = mgr.Add(templateCreator); err != nil {
 		setupLog.Error(err, "failed to add template creator to the manager")
+		os.Exit(1)
+	}
+
+	myNodeName := os.Getenv(nodeNameEnvVar)
+	if myNodeName == "" {
+		setupLog.Error(errors.New("failed to get own node name"), "node name was empty",
+			"env var name", nodeNameEnvVar)
+	}
+
+	restoreNodeAfter := 90 * time.Second
+	snrReconciler := &controllers.SelfNodeRemediationReconciler{
+		Client:             mgr.GetClient(),
+		Log:                ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
+		Scheme:             mgr.GetScheme(),
+		Recorder:           mgr.GetEventRecorderFor("SelfNodeRemediation"),
+		Rebooter:           nil,
+		MyNodeName:         myNodeName,
+		RestoreNodeAfter:   restoreNodeAfter,
+		SafeTimeCalculator: safeRebootCalc,
+	}
+
+	if err = snrReconciler.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "SelfNodeRemediation")
 		os.Exit(1)
 	}
 }
@@ -252,14 +282,14 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	timeToAssumeNodeRebootedInSeconds := getIntEnvVarOrDie("TIME_TO_ASSUME_NODE_REBOOTED")
 	peerHealthDefaultPort := getIntEnvVarOrDie("HOST_PORT")
 
-	safeRebootCalc := reboot.NewSafeTimeCalculator(mgr.GetClient(), wd, maxErrorThreshold, apiCheckInterval, apiServerTimeout, peerDialTimeout, peerRequestTimeout, time.Duration(timeToAssumeNodeRebootedInSeconds)*time.Second)
+	safeRebootCalc := reboot.NewAgentSafeTimeCalculator(mgr.GetClient(), wd, maxErrorThreshold, apiCheckInterval, apiServerTimeout, peerDialTimeout, peerRequestTimeout, time.Duration(timeToAssumeNodeRebootedInSeconds)*time.Second)
 	if err = mgr.Add(safeRebootCalc); err != nil {
 		setupLog.Error(err, "failed to add safe reboot time calculator to the manager")
 		os.Exit(1)
 	}
 
 	// it's fine when the watchdog is nil!
-	rebooter := reboot.NewWatchdogRebooter(wd, ctrl.Log.WithName("rebooter"), safeRebootCalc)
+	rebooter := reboot.NewWatchdogRebooter(wd, ctrl.Log.WithName("rebooter"))
 
 	// init certificate reader
 	certReader := certificates.NewSecretCertStorage(mgr.GetClient(), ctrl.Log.WithName("SecretCertStorage"), ns)
@@ -295,13 +325,14 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 
 	restoreNodeAfter := 90 * time.Second
 	snrReconciler := &controllers.SelfNodeRemediationReconciler{
-		Client:           mgr.GetClient(),
-		Log:              ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
-		Scheme:           mgr.GetScheme(),
-		Recorder:         mgr.GetEventRecorderFor("SelfNodeRemediation"),
-		Rebooter:         rebooter,
-		MyNodeName:       myNodeName,
-		RestoreNodeAfter: restoreNodeAfter,
+		Client:             mgr.GetClient(),
+		Log:                ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
+		Scheme:             mgr.GetScheme(),
+		Recorder:           mgr.GetEventRecorderFor("SelfNodeRemediation"),
+		Rebooter:           rebooter,
+		MyNodeName:         myNodeName,
+		RestoreNodeAfter:   restoreNodeAfter,
+		SafeTimeCalculator: safeRebootCalc,
 	}
 
 	if err = snrReconciler.SetupWithManager(mgr); err != nil {

@@ -130,6 +130,7 @@ type SelfNodeRemediationReconciler struct {
 	//40s of grace period for the node to reappear before it deletes the pods.
 	//see here: https://github.com/kubernetes/kubernetes/blob/7a0638da76cb9843def65708b661d2c6aa58ed5a/pkg/controller/podgc/gc_controller.go#L43-L47
 	RestoreNodeAfter time.Duration
+	reboot.SafeTimeCalculator
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -153,6 +154,14 @@ func (r *SelfNodeRemediationReconciler) SetupWithManager(mgr ctrl.Manager) error
 
 func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (returnResult ctrl.Result, returnErr error) {
 	r.logger = r.Log.WithValues("selfnoderemediation", req.NamespacedName)
+
+	if r.IsAgent() {
+		if req.Name != r.MyNodeName {
+			r.logger.Info("agent pod skipping remediation because node belongs to a different agent")
+			return ctrl.Result{}, nil
+		}
+		r.logger.Info("agent pod starting remediation on owned node")
+	}
 
 	snr := &v1alpha1.SelfNodeRemediation{}
 	if err := r.Get(ctx, req.NamespacedName, snr); err != nil {
@@ -654,7 +663,7 @@ func (r *SelfNodeRemediationReconciler) updateSnrStatus(ctx context.Context, snr
 func (r *SelfNodeRemediationReconciler) updateTimeAssumedRebooted(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) {
 	r.logger.Info("updating snr with node backup and updating time to assume node has been rebooted", "node name", node.Name)
 	//we assume the unhealthy node will be rebooted by maxTimeNodeHasRebooted
-	maxTimeNodeHasRebooted := metav1.NewTime(metav1.Now().Add(r.Rebooter.GetTimeToAssumeNodeRebooted()))
+	maxTimeNodeHasRebooted := metav1.NewTime(metav1.Now().Add(r.SafeTimeCalculator.GetTimeToAssumeNodeRebooted()))
 	snr.Status.TimeAssumedRebooted = &maxTimeNodeHasRebooted
 }
 

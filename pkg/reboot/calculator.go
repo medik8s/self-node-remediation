@@ -2,6 +2,7 @@ package reboot
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -23,8 +24,14 @@ const (
 )
 
 type SafeTimeCalculator interface {
+	// GetTimeToAssumeNodeRebooted returns the safe time to assume node was already rebooted
+	// note that this time must include the time for a unhealthy node without api-server access to reach the conclusion that it's unhealthy
+	// this should be at least worst-case time to reach a conclusion from the other peers * request context timeout + watchdog interval + maxFailuresThreshold * reconcileInterval + padding
 	GetTimeToAssumeNodeRebooted() time.Duration
+	SetTimeToAssumeNodeRebooted(time.Duration)
 	Start(ctx context.Context) error
+	//IsAgent return true in case running on an agent pod (responsible for reboot) or false in case running on a manager pod
+	IsAgent() bool
 }
 
 type safeTimeCalculator struct {
@@ -35,9 +42,10 @@ type safeTimeCalculator struct {
 	log                                                                     logr.Logger
 	k8sClient                                                               client.Client
 	highestCalculatedBatchNumber                                            int
+	isAgent                                                                 bool
 }
 
-func NewSafeTimeCalculator(k8sClient client.Client, wd watchdog.Watchdog, maxErrorThreshold int, apiCheckInterval, apiServerTimeout, peerDialTimeout, peerRequestTimeout, timeToAssumeNodeRebooted time.Duration) SafeTimeCalculator {
+func NewAgentSafeTimeCalculator(k8sClient client.Client, wd watchdog.Watchdog, maxErrorThreshold int, apiCheckInterval, apiServerTimeout, peerDialTimeout, peerRequestTimeout, timeToAssumeNodeRebooted time.Duration) SafeTimeCalculator {
 	return &safeTimeCalculator{
 		wd:                       wd,
 		maxErrorThreshold:        maxErrorThreshold,
@@ -47,24 +55,43 @@ func NewSafeTimeCalculator(k8sClient client.Client, wd watchdog.Watchdog, maxErr
 		peerRequestTimeout:       peerRequestTimeout,
 		timeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
 		k8sClient:                k8sClient,
+		isAgent:                  true,
+		log:                      ctrl.Log.WithName("safe-time-calculator"),
+	}
+}
+
+func NewManagerSafeTimeCalculator(k8sClient client.Client, timeToAssumeNodeRebooted time.Duration) SafeTimeCalculator {
+	return &safeTimeCalculator{
+		timeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
+		k8sClient:                k8sClient,
+		isAgent:                  false,
 		log:                      ctrl.Log.WithName("safe-time-calculator"),
 	}
 }
 
 func (s *safeTimeCalculator) GetTimeToAssumeNodeRebooted() time.Duration {
-	s.calcMinTimeAssumeRebooted()
+	if !s.isAgent {
+		return s.timeToAssumeNodeRebooted
+	}
+
 	if s.timeToAssumeNodeRebooted < s.minTimeToAssumeNodeRebooted {
 		return s.minTimeToAssumeNodeRebooted
 	}
 	return s.timeToAssumeNodeRebooted
 }
 
-func (s *safeTimeCalculator) Start(_ context.Context) error {
-	s.calcMinTimeAssumeRebooted()
-	return nil
+func (s *safeTimeCalculator) SetTimeToAssumeNodeRebooted(timeToAssumeNodeRebooted time.Duration) {
+	s.timeToAssumeNodeRebooted = timeToAssumeNodeRebooted
 }
 
-func (s *safeTimeCalculator) calcMinTimeAssumeRebooted() {
+func (s *safeTimeCalculator) Start(_ context.Context) error {
+	return s.calcMinTimeAssumeRebooted()
+}
+
+func (s *safeTimeCalculator) calcMinTimeAssumeRebooted() error {
+	if !s.isAgent {
+		return nil
+	}
 	// The reboot time needs be at least the time we know we need for determining a node issue and trigger the reboot!
 	// 1. time for determine node issue
 	minTime := (s.apiCheckInterval+s.apiServerTimeout)*time.Duration(s.maxErrorThreshold) + MaxTimeForNoPeersResponse
@@ -78,6 +105,17 @@ func (s *safeTimeCalculator) calcMinTimeAssumeRebooted() {
 	minTime += 15 * time.Second
 	s.log.Info("calculated minTimeToAssumeNodeRebooted is:", "minTimeToAssumeNodeRebooted", minTime)
 	s.minTimeToAssumeNodeRebooted = minTime
+
+	if s.timeToAssumeNodeRebooted < minTime {
+		err := fmt.Errorf("snr agent can't start requested value for timeToAssumeNodeRebooted is too low")
+		s.log.Error(err, err.Error(), "requested timeToAssumeNodeRebooted", s.timeToAssumeNodeRebooted, "timeToAssumeNodeRebooted minimal valid value", minTime)
+		return err
+	}
+	return nil
+}
+
+func (s *safeTimeCalculator) IsAgent() bool {
+	return s.isAgent
 }
 
 func (s *safeTimeCalculator) calcNumOfBatches() int {
