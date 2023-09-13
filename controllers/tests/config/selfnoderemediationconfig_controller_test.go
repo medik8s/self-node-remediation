@@ -1,4 +1,4 @@
-package controllers_test
+package testconfig
 
 import (
 	"context"
@@ -16,9 +16,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/controllers/tests/shared"
 )
 
-var _ = Describe("snrc controller Test", func() {
+var _ = Describe("SNR Config Test", func() {
 	dsName := "self-node-remediation-ds"
 	var config *selfnoderemediationv1alpha1.SelfNodeRemediationConfig
 	var ds *appsv1.DaemonSet
@@ -33,14 +34,14 @@ var _ = Describe("snrc controller Test", func() {
 		config.Spec.WatchdogFilePath = "/dev/foo"
 		config.Spec.SafeTimeToAssumeNodeRebootedSeconds = 123
 		config.Name = selfnoderemediationv1alpha1.ConfigCRName
-		config.Namespace = namespace
+		config.Namespace = shared.Namespace
 		config.Spec.HostPort = 30111
 
 	})
 
 	Context("DS installation", func() {
 		key := types.NamespacedName{
-			Namespace: namespace,
+			Namespace: shared.Namespace,
 			Name:      dsName,
 		}
 
@@ -125,7 +126,25 @@ var _ = Describe("snrc controller Test", func() {
 
 			})
 		})
+		When("SafeTimeToAssumeNodeRebootedSeconds is modified in Configuration", func() {
+			BeforeEach(func() {
+				Expect(managerReconciler.SafeTimeCalculator.GetTimeToAssumeNodeRebooted()).ToNot(Equal(time.Minute))
+				config.Spec.SafeTimeToAssumeNodeRebootedSeconds = 60
+			})
+			It("The Manager Reconciler and the DS should be modified with the new value", func() {
+				Eventually(func() error {
+					return k8sClient.Get(context.Background(), key, ds)
+				}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
 
+				dsContainers := ds.Spec.Template.Spec.Containers
+				Expect(len(dsContainers)).To(BeNumerically("==", 1))
+				container := dsContainers[0]
+				envVars := getEnvVarMap(container.Env)
+				Expect(envVars["TIME_TO_ASSUME_NODE_REBOOTED"].Value).To(Equal("60"))
+				Expect(managerReconciler.SafeTimeCalculator.GetTimeToAssumeNodeRebooted()).To(Equal(time.Minute))
+			})
+
+		})
 		Context("DS Recreation on Operator Update", func() {
 			var timeToWaitForDsUpdate = 6 * time.Second
 			var oldDsVersion, currentDsVersion = "0", "1"
@@ -139,7 +158,7 @@ var _ = Describe("snrc controller Test", func() {
 			})
 			When("ds version has not changed", func() {
 				BeforeEach(func() {
-					ds = generateDs(dsName, namespace, currentDsVersion)
+					ds = generateDs(dsName, shared.Namespace, currentDsVersion)
 				})
 				It("Daemonset should not recreated", func() {
 					//Wait to make sure DS isn't recreated
@@ -153,7 +172,7 @@ var _ = Describe("snrc controller Test", func() {
 			When("ds version has changed", func() {
 				BeforeEach(func() {
 					//creating an DS with old version
-					ds = generateDs(dsName, namespace, oldDsVersion)
+					ds = generateDs(dsName, shared.Namespace, oldDsVersion)
 				})
 				It("Daemonset should be recreated", func() {
 					//Wait until DS is recreated
@@ -175,7 +194,7 @@ var _ = Describe("snrc controller Test", func() {
 		config.Kind = "SelfNodeRemediationConfig"
 		config.APIVersion = "self-node-remediation.medik8s.io/v1alpha1"
 		config.Name = "config-defaults"
-		config.Namespace = namespace
+		config.Namespace = shared.Namespace
 
 		It("Config CR should be created with default values", func() {
 			Expect(k8sClient).To(Not(BeNil()))
@@ -211,7 +230,7 @@ var _ = Describe("snrc controller Test", func() {
 
 			ds = &appsv1.DaemonSet{}
 			key = types.NamespacedName{
-				Namespace: namespace,
+				Namespace: shared.Namespace,
 				Name:      dsName,
 			}
 
@@ -226,7 +245,7 @@ var _ = Describe("snrc controller Test", func() {
 			config.Name = "not-the-expected-name"
 			config.Spec.WatchdogFilePath = "foo"
 			config.Spec.SafeTimeToAssumeNodeRebootedSeconds = 9999
-			config.Namespace = namespace
+			config.Namespace = shared.Namespace
 
 			Expect(k8sClient.Create(context.Background(), config)).To(Succeed())
 		})
