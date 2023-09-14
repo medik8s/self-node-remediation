@@ -157,7 +157,7 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	if r.IsAgent() {
 		if req.Name != r.MyNodeName {
-			r.logger.Info("agent pod skipping remediation because node belongs to a different agent")
+			r.logger.Info("agent pod skipping remediation because node belongs to a different agent", "Agent node name", r.MyNodeName, "Remediated node name", req.Name)
 			return ctrl.Result{}, nil
 		}
 		r.logger.Info("agent pod starting remediation on owned node")
