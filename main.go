@@ -236,6 +236,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	if myNodeName == "" {
 		setupLog.Error(errors.New("failed to get own node name"), "node name was empty",
 			"env var name", nodeNameEnvVar)
+		os.Exit(1)
 	}
 
 	ns, err := utils.GetDeploymentNamespace()
