@@ -107,8 +107,8 @@ func (s *safeTimeCalculator) calcMinTimeAssumeRebooted() error {
 	s.minTimeToAssumeNodeRebooted = minTime
 
 	if s.timeToAssumeNodeRebooted < minTime {
-		err := fmt.Errorf("snr agent can't start requested value for timeToAssumeNodeRebooted is too low")
-		s.log.Error(err, err.Error(), "requested timeToAssumeNodeRebooted", s.timeToAssumeNodeRebooted, "timeToAssumeNodeRebooted minimal valid value", minTime)
+		err := fmt.Errorf("snr agent can't start: the requested value for SafeTimeToAssumeNodeRebootedSeconds is too low")
+		s.log.Error(err, err.Error(), "requested SafeTimeToAssumeNodeRebootedSeconds", s.timeToAssumeNodeRebooted, "minimal calculated value for SafeTimeToAssumeNodeRebootedSeconds", minTime)
 		return err
 	}
 	return nil
