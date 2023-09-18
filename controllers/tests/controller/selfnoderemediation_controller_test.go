@@ -1,7 +1,8 @@
-package controllers_test
+package testcontroler
 
 import (
 	"context"
+	"reflect"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/controllers"
+	"github.com/medik8s/self-node-remediation/controllers/tests/shared"
 	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
@@ -27,20 +29,48 @@ const (
 	snrNamespace = "default"
 )
 
-var _ = Describe("snr Controller", func() {
+var _ = Describe("SNR Controller", func() {
 	var snr *v1alpha1.SelfNodeRemediation
+	var remediationStrategy v1alpha1.RemediationStrategyType
+	var vaName = "some-va"
+	var nodeRebootCapable = "true"
+	var isAdditionalSetupNeeded = false
 
 	BeforeEach(func() {
-		k8sClient.ShouldSimulateFailure = false
+		nodeRebootCapable = "true"
 		snr = &v1alpha1.SelfNodeRemediation{}
-		snr.Name = unhealthyNodeName
+		snr.Name = shared.UnhealthyNodeName
 		snr.Namespace = snrNamespace
+		time.Sleep(time.Second * 2)
+	})
+
+	JustBeforeEach(func() {
+		if isAdditionalSetupNeeded {
+			createVolumeAttachment(vaName)
+			verifyVaNotDeleted(vaName)
+
+			createSelfNodeRemediationPod()
+			verifySelfNodeRemediationPodExist()
+		}
+
+		updateIsRebootCapable(nodeRebootCapable)
+		createSNR(snr, remediationStrategy)
 	})
 
 	AfterEach(func() {
+		k8sClient.ShouldSimulateFailure = false
+		k8sClient.ShouldSimulateVaFailure = false
+		isAdditionalSetupNeeded = false
+		deleteRemediations()
+		deleteSelfNodeRemediationPod()
+		deleteVolumeAttachment(vaName, false)
+		verifyVaDeleted(vaName)
 		//clear node's state, this is important to remove taints, label etc.
-		Expect(k8sClient.Update(context.Background(), getNode(unhealthyNodeName)))
-		Expect(k8sClient.Update(context.Background(), getNode(peerNodeName)))
+		Expect(k8sClient.Update(context.Background(), getNode(shared.UnhealthyNodeName)))
+		Expect(k8sClient.Update(context.Background(), getNode(shared.PeerNodeName)))
+		time.Sleep(time.Second * 2)
+		deleteRemediations()
+		verifyCleanState()
 	})
 
 	It("check nodes exist", func() {
@@ -49,7 +79,7 @@ var _ = Describe("snr Controller", func() {
 		Eventually(func() error {
 			return k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)
 		}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
-		Expect(node.Name).To(Equal(unhealthyNodeName))
+		Expect(node.Name).To(Equal(shared.UnhealthyNodeName))
 		Expect(node.CreationTimestamp).ToNot(BeZero())
 
 		By("Check the peer node exists")
@@ -57,7 +87,7 @@ var _ = Describe("snr Controller", func() {
 		Eventually(func() error {
 			return k8sClient.Client.Get(context.TODO(), peerNodeNamespacedName, node)
 		}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
-		Expect(node.Name).To(Equal(peerNodeName))
+		Expect(node.Name).To(Equal(shared.PeerNodeName))
 		Expect(node.CreationTimestamp).ToNot(BeZero())
 	})
 
@@ -65,14 +95,6 @@ var _ = Describe("snr Controller", func() {
 		//if the unhealthy node doesn't have the self-node-remediation pod
 		//we don't want to delete the node, since it might never
 		//be in a safe state (i.e. rebooted)
-		var remediationStrategy v1alpha1.RemediationStrategyType
-		JustBeforeEach(func() {
-			createSNR(snr, remediationStrategy)
-		})
-
-		AfterEach(func() {
-			deleteSNR(snr)
-		})
 
 		Context("ResourceDeletion strategy", func() {
 			BeforeEach(func() {
@@ -104,13 +126,7 @@ var _ = Describe("snr Controller", func() {
 			//since we don't have a scheduler in test, we need to do its work and create pp pod for that node
 
 			BeforeEach(func() {
-				createSelfNodeRemediationPod()
-				createSNR(snr, v1alpha1.ResourceDeletionRemediationStrategy)
-			})
-
-			AfterEach(func() {
-				deleteSelfNodeRemediationPod()
-				deleteSNR(snr)
+				remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
 			})
 
 			Context("node doesn't have is-reboot-capable annotation", func() {
@@ -126,8 +142,7 @@ var _ = Describe("snr Controller", func() {
 
 			Context("node's is-reboot-capable annotation is false", func() {
 				BeforeEach(func() {
-					rebootCapableAnnotationValue := "false"
-					updateIsRebootCapable(rebootCapableAnnotationValue)
+					nodeRebootCapable = "false"
 				})
 
 				It("snr should not have finalizers when is-reboot-capable annotation is false", func() {
@@ -138,41 +153,15 @@ var _ = Describe("snr Controller", func() {
 	})
 
 	Context("Unhealthy node with api-server access", func() {
-		var remediationStrategy v1alpha1.RemediationStrategyType
-		var isSNRNeedsDeletion = true
-		var vaName = "some-va"
-		var isSetResources = true
-		JustBeforeEach(func() {
-			if isSetResources {
-				createVolumeAttachment(vaName)
-				createSelfNodeRemediationPod()
-				updateIsRebootCapable("true")
-				By("make sure self node remediation exists with correct label")
-				verifySelfNodeRemediationPodExist()
-			}
-
-			createSNR(snr, remediationStrategy)
-		})
 
 		BeforeEach(func() {
-			isSetResources = true
-		})
-
-		AfterEach(func() {
-			if isSNRNeedsDeletion {
-				deleteSNR(snr)
-			}
-			isSNRNeedsDeletion = true
+			isAdditionalSetupNeeded = true
 		})
 
 		Context("ResourceDeletion strategy", func() {
 
 			BeforeEach(func() {
 				remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
-			})
-
-			AfterEach(func() {
-				//no need to delete pp pod or va as it was already deleted by the controller
 			})
 
 			It("Remediation flow", func() {
@@ -197,7 +186,6 @@ var _ = Describe("snr Controller", func() {
 				verifyTypeConditions(snr.Name, metav1.ConditionFalse, metav1.ConditionTrue, "RemediationFinishedSuccessfully")
 
 				deleteSNR(snr)
-				isSNRNeedsDeletion = false
 
 				verifyNodeIsSchedulable()
 
@@ -233,11 +221,9 @@ var _ = Describe("snr Controller", func() {
 
 				k8sClient.ShouldSimulateVaFailure = false
 
-				deleteVolumeAttachment(vaName)
+				deleteVolumeAttachment(vaName, true)
 
 				deleteSNR(snr)
-
-				isSNRNeedsDeletion = false
 
 				removeUnschedulableTaint()
 
@@ -246,7 +232,6 @@ var _ = Describe("snr Controller", func() {
 			})
 			When("Node isn't found", func() {
 				BeforeEach(func() {
-					isSetResources = false
 					snr.Name = "non-existing-node"
 				})
 
@@ -259,10 +244,6 @@ var _ = Describe("snr Controller", func() {
 		Context("OutOfServiceTaint strategy", func() {
 			BeforeEach(func() {
 				remediationStrategy = v1alpha1.OutOfServiceTaintRemediationStrategy
-			})
-
-			AfterEach(func() {
-				//no need to delete pp pod or va as it was already deleted by the controller
 			})
 
 			It("Remediation flow", func() {
@@ -288,14 +269,14 @@ var _ = Describe("snr Controller", func() {
 
 				// simulate the out-of-service taint by Pod GC Controller
 				deleteTerminatingPod()
-				deleteVolumeAttachment(vaName)
+
+				deleteVolumeAttachment(vaName, true)
 
 				verifyOutOfServiceTaintRemoved()
 
 				verifyTypeConditions(snr.Name, metav1.ConditionFalse, metav1.ConditionTrue, "RemediationFinishedSuccessfully")
 
 				deleteSNR(snr)
-				isSNRNeedsDeletion = false
 
 				verifyNodeIsSchedulable()
 
@@ -317,11 +298,7 @@ var _ = Describe("snr Controller", func() {
 		BeforeEach(func() {
 			By("Simulate api-server failure")
 			k8sClient.ShouldSimulateFailure = true
-			createSNR(snr, v1alpha1.ResourceDeletionRemediationStrategy)
-		})
-
-		AfterEach(func() {
-			deleteSNR(snr)
+			remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
 		})
 
 		It("Verify that watchdog is not receiving food after some time", func() {
@@ -338,7 +315,7 @@ var _ = Describe("snr Controller", func() {
 				}
 				lastFoodTime = newTime
 				return false
-			}, 10*peerUpdateInterval, timeout).Should(BeTrue())
+			}, 10*shared.PeerUpdateInterval, timeout).Should(BeTrue())
 		})
 	})
 })
@@ -347,12 +324,12 @@ func createVolumeAttachment(vaName string) {
 	va := &storagev1.VolumeAttachment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      vaName,
-			Namespace: namespace,
+			Namespace: shared.Namespace,
 		},
 		Spec: storagev1.VolumeAttachmentSpec{
 			Attacher: "foo",
 			Source:   storagev1.VolumeAttachmentSource{},
-			NodeName: unhealthyNodeName,
+			NodeName: shared.UnhealthyNodeName,
 		},
 	}
 	foo := "foo"
@@ -378,19 +355,24 @@ func verifyTypeConditions(nodeName string, expectedProcessingConditionStatus, ex
 	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
 }
 
-func deleteVolumeAttachment(vaName string) {
+func deleteVolumeAttachment(vaName string, verifyExist bool) {
 	va := &storagev1.VolumeAttachment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      vaName,
-			Namespace: namespace,
+			Namespace: shared.Namespace,
 		},
 	}
-	ExpectWithOffset(1, k8sClient.Delete(context.Background(), va)).To(Succeed())
+
+	err := k8sClient.Delete(context.Background(), va)
+	if !verifyExist && apierrors.IsNotFound(err) {
+		return
+	}
+	ExpectWithOffset(1, err).To(Succeed())
 }
 
 func verifyVaDeleted(vaName string) {
 	vaKey := client.ObjectKey{
-		Namespace: namespace,
+		Namespace: shared.Namespace,
 		Name:      vaName,
 	}
 
@@ -399,12 +381,12 @@ func verifyVaDeleted(vaName string) {
 		err := k8sClient.Get(context.Background(), vaKey, va)
 		return apierrors.IsNotFound(err)
 
-	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
+	}, 5*time.Second, 100*time.Millisecond).Should(BeTrue())
 }
 
 func verifyVaNotDeleted(vaName string) {
 	vaKey := client.ObjectKey{
-		Namespace: namespace,
+		Namespace: shared.Namespace,
 		Name:      vaName,
 	}
 
@@ -420,7 +402,7 @@ func verifyLastErrorKeepsApiErrorForVa() {
 	By("Verify that LastError in SNR status has been kept kube-api error for VA")
 	snr := &v1alpha1.SelfNodeRemediation{}
 	ConsistentlyWithOffset(1, func() bool {
-		snrNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: snrNamespace}
+		snrNamespacedName := client.ObjectKey{Name: shared.UnhealthyNodeName, Namespace: snrNamespace}
 		if err := k8sClient.Client.Get(context.Background(), snrNamespacedName, snr); err != nil {
 			return false
 		}
@@ -431,7 +413,7 @@ func verifyLastErrorKeepsApiErrorForVa() {
 func verifySelfNodeRemediationPodDoesntExist() {
 	By("Verify that self node remediation pod has been deleted as part of the remediation")
 	podKey := client.ObjectKey{
-		Namespace: namespace,
+		Namespace: shared.Namespace,
 		Name:      "self-node-remediation",
 	}
 
@@ -463,7 +445,7 @@ func verifyNoWatchdogFood() {
 func verifyFinalizerExists() {
 	By("Verify that finalizer was added")
 	snr := &v1alpha1.SelfNodeRemediation{}
-	snrNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: snrNamespace}
+	snrNamespacedName := client.ObjectKey{Name: shared.UnhealthyNodeName, Namespace: snrNamespace}
 	ExpectWithOffset(1, k8sClient.Get(context.Background(), snrNamespacedName, snr)).To(Succeed())
 	ExpectWithOffset(1, controllerutil.ContainsFinalizer(snr, controllers.SNRFinalizer)).Should(BeTrue(), "finalizer should be added")
 }
@@ -514,7 +496,7 @@ func verifyTimeHasBeenRebootedExists() {
 	By("Verify that time has been added to SNR status")
 	snr := &v1alpha1.SelfNodeRemediation{}
 	EventuallyWithOffset(1, func() (*metav1.Time, error) {
-		snrNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: snrNamespace}
+		snrNamespacedName := client.ObjectKey{Name: shared.UnhealthyNodeName, Namespace: snrNamespace}
 		err := k8sClient.Client.Get(context.Background(), snrNamespacedName, snr)
 		return snr.Status.TimeAssumedRebooted, err
 
@@ -525,7 +507,7 @@ func verifySNRDoesNotExists() {
 	By("Verify that SNR does not exit")
 	Eventually(func() bool {
 		snr := &v1alpha1.SelfNodeRemediation{}
-		snrNamespacedName := client.ObjectKey{Name: unhealthyNodeName, Namespace: snrNamespace}
+		snrNamespacedName := client.ObjectKey{Name: shared.UnhealthyNodeName, Namespace: snrNamespace}
 		err := k8sClient.Get(context.Background(), snrNamespacedName, snr)
 		return apierrors.IsNotFound(err)
 	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
@@ -568,9 +550,60 @@ func verifySelfNodeRemediationPodExist() {
 		return len(podList.Items), err
 	}, 5*time.Second, 250*time.Millisecond).Should(Equal(1))
 }
+func deleteRemediations() {
+	//Delete
+	Eventually(func() error {
+		snrs := &v1alpha1.SelfNodeRemediationList{}
+		if err := k8sClient.List(context.Background(), snrs); err != nil {
+			return err
+		}
+		if len(snrs.Items) == 0 {
+			return nil
+		}
 
+		for _, snr := range snrs.Items {
+			if err := removeFinalizers(&snr); err != nil {
+				return err
+			}
+			if err := k8sClient.Client.Delete(context.Background(), &snr); err != nil {
+				return err
+			}
+		}
+		return nil
+	}, 5*time.Second, 100*time.Millisecond).ShouldNot(HaveOccurred())
+
+	//Wait for clean state
+	Eventually(func() bool {
+		snrs := &v1alpha1.SelfNodeRemediationList{}
+		err := k8sClient.List(context.Background(), snrs)
+		return err == nil && len(snrs.Items) == 0
+	}, 5*time.Second, 100*time.Millisecond).Should(BeTrue())
+
+}
 func deleteSNR(snr *v1alpha1.SelfNodeRemediation) {
-	ExpectWithOffset(1, k8sClient.Client.Delete(context.Background(), snr)).To(Succeed(), "failed to delete snr CR")
+	snrKey := client.ObjectKey{Name: snr.Name, Namespace: snr.Namespace}
+
+	err := k8sClient.Get(context.Background(), snrKey, snr)
+
+	if apierrors.IsNotFound(err) {
+		return
+	}
+
+	Expect(err).Should(Succeed())
+
+	Expect(k8sClient.Client.Delete(context.Background(), snr)).To(Succeed(), "failed to delete snr CR")
+
+}
+
+func removeFinalizers(snr *v1alpha1.SelfNodeRemediation) error {
+	if len(snr.GetFinalizers()) == 0 {
+		return nil
+	}
+	snr.SetFinalizers(nil)
+	if err := k8sClient.Client.Update(context.Background(), snr); err != nil {
+		return err
+	}
+	return nil
 }
 
 func createSNR(snr *v1alpha1.SelfNodeRemediation, strategy v1alpha1.RemediationStrategyType) {
@@ -580,12 +613,12 @@ func createSNR(snr *v1alpha1.SelfNodeRemediation, strategy v1alpha1.RemediationS
 
 func createSelfNodeRemediationPod() {
 	pod := &v1.Pod{}
-	pod.Spec.NodeName = unhealthyNodeName
+	pod.Spec.NodeName = shared.UnhealthyNodeName
 	pod.Labels = map[string]string{"app.kubernetes.io/name": "self-node-remediation",
 		"app.kubernetes.io/component": "agent"}
 
 	pod.Name = "self-node-remediation"
-	pod.Namespace = namespace
+	pod.Namespace = shared.Namespace
 	container := v1.Container{
 		Name:  "foo",
 		Image: "foo",
@@ -596,11 +629,15 @@ func createSelfNodeRemediationPod() {
 
 func deleteSelfNodeRemediationPod() {
 	pod := &v1.Pod{}
-	pod.Name = "self-node-remediation"
-	pod.Namespace = namespace
+
 	podKey := client.ObjectKey{
-		Namespace: namespace,
-		Name:      pod.Name,
+		Namespace: shared.Namespace,
+		Name:      "self-node-remediation",
+	}
+
+	if err := k8sClient.Get(context.Background(), podKey, pod); err != nil {
+		Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		return
 	}
 
 	var grace client.GracePeriodSeconds = 0
@@ -614,7 +651,7 @@ func deleteSelfNodeRemediationPod() {
 
 func createTerminatingPod() {
 	pod := &v1.Pod{}
-	pod.Spec.NodeName = unhealthyNodeName
+	pod.Spec.NodeName = shared.UnhealthyNodeName
 	pod.Name = "terminatingpod"
 	pod.Namespace = "default"
 	container := v1.Container{
@@ -632,7 +669,7 @@ func deleteTerminatingPod() {
 	pod.Name = "terminatingpod"
 	pod.Namespace = "default"
 	podKey := client.ObjectKey{
-		Namespace: namespace,
+		Namespace: shared.Namespace,
 		Name:      pod.Name,
 	}
 
@@ -647,7 +684,7 @@ func deleteTerminatingPod() {
 
 func updateIsRebootCapable(rebootCapableAnnotationValue string) {
 	unhealthyNodeKey := types.NamespacedName{
-		Name: unhealthyNodeName,
+		Name: shared.UnhealthyNodeName,
 	}
 	node := &v1.Node{}
 	ExpectWithOffset(1, k8sClient.Client.Get(context.Background(), unhealthyNodeKey, node)).To(Succeed())
@@ -664,7 +701,7 @@ func updateIsRebootCapable(rebootCapableAnnotationValue string) {
 
 func deleteIsRebootCapableAnnotation() {
 	unhealthyNodeKey := types.NamespacedName{
-		Name: unhealthyNodeName,
+		Name: shared.UnhealthyNodeName,
 	}
 	unhealthyNode := &v1.Node{}
 	ExpectWithOffset(1, k8sClient.Client.Get(context.Background(), unhealthyNodeKey, unhealthyNode)).To(Succeed())
@@ -681,7 +718,7 @@ func testNoFinalizer() {
 	snr := &v1alpha1.SelfNodeRemediation{}
 	snrKey := client.ObjectKey{
 		Namespace: snrNamespace,
-		Name:      unhealthyNodeName,
+		Name:      shared.UnhealthyNodeName,
 	}
 
 	EventuallyWithOffset(1, func() ([]string, error) {
@@ -711,4 +748,51 @@ func eventuallyUpdateNode(updateFunc func(*v1.Node), isStatusUpdate bool) {
 		return k8sClient.Client.Update(context.TODO(), node)
 	}, 5*time.Second, 250*time.Millisecond).Should(Succeed())
 
+}
+
+func verifyCleanState() {
+	//Verify nodes are at a clean state
+	nodes := &v1.NodeList{}
+	Expect(k8sClient.List(context.Background(), nodes)).To(Succeed())
+	Expect(len(nodes.Items)).To(BeEquivalentTo(2))
+	var peerNodeActual, unhealthyNodeActual *v1.Node
+	if nodes.Items[0].Name == shared.UnhealthyNodeName {
+		Expect(nodes.Items[1].Name).To(Equal(shared.PeerNodeName))
+		peerNodeActual = &nodes.Items[1]
+		unhealthyNodeActual = &nodes.Items[0]
+	} else {
+		Expect(nodes.Items[0].Name).To(Equal(shared.PeerNodeName))
+		Expect(nodes.Items[1].Name).To(Equal(shared.UnhealthyNodeName))
+		peerNodeActual = &nodes.Items[0]
+		unhealthyNodeActual = &nodes.Items[1]
+	}
+
+	peerNodeExpected, unhealthyNodeExpected := getNode(shared.PeerNodeName), getNode(shared.UnhealthyNodeName)
+	verifyNodesAreEqual(peerNodeExpected, peerNodeActual)
+	verifyNodesAreEqual(unhealthyNodeExpected, unhealthyNodeActual)
+
+	//Verify no existing remediations
+	remediations := &v1alpha1.SelfNodeRemediationList{}
+	Expect(k8sClient.List(context.Background(), remediations)).To(Succeed())
+	Expect(len(remediations.Items)).To(BeEquivalentTo(0))
+
+	//Verify SNR Pod Does not exist
+	pod := &v1.Pod{}
+	podKey := client.ObjectKey{
+		Namespace: shared.Namespace,
+		Name:      "self-node-remediation",
+	}
+	err := k8sClient.Get(context.Background(), podKey, pod)
+	Expect(apierrors.IsNotFound(err)).To(BeTrue())
+
+	verifyOutOfServiceTaintRemoved()
+
+}
+
+func verifyNodesAreEqual(expected *v1.Node, actual *v1.Node) {
+	Expect(expected.Name).To(Equal(actual.Name))
+	Expect(reflect.DeepEqual(expected.Spec, actual.Spec)).To(BeTrue())
+	Expect(reflect.DeepEqual(expected.Status, actual.Status)).To(BeTrue())
+	Expect(reflect.DeepEqual(expected.Annotations, actual.Annotations)).To(BeTrue())
+	Expect(reflect.DeepEqual(expected.Labels, actual.Labels)).To(BeTrue())
 }

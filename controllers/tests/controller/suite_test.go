@@ -14,11 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controllers_test
+package testcontroler
 
 import (
 	"context"
-	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -27,7 +26,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	v1 "k8s.io/api/core/v1"
-	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -38,8 +36,8 @@ import (
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/controllers"
+	"github.com/medik8s/self-node-remediation/controllers/tests/shared"
 	"github.com/medik8s/self-node-remediation/pkg/apicheck"
-	"github.com/medik8s/self-node-remediation/pkg/certificates"
 	"github.com/medik8s/self-node-remediation/pkg/peers"
 	"github.com/medik8s/self-node-remediation/pkg/reboot"
 	"github.com/medik8s/self-node-remediation/pkg/watchdog"
@@ -49,56 +47,26 @@ import (
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
-var k8sClient *K8sClientWrapper
-var testEnv *envtest.Environment
-var dummyDog watchdog.Watchdog
-var certReader certificates.CertStorageReader
-var unhealthyNode = &v1.Node{}
-var peerNode = &v1.Node{}
-var cancelFunc context.CancelFunc
+var (
+	testEnv                 *envtest.Environment
+	dummyDog                watchdog.Watchdog
+	unhealthyNode, peerNode = &v1.Node{}, &v1.Node{}
+	cancelFunc              context.CancelFunc
+	k8sClient               *shared.K8sClientWrapper
+)
 
 var unhealthyNodeNamespacedName = client.ObjectKey{
-	Name:      unhealthyNodeName,
+	Name:      shared.UnhealthyNodeName,
 	Namespace: "",
 }
 var peerNodeNamespacedName = client.ObjectKey{
-	Name:      peerNodeName,
+	Name:      shared.PeerNodeName,
 	Namespace: "",
-}
-
-const (
-	peerUpdateInterval = 30 * time.Second
-	apiCheckInterval   = 1 * time.Second
-	maxErrorThreshold  = 1
-
-	namespace         = "self-node-remediation"
-	unhealthyNodeName = "node1"
-	peerNodeName      = "node2"
-)
-
-type K8sClientWrapper struct {
-	client.Client
-	Reader                  client.Reader
-	ShouldSimulateFailure   bool
-	ShouldSimulateVaFailure bool
-	VaFailureMessage        string
-}
-
-func (kcw *K8sClientWrapper) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
-	if kcw.ShouldSimulateFailure {
-		return errors.New("simulation of client error")
-	} else if kcw.ShouldSimulateVaFailure {
-		if _, ok := list.(*storagev1.VolumeAttachmentList); ok {
-			return errors.New(kcw.VaFailureMessage)
-		}
-	}
-	return kcw.Client.List(ctx, list, opts...)
 }
 
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
-
-	RunSpecs(t, "Controller Suite")
+	RunSpecs(t, "SNR Controller Test Suite")
 }
 
 var _ = BeforeSuite(func() {
@@ -106,7 +74,7 @@ var _ = BeforeSuite(func() {
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "config", "crd", "bases")},
+		CRDDirectoryPaths:     []string{filepath.Join("../../..", "config", "crd", "bases")},
 		ErrorIfCRDPathMissing: true,
 	}
 
@@ -125,86 +93,94 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).ToNot(HaveOccurred())
 
-	k8sClient = &K8sClientWrapper{
-		k8sManager.GetClient(),
-		k8sManager.GetAPIReader(),
-		false,
-		false,
-		"simulation of client error for VA",
+	k8sClient = &shared.K8sClientWrapper{
+		Client:           k8sManager.GetClient(),
+		Reader:           k8sManager.GetAPIReader(),
+		VaFailureMessage: "simulation of client error for VA",
 	}
 	Expect(k8sClient).ToNot(BeNil())
 
 	nsToCreate := &v1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: namespace,
+			Name: shared.Namespace,
 		},
 	}
 
 	Expect(k8sClient.Create(context.Background(), nsToCreate)).To(Succeed())
-
+	dummyDog = watchdog.NewFake(true)
+	err = k8sManager.Add(dummyDog)
+	Expect(err).ToNot(HaveOccurred())
+	timeToAssumeNodeRebooted := time.Duration(shared.MaxErrorThreshold) * shared.ApiCheckInterval
+	timeToAssumeNodeRebooted += dummyDog.GetTimeout()
+	timeToAssumeNodeRebooted += 5 * time.Second
+	mockManagerCalculator := &shared.MockCalculator{MockTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted, IsAgentVar: false}
 	err = (&controllers.SelfNodeRemediationConfigReconciler{
-		Client:            k8sManager.GetClient(),
-		Log:               ctrl.Log.WithName("controllers").WithName("self-node-remediation-config-controller"),
-		InstallFileFolder: "../install/",
-		Scheme:            scheme.Scheme,
-		Namespace:         namespace,
+		Client:                    k8sManager.GetClient(),
+		Log:                       ctrl.Log.WithName("controllers").WithName("self-node-remediation-config-controller"),
+		InstallFileFolder:         "../../../install/",
+		Scheme:                    scheme.Scheme,
+		Namespace:                 shared.Namespace,
+		ManagerSafeTimeCalculator: mockManagerCalculator,
 	}).SetupWithManager(k8sManager)
 
 	// peers need their own node on start
-	unhealthyNode = getNode(unhealthyNodeName)
+	unhealthyNode = getNode(shared.UnhealthyNodeName)
 	Expect(k8sClient.Create(context.Background(), unhealthyNode)).To(Succeed(), "failed to create unhealthy node")
 
-	peerNode = getNode(peerNodeName)
+	peerNode = getNode(shared.PeerNodeName)
 	Expect(k8sClient.Create(context.Background(), peerNode)).To(Succeed(), "failed to create peer node")
 
-	dummyDog, err = watchdog.NewFake(true)
-	Expect(err).ToNot(HaveOccurred())
-	err = k8sManager.Add(dummyDog)
-	Expect(err).ToNot(HaveOccurred())
-
 	peerApiServerTimeout := 5 * time.Second
-	peers := peers.New(unhealthyNodeName, peerUpdateInterval, k8sClient, ctrl.Log.WithName("peers"), peerApiServerTimeout)
+	peers := peers.New(shared.UnhealthyNodeName, shared.PeerUpdateInterval, k8sClient, ctrl.Log.WithName("peers"), peerApiServerTimeout)
 	err = k8sManager.Add(peers)
 	Expect(err).ToNot(HaveOccurred())
 
-	certReader = certificates.NewSecretCertStorage(k8sClient, ctrl.Log.WithName("SecretCertStorage"), namespace)
-	timeToAssumeNodeRebooted := time.Duration(maxErrorThreshold) * apiCheckInterval
-	timeToAssumeNodeRebooted += dummyDog.GetTimeout()
-	timeToAssumeNodeRebooted += 5 * time.Second
-	rebooter := reboot.NewWatchdogRebooter(dummyDog, ctrl.Log.WithName("rebooter"), &mockCalculator{mockTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted})
+	rebooter := reboot.NewWatchdogRebooter(dummyDog, ctrl.Log.WithName("rebooter"))
 	apiConnectivityCheckConfig := &apicheck.ApiConnectivityCheckConfig{
 		Log:                ctrl.Log.WithName("api-check"),
-		MyNodeName:         unhealthyNodeName,
-		CheckInterval:      apiCheckInterval,
-		MaxErrorsThreshold: maxErrorThreshold,
+		MyNodeName:         shared.UnhealthyNodeName,
+		CheckInterval:      shared.ApiCheckInterval,
+		MaxErrorsThreshold: shared.MaxErrorThreshold,
 		Peers:              peers,
 		Rebooter:           rebooter,
 		Cfg:                cfg,
-		CertReader:         certReader,
 	}
 	apiCheck := apicheck.New(apiConnectivityCheckConfig, nil)
 	err = k8sManager.Add(apiCheck)
 	Expect(err).ToNot(HaveOccurred())
 
 	restoreNodeAfter := 5 * time.Second
-
+	mockAgentCalculator := &shared.MockCalculator{MockTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted, IsAgentVar: true}
 	// reconciler for unhealthy node
 	err = (&controllers.SelfNodeRemediationReconciler{
-		Client:           k8sClient,
-		Log:              ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("unhealthy node"),
-		Rebooter:         rebooter,
-		MyNodeName:       unhealthyNodeName,
-		RestoreNodeAfter: restoreNodeAfter,
+		Client:             k8sClient,
+		Log:                ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("unhealthy node"),
+		Rebooter:           rebooter,
+		MyNodeName:         shared.UnhealthyNodeName,
+		RestoreNodeAfter:   restoreNodeAfter,
+		SafeTimeCalculator: mockAgentCalculator,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	// reconciler for peer node
 	err = (&controllers.SelfNodeRemediationReconciler{
-		Client:           k8sClient,
-		Log:              ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
-		MyNodeName:       peerNodeName,
-		Rebooter:         rebooter,
-		RestoreNodeAfter: restoreNodeAfter,
+		Client:             k8sClient,
+		Log:                ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
+		MyNodeName:         shared.PeerNodeName,
+		Rebooter:           rebooter,
+		RestoreNodeAfter:   restoreNodeAfter,
+		SafeTimeCalculator: mockAgentCalculator,
+	}).SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	// reconciler for manager running on peer node
+	err = (&controllers.SelfNodeRemediationReconciler{
+		Client:             k8sClient,
+		Log:                ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("manager node"),
+		MyNodeName:         shared.PeerNodeName,
+		Rebooter:           rebooter,
+		RestoreNodeAfter:   restoreNodeAfter,
+		SafeTimeCalculator: mockManagerCalculator,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
@@ -223,7 +199,7 @@ func getNode(name string) *v1.Node {
 	node := &v1.Node{}
 	node.Name = name
 	node.Labels = make(map[string]string)
-	node.Labels["kubernetes.io/hostname"] = unhealthyNodeName
+	node.Labels["kubernetes.io/hostname"] = name
 
 	return node
 }
@@ -235,16 +211,3 @@ var _ = AfterSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 })
-
-type mockCalculator struct {
-	mockTimeToAssumeNodeRebooted time.Duration
-}
-
-func (m *mockCalculator) GetTimeToAssumeNodeRebooted() time.Duration {
-	return m.mockTimeToAssumeNodeRebooted
-}
-
-//goland:noinspection GoUnusedParameter
-func (m *mockCalculator) Start(ctx context.Context) error {
-	return nil
-}
