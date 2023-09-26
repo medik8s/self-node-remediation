@@ -434,7 +434,7 @@ spec:
   - email: medik8s@googlegroups.com
     name: Medik8s Team
   maturity: alpha
-  minKubeVersion: 1.20.0
+  minKubeVersion: 1.25.0
   provider:
     name: Medik8s
     url: https://www.medik8s.io/

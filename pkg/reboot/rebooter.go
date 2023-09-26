@@ -71,7 +71,7 @@ func (r *watchdogRebooter) Reboot() error {
 // softwareReboot performs software reboot by running systemctl reboot
 func (r *watchdogRebooter) softwareReboot() error {
 	r.log.Info("about to try software reboot")
-	// hostPID: true and privileged:true required to run this
+	// privileged:true required to run this
 	rebootCmd := exec.Command("/usr/bin/nsenter", "-m/proc/1/ns/mnt", "/bin/bash", "-c", "echo b > /proc/sysrq-trigger")
 
 	if err := rebootCmd.Run(); err != nil {
