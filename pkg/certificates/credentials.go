@@ -12,7 +12,7 @@ const TLSMinVersion = tls.VersionTLS13
 
 func GetServerCredentialsFromCerts(certReader CertStorageReader) (credentials.TransportCredentials, error) {
 
-	keyPair, pool, err := prepareCredentials(certReader)
+	keyPair, pool, err := PrepareCredentials(certReader)
 	if err != nil {
 		return nil, err
 	}
@@ -27,7 +27,7 @@ func GetServerCredentialsFromCerts(certReader CertStorageReader) (credentials.Tr
 
 func GetClientCredentialsFromCerts(certReader CertStorageReader) (credentials.TransportCredentials, error) {
 
-	keyPair, pool, err := prepareCredentials(certReader)
+	keyPair, pool, err := PrepareCredentials(certReader)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +40,7 @@ func GetClientCredentialsFromCerts(certReader CertStorageReader) (credentials.Tr
 	}), nil
 }
 
-func prepareCredentials(certReader CertStorageReader) (*tls.Certificate, *x509.CertPool, error) {
+func PrepareCredentials(certReader CertStorageReader) (*tls.Certificate, *x509.CertPool, error) {
 	caPem, certPem, keyPem, err := certReader.GetCerts()
 	if err != nil {
 		return nil, nil, err

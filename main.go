@@ -311,7 +311,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		MaxTimeForNoPeersResponse: reboot.MaxTimeForNoPeersResponse,
 	}
 
-	controlPlaneManager := controlplane.NewManager(myNodeName, mgr.GetClient())
+	controlPlaneManager := controlplane.NewManager(myNodeName, mgr.GetClient(), certReader)
 
 	if err = mgr.Add(controlPlaneManager); err != nil {
 		setupLog.Error(err, "failed to add controlPlane remediation manager to setup manager")

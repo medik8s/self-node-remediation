@@ -33,16 +33,18 @@ type Manager struct {
 	wasEndpointAccessibleAtStart bool
 	client                       client.Client
 	log                          logr.Logger
+	certReader                   certificates.CertStorageReader
 }
 
 // NewManager inits a new Manager return nil if init fails
-func NewManager(nodeName string, myClient client.Client) *Manager {
+func NewManager(nodeName string, myClient client.Client, certReader *certificates.SecretCertStorage) *Manager {
 	return &Manager{
 		nodeName:                     nodeName,
 		endpointHealthCheckUrl:       os.Getenv("END_POINT_HEALTH_CHECK_URL"),
 		client:                       myClient,
 		wasEndpointAccessibleAtStart: false,
 		log:                          ctrl.Log.WithName("controlPlane").WithName("Manager"),
+		certReader:                   certReader,
 	}
 }
 
@@ -149,15 +151,21 @@ func (manager *Manager) isEndpointAccessible() bool {
 }
 
 func (manager *Manager) isKubeletServiceRunning() bool {
-	url := fmt.Sprintf("https://%s:%s/pods", manager.nodeName, kubeletPort)
+	keyPair, _, err := certificates.PrepareCredentials(manager.certReader)
+	if err != nil {
+		manager.log.Error(err, "failed to prepare credentials", "node name", manager.nodeName)
+		return false
+	}
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
+			Certificates:       []tls.Certificate{*keyPair},
+			InsecureSkipVerify: false,
 			MinVersion:         certificates.TLSMinVersion,
 		},
 	}
 	httpClient := &http.Client{Transport: tr}
 
+	url := fmt.Sprintf("https://%s:%s/pods", manager.nodeName, kubeletPort)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		manager.log.Error(err, "failed to create a kubelet service request", "node name", manager.nodeName)
