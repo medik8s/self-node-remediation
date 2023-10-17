@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/go-logr/logr"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
@@ -25,7 +27,7 @@ const (
 	containerMachineConfigDaemon = "machine-config-daemon"
 )
 
-var logger *logf.DelegatingLogger
+var logger logr.Logger
 
 func init() {
 	logger = logf.Log

@@ -3,6 +3,7 @@ package e2e
 import (
 	"testing"
 
+	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
@@ -27,7 +28,7 @@ const testNamespace = "self-node-remediation"
 var cfg *rest.Config
 var k8sClient client.Client
 var k8sClientSet *kubernetes.Clientset
-var logger *logf.DelegatingLogger
+var logger logr.Logger
 
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
