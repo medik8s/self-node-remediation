@@ -17,8 +17,10 @@ limitations under the License.
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -57,6 +59,10 @@ import (
 const (
 	nodeNameEnvVar        = "MY_NODE_NAME"
 	peerHealthDefaultPort = 30001
+
+	WebhookCertDir  = "/apiserver.local.config/certificates"
+	WebhookCertName = "apiserver.crt"
+	WebhookKeyName  = "apiserver.key"
 )
 
 var (
@@ -76,12 +82,14 @@ func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var probeAddr string
+	var enableHTTP2 bool
 	var isManager bool
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	flag.BoolVar(&enableHTTP2, "enable-http2", false, "If HTTP/2 should be enabled for the metrics and webhook servers.")
 	flag.BoolVar(&isManager, "is-manager", false,
 		"Used to differentiate between the self node remediation agents that runs in a daemonset to the 'manager' that only"+
 			"reconciles the config CRD and installs the DS")
@@ -95,7 +103,9 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                 scheme,
+		Scheme: scheme,
+		// HEADS UP: once controller runtime is updated and this changes to metrics.Options{},
+		// and in case you configure TLS / SecureServing, disable HTTP/2 in it for mitigating related CVEs!
 		MetricsBindAddress:     metricsAddr,
 		Port:                   9443,
 		HealthProbeBindAddress: probeAddr,
@@ -108,7 +118,7 @@ func main() {
 	}
 
 	if isManager {
-		initSelfNodeRemediationManager(mgr)
+		initSelfNodeRemediationManager(mgr, enableHTTP2)
 	} else {
 		initSelfNodeRemediationAgent(mgr)
 	}
@@ -131,8 +141,10 @@ func main() {
 	}
 }
 
-func initSelfNodeRemediationManager(mgr manager.Manager) {
+func initSelfNodeRemediationManager(mgr manager.Manager, enableHTTP2 bool) {
 	setupLog.Info("Starting as a manager that installs the daemonset")
+
+	configureWebhookServer(mgr, enableHTTP2)
 
 	if err := utils.InitOutOfServiceTaintSupportedFlag(mgr.GetConfig()); err != nil {
 		setupLog.Error(err, "unable to verify out of service taint support. out of service taint isn't supported")
@@ -320,4 +332,39 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		setupLog.Error(err, "failed to add grpc server to the manager")
 		os.Exit(1)
 	}
+}
+
+func configureWebhookServer(mgr ctrl.Manager, enableHTTP2 bool) {
+
+	server := mgr.GetWebhookServer()
+
+	// check for OLM injected certs
+	certs := []string{filepath.Join(WebhookCertDir, WebhookCertName), filepath.Join(WebhookCertDir, WebhookKeyName)}
+	certsInjected := true
+	for _, fname := range certs {
+		if _, err := os.Stat(fname); err != nil {
+			certsInjected = false
+			break
+		}
+	}
+	if certsInjected {
+		server.CertDir = WebhookCertDir
+		server.CertName = WebhookCertName
+		server.KeyName = WebhookKeyName
+	} else {
+		setupLog.Info("OLM injected certs for webhooks not found")
+	}
+
+	// disable http/2 for mitigating relevant CVEs
+	if !enableHTTP2 {
+		server.TLSOpts = append(server.TLSOpts,
+			func(c *tls.Config) {
+				c.NextProtos = []string{"http/1.1"}
+			},
+		)
+		setupLog.Info("HTTP/2 for webhooks disabled")
+	} else {
+		setupLog.Info("HTTP/2 for webhooks enabled")
+	}
+
 }
