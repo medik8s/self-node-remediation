@@ -18,19 +18,12 @@ package v1alpha1
 
 import (
 	"fmt"
+	"time"
+
 	"k8s.io/apimachinery/pkg/runtime"
-	"os"
-	"path/filepath"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
-	"time"
-)
-
-const (
-	webhookCertDir  = "/apiserver.local.config/certificates"
-	webhookCertName = "apiserver.crt"
-	webhookKeyName  = "apiserver.key"
 )
 
 // fields names
@@ -63,25 +56,6 @@ type field struct {
 var selfNodeRemediationConfigLog = logf.Log.WithName("selfnoderemediationconfig-resource")
 
 func (r *SelfNodeRemediationConfig) SetupWebhookWithManager(mgr ctrl.Manager) error {
-
-	// check if OLM injected certs
-	certs := []string{filepath.Join(webhookCertDir, webhookCertName), filepath.Join(webhookCertDir, webhookKeyName)}
-	certsInjected := true
-	for _, fname := range certs {
-		if _, err := os.Stat(fname); err != nil {
-			certsInjected = false
-			break
-		}
-	}
-	if certsInjected {
-		server := mgr.GetWebhookServer()
-		server.CertDir = webhookCertDir
-		server.CertName = webhookCertName
-		server.KeyName = webhookKeyName
-	} else {
-		selfNodeRemediationConfigLog.Info("OLM injected certs for webhooks not found")
-	}
-
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(r).
 		Complete()
