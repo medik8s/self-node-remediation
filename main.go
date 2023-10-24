@@ -19,15 +19,17 @@ package main
 import (
 	"crypto/tls"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"time"
 
 	"github.com/pkg/errors"
 	"go.uber.org/zap/zapcore"
 
-	"k8s.io/apimachinery/pkg/runtime"
+	pkgruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 
@@ -53,6 +55,7 @@ import (
 	"github.com/medik8s/self-node-remediation/pkg/template"
 	"github.com/medik8s/self-node-remediation/pkg/utils"
 	"github.com/medik8s/self-node-remediation/pkg/watchdog"
+	"github.com/medik8s/self-node-remediation/version"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -65,7 +68,7 @@ const (
 )
 
 var (
-	scheme   = runtime.NewScheme()
+	scheme   = pkgruntime.NewScheme()
 	setupLog = ctrl.Log.WithName("setup")
 )
 
@@ -100,6 +103,8 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	printVersion()
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
@@ -399,4 +404,12 @@ func configureWebhookServer(mgr ctrl.Manager, enableHTTP2 bool) {
 		setupLog.Info("HTTP/2 for webhooks enabled")
 	}
 
+}
+
+func printVersion() {
+	setupLog.Info(fmt.Sprintf("Go Version: %s", runtime.Version()))
+	setupLog.Info(fmt.Sprintf("Go OS/Arch: %s/%s", runtime.GOOS, runtime.GOARCH))
+	setupLog.Info(fmt.Sprintf("Operator Version: %s", version.Version))
+	setupLog.Info(fmt.Sprintf("Git Commit: %s", version.GitCommit))
+	setupLog.Info(fmt.Sprintf("Build Date: %s", version.BuildDate))
 }
