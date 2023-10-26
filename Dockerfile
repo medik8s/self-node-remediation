@@ -21,6 +21,8 @@ COPY main.go main.go
 COPY hack/ hack/
 COPY api/ api/
 COPY controllers/ controllers/
+# for getting version info
+COPY .git/ .git/
 COPY pkg/ pkg/
 COPY install/ install/
 # Build
