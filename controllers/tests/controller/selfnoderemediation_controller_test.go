@@ -2,6 +2,7 @@ package testcontroler
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"time"
 
@@ -167,6 +168,10 @@ var _ = Describe("SNR Controller", func() {
 			It("Remediation flow", func() {
 				node := verifyNodeIsUnschedulable()
 
+				verifyEvent("Normal", "RemediationCreated", "Remediation started")
+
+				verifyEvent("Normal", "MarkUnschedulable", "Remediation process - unhealthy node marked as unschedulable")
+
 				addUnschedulableTaint(node)
 
 				verifyTypeConditions(snr.Name, metav1.ConditionTrue, metav1.ConditionUnknown, "RemediationStarted")
@@ -175,13 +180,21 @@ var _ = Describe("SNR Controller", func() {
 
 				verifyNoWatchdogFood()
 
+				verifyEvent("Normal", "NodeReboot", "Remediation process - about to attempt fencing the unhealthy node by rebooting it")
+
 				verifySelfNodeRemediationPodDoesntExist()
 
 				verifyVaDeleted(vaName)
 
+				verifyEvent("Normal", "DeleteResources", "Remediation process - finished deleting unhealthy node resources")
+
 				verifyFinalizerExists()
 
+				verifyEvent("Normal", "AddFinalizer", "Remediation process - successful adding finalizer")
+
 				verifyNoExecuteTaintExist()
+
+				verifyEvent("Normal", "AddNoExecute", "Remediation process - NoExecute taint added to the unhealthy node")
 
 				verifyTypeConditions(snr.Name, metav1.ConditionFalse, metav1.ConditionTrue, "RemediationFinishedSuccessfully")
 
@@ -191,7 +204,13 @@ var _ = Describe("SNR Controller", func() {
 
 				removeUnschedulableTaint()
 
+				verifyEvent("Normal", "MarkNodeSchedulable", "Remediation process - mark healthy remediated node as schedulable")
+
 				verifyNoExecuteTaintRemoved()
+
+				verifyEvent("Normal", "RemoveNoExecuteTaint", "Remediation process - remove NoExecute taint from healthy remediated node")
+
+				verifyEvent("Normal", "RemoveFinalizer", "Remediation process - remove finalizer from snr")
 
 				verifySNRDoesNotExists()
 
@@ -237,6 +256,8 @@ var _ = Describe("SNR Controller", func() {
 
 				It("remediation should stop and update conditions", func() {
 					verifyTypeConditions(snr.Name, metav1.ConditionFalse, metav1.ConditionFalse, "RemediationFinishedNodeNotFound")
+
+					verifyEvent("Normal", "RemediationStopped", "couldn't find node matching remediation")
 				})
 			})
 		})
@@ -795,4 +816,35 @@ func verifyNodesAreEqual(expected *v1.Node, actual *v1.Node) {
 	Expect(reflect.DeepEqual(expected.Status, actual.Status)).To(BeTrue())
 	Expect(reflect.DeepEqual(expected.Annotations, actual.Annotations)).To(BeTrue())
 	Expect(reflect.DeepEqual(expected.Labels, actual.Labels)).To(BeTrue())
+}
+
+func verifyEvent(eventType, reason, message string) {
+	expected := fmt.Sprintf("%s %s %s", eventType, reason, message)
+	isEventMatch := false
+
+	unMatchedEvents := make(chan string, len(fakeRecorder.Events))
+	By(fmt.Sprintf("verifying that the event was: %s", expected))
+	isDone := false
+	for {
+		select {
+		case event := <-fakeRecorder.Events:
+			if isEventMatch = event == expected; isEventMatch {
+				isDone = true
+			} else {
+				unMatchedEvents <- event
+			}
+		default:
+			isDone = true
+		}
+		if isDone {
+			break
+		}
+	}
+
+	close(unMatchedEvents)
+	for unMatchedEvent := range unMatchedEvents {
+		fakeRecorder.Events <- unMatchedEvent
+	}
+
+	ExpectWithOffset(1, isEventMatch).To(BeTrue())
 }

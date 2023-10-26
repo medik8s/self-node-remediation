@@ -28,6 +28,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -53,6 +54,7 @@ var (
 	unhealthyNode, peerNode = &v1.Node{}, &v1.Node{}
 	cancelFunc              context.CancelFunc
 	k8sClient               *shared.K8sClientWrapper
+	fakeRecorder            *record.FakeRecorder
 )
 
 var unhealthyNodeNamespacedName = client.ObjectKey{
@@ -151,6 +153,7 @@ var _ = BeforeSuite(func() {
 
 	restoreNodeAfter := 5 * time.Second
 	mockAgentCalculator := &shared.MockCalculator{MockTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted, IsAgentVar: true}
+	fakeRecorder = record.NewFakeRecorder(1000)
 	// reconciler for unhealthy node
 	err = (&controllers.SelfNodeRemediationReconciler{
 		Client:             k8sClient,
@@ -159,6 +162,7 @@ var _ = BeforeSuite(func() {
 		MyNodeName:         shared.UnhealthyNodeName,
 		RestoreNodeAfter:   restoreNodeAfter,
 		SafeTimeCalculator: mockAgentCalculator,
+		Recorder:           fakeRecorder,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
@@ -170,6 +174,7 @@ var _ = BeforeSuite(func() {
 		Rebooter:           rebooter,
 		RestoreNodeAfter:   restoreNodeAfter,
 		SafeTimeCalculator: mockAgentCalculator,
+		Recorder:           fakeRecorder,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
@@ -181,6 +186,7 @@ var _ = BeforeSuite(func() {
 		Rebooter:           rebooter,
 		RestoreNodeAfter:   restoreNodeAfter,
 		SafeTimeCalculator: mockManagerCalculator,
+		Recorder:           fakeRecorder,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 

@@ -12,6 +12,7 @@ import (
 
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -78,6 +79,7 @@ var _ = BeforeSuite(func() {
 		Log:                ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
 		MyNodeName:         nodeName,
 		SafeTimeCalculator: &shared.MockCalculator{MockTimeToAssumeNodeRebooted: time.Minute * 3, IsAgentVar: true},
+		Recorder:           record.NewFakeRecorder(1000),
 	}
 	err = snrReconciler.SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
