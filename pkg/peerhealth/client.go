@@ -2,6 +2,7 @@ package peerhealth
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -22,7 +23,7 @@ func NewClient(serverAddr string, peerDialTimeout time.Duration, log logr.Logger
 	if clientCreds != nil {
 		opts = append(opts, grpc.WithTransportCredentials(clientCreds))
 	} else {
-		opts = append(opts, grpc.WithInsecure())
+		return nil, fmt.Errorf("client credential is nil")
 	}
 
 	// this option implies WithBlock()
