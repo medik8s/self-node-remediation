@@ -2,7 +2,6 @@ package watchdog
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,7 +78,7 @@ func NewLinux(log logr.Logger) (Watchdog, error) {
 			return nil, err
 		}
 
-		newWatchdogDevice, err := getLastModifiedWatchdog()
+		newWatchdogDevice, err := getLastModifiedWatchdog(log)
 
 		if err != nil {
 			log.Error(err, "failed to find softdog path")
@@ -105,26 +104,32 @@ func NewLinux(log logr.Logger) (Watchdog, error) {
 
 // this func returns watchdog path with the latest modification time assuming that
 // after softdog enablement
-func getLastModifiedWatchdog() (string, error) {
-	files, err := ioutil.ReadDir(watchdogsFolder)
+func getLastModifiedWatchdog(log logr.Logger) (string, error) {
+	entries, err := os.ReadDir(watchdogsFolder)
 	if err != nil {
 		return "", errors.Wrap(err, "failed to list watchdogs folder: "+watchdogsFolder)
 	}
 
 	maxModTime := time.Time{}
 	latestWatchdog := ""
-	for _, file := range files {
-		if file.IsDir() {
+	for _, entry := range entries {
+		if entry.IsDir() {
 			continue
 		}
 
-		if !strings.HasPrefix(file.Name(), watchdogPrefix) {
+		if !strings.HasPrefix(entry.Name(), watchdogPrefix) {
 			continue
 		}
 
-		if file.ModTime().After(maxModTime) || file.ModTime().Equal(maxModTime) {
-			maxModTime = file.ModTime()
-			latestWatchdog = filepath.Join(watchdogsFolder, file.Name())
+		fileInfo, err := entry.Info()
+		if err != nil {
+			log.Error(err, "failed to get info for file in watchdogs folder", "file", entry.Name(), "watchdog folder", watchdogsFolder)
+			continue
+		}
+
+		if fileInfo.ModTime().After(maxModTime) || fileInfo.ModTime().Equal(maxModTime) {
+			maxModTime = fileInfo.ModTime()
+			latestWatchdog = filepath.Join(watchdogsFolder, entry.Name())
 		}
 	}
 

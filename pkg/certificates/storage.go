@@ -96,7 +96,7 @@ func (s *SecretCertStorage) StoreCerts(caPem, certPem, keyPem *bytes.Buffer) err
 			Namespace: s.namespace,
 			Name:      secretName,
 		},
-		Immutable: pointer.BoolPtr(true),
+		Immutable: pointer.Bool(true),
 		Data:      nil,
 		StringData: map[string]string{
 			caPemKey:   caPem.String(),
