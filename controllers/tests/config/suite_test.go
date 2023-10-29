@@ -82,9 +82,8 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	k8sClient = &shared.K8sClientWrapper{
-		Client:           k8sManager.GetClient(),
-		Reader:           k8sManager.GetAPIReader(),
-		VaFailureMessage: "simulation of client error for VA",
+		Client: k8sManager.GetClient(),
+		Reader: k8sManager.GetAPIReader(),
 	}
 	Expect(k8sClient).ToNot(BeNil())
 

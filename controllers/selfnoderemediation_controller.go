@@ -339,7 +339,7 @@ func (r *SelfNodeRemediationReconciler) deleteResources(node *v1.Node) error {
 
 	namespaces := v1.NamespaceList{}
 	if err := r.Client.List(context.Background(), &namespaces); err != nil {
-		r.logger.Error(err, "failed to list namespaces", err)
+		r.logger.Error(err, "failed to list namespaces")
 		return err
 	}
 
@@ -352,24 +352,6 @@ func (r *SelfNodeRemediationReconciler) deleteResources(node *v1.Node) error {
 		if err != nil {
 			r.logger.Error(err, "failed to delete pods of unhealthy node", "namespace", ns.Name)
 			return err
-		}
-	}
-
-	volumeAttachments := &storagev1.VolumeAttachmentList{}
-	if err := r.Client.List(context.Background(), volumeAttachments); err != nil {
-		r.logger.Error(err, "failed to get volumeAttachments list")
-		return err
-	}
-	forceDeleteOption := &client.DeleteOptions{
-		GracePeriodSeconds: &zero,
-	}
-	for _, va := range volumeAttachments.Items {
-		if va.Spec.NodeName == node.Name {
-			err := r.Client.Delete(context.Background(), &va, forceDeleteOption)
-			if err != nil {
-				r.logger.Error(err, "failed to delete volumeAttachment", "name", va.Name)
-				return err
-			}
 		}
 	}
 

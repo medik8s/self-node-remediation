@@ -60,12 +60,11 @@ var _ = Describe("SNR Controller", func() {
 
 	AfterEach(func() {
 		k8sClient.ShouldSimulateFailure = false
-		k8sClient.ShouldSimulateVaFailure = false
+		k8sClient.ShouldSimulatePodDeleteFailure = false
 		isAdditionalSetupNeeded = false
 		deleteRemediations()
 		deleteSelfNodeRemediationPod()
 		deleteVolumeAttachment(vaName, false)
-		verifyVaDeleted(vaName)
 		//clear node's state, this is important to remove taints, label etc.
 		Expect(k8sClient.Update(context.Background(), getNode(shared.UnhealthyNodeName)))
 		Expect(k8sClient.Update(context.Background(), getNode(shared.PeerNodeName)))
@@ -184,8 +183,6 @@ var _ = Describe("SNR Controller", func() {
 
 				verifySelfNodeRemediationPodDoesntExist()
 
-				verifyVaDeleted(vaName)
-
 				verifyEvent("Normal", "DeleteResources", "Remediation process - finished deleting unhealthy node resources")
 
 				verifyFinalizerExists()
@@ -219,7 +216,7 @@ var _ = Describe("SNR Controller", func() {
 			It("The snr agent attempts to keep deleting node resources during temporary api-server failure", func() {
 				node := verifyNodeIsUnschedulable()
 
-				k8sClient.ShouldSimulateVaFailure = true
+				k8sClient.ShouldSimulatePodDeleteFailure = true
 
 				addUnschedulableTaint(node)
 
@@ -229,16 +226,16 @@ var _ = Describe("SNR Controller", func() {
 
 				verifyNoWatchdogFood()
 
-				verifySelfNodeRemediationPodDoesntExist()
-
 				verifyVaNotDeleted(vaName)
 
 				// The kube-api calls for VA fail intentionally. In this case, we expect the snr agent to try
 				// to delete node resources again. So LastError is set to the error every time Reconcile()
 				// is triggered. If it becomes another error, it means something unintended happens.
-				verifyLastErrorKeepsApiErrorForVa()
+				verifyLastErrorKeepsApiError()
 
-				k8sClient.ShouldSimulateVaFailure = false
+				k8sClient.ShouldSimulatePodDeleteFailure = false
+
+				verifySelfNodeRemediationPodDoesntExist()
 
 				deleteVolumeAttachment(vaName, true)
 
@@ -391,20 +388,6 @@ func deleteVolumeAttachment(vaName string, verifyExist bool) {
 	ExpectWithOffset(1, err).To(Succeed())
 }
 
-func verifyVaDeleted(vaName string) {
-	vaKey := client.ObjectKey{
-		Namespace: shared.Namespace,
-		Name:      vaName,
-	}
-
-	EventuallyWithOffset(1, func() bool {
-		va := &storagev1.VolumeAttachment{}
-		err := k8sClient.Get(context.Background(), vaKey, va)
-		return apierrors.IsNotFound(err)
-
-	}, 5*time.Second, 100*time.Millisecond).Should(BeTrue())
-}
-
 func verifyVaNotDeleted(vaName string) {
 	vaKey := client.ObjectKey{
 		Namespace: shared.Namespace,
@@ -419,7 +402,7 @@ func verifyVaNotDeleted(vaName string) {
 	}, 5*time.Second, 250*time.Millisecond).Should(BeFalse())
 }
 
-func verifyLastErrorKeepsApiErrorForVa() {
+func verifyLastErrorKeepsApiError() {
 	By("Verify that LastError in SNR status has been kept kube-api error for VA")
 	snr := &v1alpha1.SelfNodeRemediation{}
 	ConsistentlyWithOffset(1, func() bool {
@@ -427,7 +410,7 @@ func verifyLastErrorKeepsApiErrorForVa() {
 		if err := k8sClient.Client.Get(context.Background(), snrNamespacedName, snr); err != nil {
 			return false
 		}
-		return snr.Status.LastError == k8sClient.VaFailureMessage
+		return snr.Status.LastError == k8sClient.SimulatedFailureMessage
 	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
 }
 

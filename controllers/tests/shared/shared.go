@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	storagev1 "k8s.io/api/storage/v1"
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -20,10 +20,10 @@ const (
 
 type K8sClientWrapper struct {
 	client.Client
-	Reader                  client.Reader
-	ShouldSimulateFailure   bool
-	ShouldSimulateVaFailure bool
-	VaFailureMessage        string
+	Reader                         client.Reader
+	ShouldSimulateFailure          bool
+	ShouldSimulatePodDeleteFailure bool
+	SimulatedFailureMessage        string
 }
 
 type MockCalculator struct {
@@ -34,9 +34,9 @@ type MockCalculator struct {
 func (kcw *K8sClientWrapper) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
 	if kcw.ShouldSimulateFailure {
 		return errors.New("simulation of client error")
-	} else if kcw.ShouldSimulateVaFailure {
-		if _, ok := list.(*storagev1.VolumeAttachmentList); ok {
-			return errors.New(kcw.VaFailureMessage)
+	} else if kcw.ShouldSimulatePodDeleteFailure {
+		if _, ok := list.(*corev1.NamespaceList); ok {
+			return errors.New(kcw.SimulatedFailureMessage)
 		}
 	}
 	return kcw.Client.List(ctx, list, opts...)
