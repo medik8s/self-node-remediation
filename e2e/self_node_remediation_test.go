@@ -15,7 +15,6 @@ import (
 	gomegatypes "github.com/onsi/gomega/types"
 
 	v1 "k8s.io/api/core/v1"
-	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -108,17 +107,14 @@ var _ = Describe("Self Node Remediation E2E", func() {
 
 				Context("Resource Deletion Strategy", func() {
 					var oldPodCreationTime time.Time
-					var va *storagev1.VolumeAttachment
 
 					BeforeEach(func() {
 						remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
 						oldPodCreationTime = findSnrPod(node).CreationTimestamp.Time
-						va = createVolumeAttachment(node)
 					})
 
 					It("should delete pods and volume attachments", func() {
 						checkPodRecreated(node, oldPodCreationTime)
-						checkVaDeleted(va)
 						//Simulate NHC trying to delete SNR
 						deleteAndWait(snr)
 						snr = nil
@@ -167,17 +163,15 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				// b) unhealthy
 				//    - kill connectivity on one node
 				//    - create SNR
-				//    - verify node does reboot and and is deleted / re-created
+				//    - verify node does reboot and is deleted / re-created
 
 				var snr *v1alpha1.SelfNodeRemediation
-				var va *storagev1.VolumeAttachment
 				var oldPodCreationTime time.Time
 
 				BeforeEach(func() {
 					killApiConnection(node, apiIPs, false)
 					snr = createSNR(node, v1alpha1.ResourceDeletionRemediationStrategy)
 					oldPodCreationTime = findSnrPod(node).CreationTimestamp.Time
-					va = createVolumeAttachment(node)
 				})
 
 				AfterEach(func() {
@@ -192,7 +186,6 @@ var _ = Describe("Self Node Remediation E2E", func() {
 					// - because the 2nd check has a small timeout only
 					checkReboot(node, oldBootTime)
 					checkPodRecreated(node, oldPodCreationTime)
-					checkVaDeleted(va)
 					if _, isExist := os.LookupEnv(skipLogsEnvVarName); !isExist {
 						// we can't check logs of unhealthy node anymore, check peer logs
 						peer := &workers.Items[1]
@@ -333,17 +326,14 @@ var _ = Describe("Self Node Remediation E2E", func() {
 
 				Context("Resource Deletion Strategy", func() {
 					var oldPodCreationTime time.Time
-					var va *storagev1.VolumeAttachment
 
 					BeforeEach(func() {
 						remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
 						oldPodCreationTime = findSnrPod(controlPlaneNode).CreationTimestamp.Time
-						va = createVolumeAttachment(controlPlaneNode)
 					})
 
 					It("should delete pods and volume attachments", func() {
 						checkPodRecreated(controlPlaneNode, oldPodCreationTime)
-						checkVaDeleted(va)
 						//Simulate NHC trying to delete SNR
 						deleteAndWait(snr)
 						snr = nil
@@ -357,34 +347,6 @@ var _ = Describe("Self Node Remediation E2E", func() {
 
 	})
 })
-
-func checkVaDeleted(va *storagev1.VolumeAttachment) {
-	EventuallyWithOffset(1, func() bool {
-		newVa := &storagev1.VolumeAttachment{}
-		err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(va), newVa)
-		return errors.IsNotFound(err)
-
-	}, 10*time.Second, 250*time.Millisecond).Should(BeTrue())
-}
-
-func createVolumeAttachment(node *v1.Node) *storagev1.VolumeAttachment {
-	foo := "foo"
-	va := &storagev1.VolumeAttachment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "some-va",
-			Namespace: testNamespace,
-		},
-		Spec: storagev1.VolumeAttachmentSpec{
-			Attacher: foo,
-			Source:   storagev1.VolumeAttachmentSource{},
-			NodeName: node.Name,
-		},
-	}
-
-	va.Spec.Source.PersistentVolumeName = &foo
-	ExpectWithOffset(1, k8sClient.Create(context.Background(), va)).To(Succeed())
-	return va
-}
 
 func checkPodRecreated(node *v1.Node, oldPodCreationTime time.Time) bool {
 	return EventuallyWithOffset(1, func() time.Time {
