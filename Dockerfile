@@ -1,6 +1,6 @@
 # Build the manager binary
 FROM quay.io/centos/centos:stream8 AS builder
-RUN yum install golang -y && yum clean all
+RUN yum install git golang -y && yum clean all
 
 # Ensure correct Go version
 ENV GO_VERSION=1.20
@@ -13,23 +13,25 @@ WORKDIR /workspace
 # Copy the Go Modules manifests
 COPY go.mod go.mod
 COPY go.sum go.sum
-# cache deps before building and copying source so that we don't need to re-download as much
-# and so that source changes don't invalidate our downloaded layer
-RUN go mod download
 
 # Copy the go source
+COPY vendor/ vendor/
+COPY version/ version/
 COPY main.go main.go
+COPY hack/ hack/
 COPY api/ api/
 COPY controllers/ controllers/
+# for getting version info
+COPY .git/ .git/
 COPY pkg/ pkg/
 COPY install/ install/
 # Build
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -a -o manager main.go
+RUN ./hack/build.sh
 
 FROM registry.access.redhat.com/ubi8/ubi:latest
 
 WORKDIR /
 COPY --from=builder /workspace/install/ install/
-COPY --from=builder /workspace/manager .
+COPY --from=builder /workspace/bin/manager .
 
 ENTRYPOINT ["/manager"]
