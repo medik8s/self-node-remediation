@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/medik8s/common/pkg/resources"
 	"github.com/pkg/errors"
 
 	v1 "k8s.io/api/core/v1"
@@ -30,7 +31,6 @@ import (
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/client-go/tools/record"
@@ -317,47 +317,7 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alp
 // if not, it will return a 'zero' time and non-nil error, which means exponential backoff is triggered
 // SelfNodeRemediation is only used in order to match method signature required by remediateWithResourceRemoval
 func (r *SelfNodeRemediationReconciler) deleteResourcesWrapper(node *v1.Node, _ *v1alpha1.SelfNodeRemediation) (time.Duration, error) {
-	return 0, r.deleteResources(node)
-}
-
-func (r *SelfNodeRemediationReconciler) deleteResources(node *v1.Node) error {
-	//fence
-	zero := int64(0)
-	backgroundDeletePolicy := metav1.DeletePropagationBackground
-
-	deleteOptions := &client.DeleteAllOfOptions{
-		ListOptions: client.ListOptions{
-			FieldSelector: fields.SelectorFromSet(fields.Set{"spec.nodeName": node.Name}),
-			Namespace:     "",
-			Limit:         0,
-		},
-		DeleteOptions: client.DeleteOptions{
-			GracePeriodSeconds: &zero,
-			PropagationPolicy:  &backgroundDeletePolicy,
-		},
-	}
-
-	namespaces := v1.NamespaceList{}
-	if err := r.Client.List(context.Background(), &namespaces); err != nil {
-		r.logger.Error(err, "failed to list namespaces")
-		return err
-	}
-
-	r.logger.Info("starting to delete node resources", "node name", node.Name)
-
-	pod := &v1.Pod{}
-	for _, ns := range namespaces.Items {
-		deleteOptions.Namespace = ns.Name
-		err := r.Client.DeleteAllOf(context.Background(), pod, deleteOptions)
-		if err != nil {
-			r.logger.Error(err, "failed to delete pods of unhealthy node", "namespace", ns.Name)
-			return err
-		}
-	}
-
-	r.logger.Info("done deleting node resources", "node name", node.Name)
-
-	return nil
+	return 0, resources.DeletePods(context.Background(), r.Client, node.Name)
 }
 
 func (r *SelfNodeRemediationReconciler) remediateWithOutOfServiceTaint(snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
