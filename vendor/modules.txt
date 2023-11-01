@@ -107,10 +107,11 @@ github.com/mailru/easyjson/jwriter
 # github.com/matttproud/golang_protobuf_extensions v1.0.2
 ## explicit; go 1.9
 github.com/matttproud/golang_protobuf_extensions/pbutil
-# github.com/medik8s/common v1.2.0
+# github.com/medik8s/common v1.9.0
 ## explicit; go 1.20
 github.com/medik8s/common/pkg/labels
 github.com/medik8s/common/pkg/nodes
+github.com/medik8s/common/pkg/resources
 # github.com/mitchellh/copystructure v1.1.2
 ## explicit; go 1.15
 github.com/mitchellh/copystructure
