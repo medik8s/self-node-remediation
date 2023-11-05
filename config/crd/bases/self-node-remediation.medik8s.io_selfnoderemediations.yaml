@@ -39,7 +39,7 @@ spec:
             description: SelfNodeRemediationSpec defines the desired state of SelfNodeRemediation
             properties:
               remediationStrategy:
-                default: ResourceDeletion
+                default: Automatic
                 description: RemediationStrategy is the remediation method for unhealthy
                   nodes. Currently, it could be either "ResourceDeletion" or "OutOfServiceTaint".
                   The first will iterate over all pods and VolumeAttachment related
@@ -49,6 +49,7 @@ spec:
                   "OutOfServiceTaint" is only supported on clusters with k8s version
                   1.26+ or OCP/OKD version 4.13+.
                 enum:
+                - Automatic
                 - ResourceDeletion
                 - OutOfServiceTaint
                 type: string

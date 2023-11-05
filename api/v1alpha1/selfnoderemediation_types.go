@@ -21,6 +21,7 @@ import (
 )
 
 const (
+	AutomaticRemediationStrategy         = RemediationStrategyType("Automatic")
 	ResourceDeletionRemediationStrategy  = RemediationStrategyType("ResourceDeletion")
 	OutOfServiceTaintRemediationStrategy = RemediationStrategyType("OutOfServiceTaint")
 	// ProcessingConditionType is the condition type used to signal NHC the remediation status
@@ -41,8 +42,8 @@ type SelfNodeRemediationSpec struct {
 	//The first will iterate over all pods and VolumeAttachment related to the unhealthy node and delete them.
 	//The latter will add the out-of-service taint which is a new well-known taint "node.kubernetes.io/out-of-service"
 	//that enables automatic deletion of pv-attached pods on failed nodes, "OutOfServiceTaint" is only supported on clusters with k8s version 1.26+ or OCP/OKD version 4.13+.
-	// +kubebuilder:default:="ResourceDeletion"
-	// +kubebuilder:validation:Enum=ResourceDeletion;OutOfServiceTaint
+	// +kubebuilder:default:="Automatic"
+	// +kubebuilder:validation:Enum=Automatic;ResourceDeletion;OutOfServiceTaint
 	RemediationStrategy RemediationStrategyType `json:"remediationStrategy,omitempty"`
 }
 
