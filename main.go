@@ -150,7 +150,7 @@ func initSelfNodeRemediationManager(mgr manager.Manager, enableHTTP2 bool) {
 
 	configureWebhookServer(mgr, enableHTTP2)
 
-	if err := utils.InitOutOfServiceTaintSupportedFlag(mgr.GetConfig()); err != nil {
+	if err := utils.InitOutOfServiceTaintFlags(mgr.GetConfig()); err != nil {
 		setupLog.Error(err, "unable to verify out of service taint support. out of service taint isn't supported")
 	}
 
@@ -274,6 +274,10 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 			os.Exit(1)
 		}
 		wasWatchdogInitiated = true
+	}
+
+	if err := utils.InitOutOfServiceTaintFlags(mgr.GetConfig()); err != nil {
+		setupLog.Error(err, "unable to verify out of service taint support. out of service taint isn't supported")
 	}
 
 	if err = utils.UpdateNodeWithIsRebootCapableAnnotation(wasWatchdogInitiated, myNodeName, mgr); err != nil {

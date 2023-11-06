@@ -230,7 +230,8 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	result := ctrl.Result{}
 	var err error
 
-	switch snr.Spec.RemediationStrategy {
+	strategy := r.getRuntimeStrategy(snr.Spec.RemediationStrategy)
+	switch strategy {
 	case v1alpha1.ResourceDeletionRemediationStrategy:
 		result, err = r.remediateWithResourceDeletion(snr)
 	case v1alpha1.OutOfServiceTaintRemediationStrategy:
@@ -906,4 +907,19 @@ func (r *SelfNodeRemediationReconciler) isResourceDeletionExpired(snr *v1alpha1.
 	}
 
 	return true, 0
+}
+
+func (r *SelfNodeRemediationReconciler) getRuntimeStrategy(strategy v1alpha1.RemediationStrategyType) v1alpha1.RemediationStrategyType {
+	if strategy != v1alpha1.AutomaticRemediationStrategy {
+		return strategy
+	}
+
+	if utils.IsOutOfServiceTaintGA {
+		r.logger.Info("Automatically selected OutOfServiceTaint Remediation strategy")
+		return v1alpha1.OutOfServiceTaintRemediationStrategy
+	}
+
+	r.logger.Info("Automatically selected ResourceDeletion Remediation strategy")
+	return v1alpha1.ResourceDeletionRemediationStrategy
+
 }
