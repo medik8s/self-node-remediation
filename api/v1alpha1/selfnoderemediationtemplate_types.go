@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	resourceDeletionTemplateName = "self-node-remediation-resource-deletion-template"
+	automaticTemplateName = "self-node-remediation-automatic-strategy-template"
 )
 
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
@@ -74,12 +74,12 @@ func NewRemediationTemplates() []*SelfNodeRemediationTemplate {
 	return []*SelfNodeRemediationTemplate{
 		{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: resourceDeletionTemplateName,
+				Name: automaticTemplateName,
 			},
 			Spec: SelfNodeRemediationTemplateSpec{
 				Template: SelfNodeRemediationTemplateResource{
 					Spec: SelfNodeRemediationSpec{
-						RemediationStrategy: ResourceDeletionRemediationStrategy,
+						RemediationStrategy: AutomaticRemediationStrategy,
 					},
 				},
 			},
