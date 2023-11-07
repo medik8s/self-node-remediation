@@ -158,10 +158,13 @@ var _ = Describe("SNR Controller", func() {
 			isAdditionalSetupNeeded = true
 		})
 
-		Context("ResourceDeletion strategy", func() {
+		Context("Automatic strategy - ResourceDeletion selected", func() {
 
 			BeforeEach(func() {
-				remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
+				remediationStrategy = v1alpha1.AutomaticRemediationStrategy
+				prevVal := utils.IsOutOfServiceTaintGA
+				utils.IsOutOfServiceTaintGA = false
+				DeferCleanup(func() { utils.IsOutOfServiceTaintGA = prevVal })
 			})
 
 			It("Remediation flow", func() {
@@ -211,6 +214,9 @@ var _ = Describe("SNR Controller", func() {
 
 				verifySNRDoesNotExists()
 
+				verifyNoEvent("Normal", "AddOutOfService", "Remediation process - add OutOfService taint to unhealthy node")
+				verifyNoEvent("Normal", "RemoveOutOfService", "Remediation process - remove OutOfService taint from node")
+
 			})
 
 			It("The snr agent attempts to keep deleting node resources during temporary api-server failure", func() {
@@ -259,9 +265,12 @@ var _ = Describe("SNR Controller", func() {
 			})
 		})
 
-		Context("OutOfServiceTaint strategy", func() {
+		Context("Automatic strategy - OutOfServiceTaint selected", func() {
 			BeforeEach(func() {
-				remediationStrategy = v1alpha1.OutOfServiceTaintRemediationStrategy
+				remediationStrategy = v1alpha1.AutomaticRemediationStrategy
+				prevVal := utils.IsOutOfServiceTaintGA
+				utils.IsOutOfServiceTaintGA = true
+				DeferCleanup(func() { utils.IsOutOfServiceTaintGA = prevVal })
 			})
 
 			It("Remediation flow", func() {
@@ -285,12 +294,16 @@ var _ = Describe("SNR Controller", func() {
 
 				verifyOutOfServiceTaintExist()
 
+				verifyEvent("Normal", "AddOutOfService", "Remediation process - add OutOfService taint to unhealthy node")
+
 				// simulate the out-of-service taint by Pod GC Controller
 				deleteTerminatingPod()
 
 				deleteVolumeAttachment(vaName, true)
 
 				verifyOutOfServiceTaintRemoved()
+
+				verifyEvent("Normal", "RemoveOutOfService", "Remediation process - remove OutOfService taint from node")
 
 				verifyTypeConditions(snr.Name, metav1.ConditionFalse, metav1.ConditionTrue, "RemediationFinishedSuccessfully")
 
@@ -802,6 +815,16 @@ func verifyNodesAreEqual(expected *v1.Node, actual *v1.Node) {
 }
 
 func verifyEvent(eventType, reason, message string) {
+	isEventMatch := isEventOccurred(eventType, reason, message)
+	ExpectWithOffset(1, isEventMatch).To(BeTrue())
+}
+
+func verifyNoEvent(eventType, reason, message string) {
+	isEventMatch := isEventOccurred(eventType, reason, message)
+	ExpectWithOffset(1, isEventMatch).To(BeFalse())
+}
+
+func isEventOccurred(eventType string, reason string, message string) bool {
 	expected := fmt.Sprintf("%s %s %s", eventType, reason, message)
 	isEventMatch := false
 
@@ -828,6 +851,5 @@ func verifyEvent(eventType, reason, message string) {
 	for unMatchedEvent := range unMatchedEvents {
 		fakeRecorder.Events <- unMatchedEvent
 	}
-
-	ExpectWithOffset(1, isEventMatch).To(BeTrue())
+	return isEventMatch
 }
