@@ -56,11 +56,13 @@ const (
 	eventReasonAddFinalizer              = "AddFinalizer"
 	eventReasonMarkUnschedulable         = "MarkUnschedulable"
 	eventReasonAddNoExecute              = "AddNoExecute"
+	eventReasonAddOutOfService           = "AddOutOfService"
 	eventReasonUpdateTimeAssumedRebooted = "UpdateTimeAssumedRebooted"
 	eventReasonDeleteResources           = "DeleteResources"
 	eventReasonMarkSchedulable           = "MarkNodeSchedulable"
 	eventReasonRemoveFinalizer           = "RemoveFinalizer"
 	eventReasonRemoveNoExecute           = "RemoveNoExecuteTaint"
+	eventReasonRemoveOutOfService        = "RemoveOutOfService"
 	eventReasonNodeReboot                = "NodeReboot"
 
 	eventTypeNormal = "Normal"
@@ -843,6 +845,7 @@ func (r *SelfNodeRemediationReconciler) addOutOfServiceTaint(node *v1.Node) erro
 		r.logger.Error(err, "Failed to add out-of-service taint on node", "node name", node.Name)
 		return err
 	}
+	r.Recorder.Event(node, eventTypeNormal, eventReasonAddOutOfService, "Remediation process - add OutOfService taint to unhealthy node")
 	r.logger.Info("outofservice taint added", "new taints", node.Spec.Taints)
 	return nil
 }
@@ -864,6 +867,7 @@ func (r *SelfNodeRemediationReconciler) removeOutOfServiceTaint(node *v1.Node) e
 		r.logger.Error(err, "Failed to remove taint from node,", "node name", node.Name, "taint key", OutOfServiceTaint.Key, "taint effect", OutOfServiceTaint.Effect)
 		return err
 	}
+	r.Recorder.Event(node, eventTypeNormal, eventReasonRemoveOutOfService, "Remediation process - remove OutOfService taint from node")
 	r.logger.Info("outofservice taint removed", "new taints", node.Spec.Taints)
 	return nil
 }
