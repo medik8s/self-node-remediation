@@ -24,7 +24,7 @@ const (
 	AutomaticRemediationStrategy         = RemediationStrategyType("Automatic")
 	ResourceDeletionRemediationStrategy  = RemediationStrategyType("ResourceDeletion")
 	OutOfServiceTaintRemediationStrategy = RemediationStrategyType("OutOfServiceTaint")
-	DefaultRemediationStrategy           = ResourceDeletionRemediationStrategy
+	DefaultRemediationStrategy           = AutomaticRemediationStrategy
 	// ProcessingConditionType is the condition type used to signal NHC the remediation status
 	ProcessingConditionType = "Processing"
 	// SucceededConditionType is the condition type used to signal NHC whether the remediation was successful or not
