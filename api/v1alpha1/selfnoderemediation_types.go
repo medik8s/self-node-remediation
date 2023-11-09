@@ -38,10 +38,11 @@ type RemediationStrategyType string
 // SelfNodeRemediationSpec defines the desired state of SelfNodeRemediation
 type SelfNodeRemediationSpec struct {
 	//RemediationStrategy is the remediation method for unhealthy nodes.
-	//Currently, it could be either "ResourceDeletion" or "OutOfServiceTaint".
-	//The first will iterate over all pods and VolumeAttachment related to the unhealthy node and delete them.
-	//The latter will add the out-of-service taint which is a new well-known taint "node.kubernetes.io/out-of-service"
+	//Currently, it could be either "Automatic", "OutOfServiceTaint" or "ResourceDeletion".
+	//ResourceDeletion will iterate over all pods and VolumeAttachment related to the unhealthy node and delete them.
+	//OutOfServiceTaint will add the out-of-service taint which is a new well-known taint "node.kubernetes.io/out-of-service"
 	//that enables automatic deletion of pv-attached pods on failed nodes, "OutOfServiceTaint" is only supported on clusters with k8s version 1.26+ or OCP/OKD version 4.13+.
+	// Automatic will choose the most appropriate strategy during runtime.
 	// +kubebuilder:default:="Automatic"
 	// +kubebuilder:validation:Enum=Automatic;ResourceDeletion;OutOfServiceTaint
 	RemediationStrategy RemediationStrategyType `json:"remediationStrategy,omitempty"`
