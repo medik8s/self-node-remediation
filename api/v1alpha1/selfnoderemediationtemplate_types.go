@@ -17,11 +17,13 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"github.com/medik8s/common/pkg/labels"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
-	resourceDeletionTemplateName = "self-node-remediation-resource-deletion-template"
+	defaultTemplateName = "self-node-remediation-resource-deletion-template"
 )
 
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
@@ -71,15 +73,18 @@ func init() {
 }
 
 func NewRemediationTemplates() []*SelfNodeRemediationTemplate {
+	templateLabels := make(map[string]string)
+	templateLabels[labels.DefaultTemplate] = "true"
 	return []*SelfNodeRemediationTemplate{
 		{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: resourceDeletionTemplateName,
+				Name:   defaultTemplateName,
+				Labels: templateLabels,
 			},
 			Spec: SelfNodeRemediationTemplateSpec{
 				Template: SelfNodeRemediationTemplateResource{
 					Spec: SelfNodeRemediationSpec{
-						RemediationStrategy: ResourceDeletionRemediationStrategy,
+						RemediationStrategy: DefaultRemediationStrategy,
 					},
 				},
 			},

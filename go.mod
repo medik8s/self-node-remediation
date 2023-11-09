@@ -6,7 +6,7 @@ require (
 	github.com/Masterminds/sprig v2.22.0+incompatible
 	github.com/go-logr/logr v1.2.3
 	github.com/go-ping/ping v1.1.0
-	github.com/medik8s/common v1.9.0
+	github.com/medik8s/common v1.10.0
 	github.com/onsi/ginkgo/v2 v2.9.1
 	github.com/onsi/gomega v1.27.4
 	github.com/openshift/api v0.0.0-20230414143018-3367bc7e6ac7 // release-4.13
