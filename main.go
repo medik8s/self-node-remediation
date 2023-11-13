@@ -122,7 +122,7 @@ func main() {
 	}
 
 	if err := utils.InitOutOfServiceTaintFlags(mgr.GetConfig()); err != nil {
-		setupLog.Error(err, "unable to verify out of service taint support. out of service taint isn't supported")
+		setupLog.Error(err, "unable to verify out-of-service taint support. out-of-service taint isn't supported")
 	}
 
 	if isManager {
