@@ -176,6 +176,10 @@ export BUNDLE_RUN_NAMESPACE ?= openshift-operators
 bundle-run: operator-sdk ## Run bundle image. Default NS is "openshift-operators", redefine BUNDLE_RUN_NAMESPACE to override it.
 	$(OPERATOR_SDK) -n $(BUNDLE_RUN_NAMESPACE) run bundle $(BUNDLE_IMG)
 
+.PHONY: bundle-cleanup
+bundle-cleanup: operator-sdk ## Remove bundle installed via bundle-run
+	$(OPERATOR_SDK) -n $(BUNDLE_RUN_NAMESPACE) cleanup $(OPERATOR_NAME)
+
 ##@ Build
 
 .PHONY: build
