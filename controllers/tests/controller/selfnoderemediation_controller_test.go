@@ -294,7 +294,7 @@ var _ = Describe("SNR Controller", func() {
 
 				verifyOutOfServiceTaintExist()
 
-				verifyEvent("Normal", "AddOutOfService", "Remediation process - add OutOfService taint to unhealthy node")
+				verifyEvent("Normal", "AddOutOfService", "Remediation process - add out-of-service taint to unhealthy node")
 
 				// simulate the out-of-service taint by Pod GC Controller
 				deleteTerminatingPod()
@@ -303,7 +303,7 @@ var _ = Describe("SNR Controller", func() {
 
 				verifyOutOfServiceTaintRemoved()
 
-				verifyEvent("Normal", "RemoveOutOfService", "Remediation process - remove OutOfService taint from node")
+				verifyEvent("Normal", "RemoveOutOfService", "Remediation process - remove out-of-service taint from node")
 
 				verifyTypeConditions(snr.Name, metav1.ConditionFalse, metav1.ConditionTrue, "RemediationFinishedSuccessfully")
 
