@@ -56,11 +56,13 @@ const (
 	eventReasonAddFinalizer              = "AddFinalizer"
 	eventReasonMarkUnschedulable         = "MarkUnschedulable"
 	eventReasonAddNoExecute              = "AddNoExecute"
+	eventReasonAddOutOfService           = "AddOutOfService"
 	eventReasonUpdateTimeAssumedRebooted = "UpdateTimeAssumedRebooted"
 	eventReasonDeleteResources           = "DeleteResources"
 	eventReasonMarkSchedulable           = "MarkNodeSchedulable"
 	eventReasonRemoveFinalizer           = "RemoveFinalizer"
 	eventReasonRemoveNoExecute           = "RemoveNoExecuteTaint"
+	eventReasonRemoveOutOfService        = "RemoveOutOfService"
 	eventReasonNodeReboot                = "NodeReboot"
 
 	eventTypeNormal = "Normal"
@@ -230,7 +232,8 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	result := ctrl.Result{}
 	var err error
 
-	switch snr.Spec.RemediationStrategy {
+	strategy := r.getRuntimeStrategy(snr.Spec.RemediationStrategy)
+	switch strategy {
 	case v1alpha1.ResourceDeletionRemediationStrategy:
 		result, err = r.remediateWithResourceDeletion(snr)
 	case v1alpha1.OutOfServiceTaintRemediationStrategy:
@@ -842,7 +845,8 @@ func (r *SelfNodeRemediationReconciler) addOutOfServiceTaint(node *v1.Node) erro
 		r.logger.Error(err, "Failed to add out-of-service taint on node", "node name", node.Name)
 		return err
 	}
-	r.logger.Info("outofservice taint added", "new taints", node.Spec.Taints)
+	r.Recorder.Event(node, eventTypeNormal, eventReasonAddOutOfService, "Remediation process - add out-of-service taint to unhealthy node")
+	r.logger.Info("out-of-service taint added", "new taints", node.Spec.Taints)
 	return nil
 }
 
@@ -863,7 +867,8 @@ func (r *SelfNodeRemediationReconciler) removeOutOfServiceTaint(node *v1.Node) e
 		r.logger.Error(err, "Failed to remove taint from node,", "node name", node.Name, "taint key", OutOfServiceTaint.Key, "taint effect", OutOfServiceTaint.Effect)
 		return err
 	}
-	r.logger.Info("outofservice taint removed", "new taints", node.Spec.Taints)
+	r.Recorder.Event(node, eventTypeNormal, eventReasonRemoveOutOfService, "Remediation process - remove out-of-service taint from node")
+	r.logger.Info("out-of-service taint removed", "new taints", node.Spec.Taints)
 	return nil
 }
 
@@ -906,4 +911,19 @@ func (r *SelfNodeRemediationReconciler) isResourceDeletionExpired(snr *v1alpha1.
 	}
 
 	return true, 0
+}
+
+func (r *SelfNodeRemediationReconciler) getRuntimeStrategy(strategy v1alpha1.RemediationStrategyType) v1alpha1.RemediationStrategyType {
+	if strategy != v1alpha1.AutomaticRemediationStrategy {
+		return strategy
+	}
+
+	if utils.IsOutOfServiceTaintGA {
+		r.logger.Info("Automatically selected OutOfServiceTaint Remediation strategy")
+		return v1alpha1.OutOfServiceTaintRemediationStrategy
+	}
+
+	r.logger.Info("Automatically selected ResourceDeletion Remediation strategy")
+	return v1alpha1.ResourceDeletionRemediationStrategy
+
 }

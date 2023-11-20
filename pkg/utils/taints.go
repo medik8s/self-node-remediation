@@ -16,13 +16,18 @@ var (
 	utilTaintsLog = logf.Log.WithName("utils-taints")
 	//IsOutOfServiceTaintSupported will be set to true in case OutOfServiceTaint is supported (k8s 1.26 or higher)
 	IsOutOfServiceTaintSupported bool
-	leadingDigits                = regexp.MustCompile(`^(\d+)`)
+	//IsOutOfServiceTaintGA will be set to true in case OutOfServiceTaint is GA (k8s 1.28 or higher)
+	IsOutOfServiceTaintGA bool
+	leadingDigits         = regexp.MustCompile(`^(\d+)`)
 )
 
 const (
 	//out of service taint strategy const (supported from 1.26)
-	minK8sMajorVersionSupportingOutOfServiceTaint = 1
+	minK8sMajorVersionOutOfServiceTaint           = 1
 	minK8sMinorVersionSupportingOutOfServiceTaint = 26
+
+	//out of service taint strategy const (GA from 1.28)
+	minK8sMinorVersionGAOutOfServiceTaint = 28
 )
 
 // TaintExists checks if the given taint exists in list of taints. Returns true if exists false otherwise.
@@ -49,7 +54,7 @@ func DeleteTaint(taints []v1.Taint, taintToDelete *v1.Taint) ([]v1.Taint, bool) 
 	return newTaints, deleted
 }
 
-func InitOutOfServiceTaintSupportedFlag(config *rest.Config) error {
+func InitOutOfServiceTaintFlags(config *rest.Config) error {
 	if cs, err := kubernetes.NewForConfig(config); err != nil || cs == nil {
 		if cs == nil {
 			err = fmt.Errorf("k8s client set is nil")
@@ -63,11 +68,11 @@ func InitOutOfServiceTaintSupportedFlag(config *rest.Config) error {
 		utilTaintsLog.Error(err, "couldn't retrieve k8s server version")
 		return err
 	} else {
-		return setOutOfTaintSupportedFlag(k8sVersion)
+		return setOutOfTaintFlags(k8sVersion)
 	}
 }
 
-func setOutOfTaintSupportedFlag(version *version.Info) error {
+func setOutOfTaintFlags(version *version.Info) error {
 	var majorVer, minorVer int
 	var err error
 	if majorVer, err = strconv.Atoi(version.Major); err != nil {
@@ -79,7 +84,9 @@ func setOutOfTaintSupportedFlag(version *version.Info) error {
 		return err
 	}
 
-	IsOutOfServiceTaintSupported = majorVer > minK8sMajorVersionSupportingOutOfServiceTaint || (majorVer == minK8sMajorVersionSupportingOutOfServiceTaint && minorVer >= minK8sMinorVersionSupportingOutOfServiceTaint)
+	IsOutOfServiceTaintSupported = majorVer > minK8sMajorVersionOutOfServiceTaint || (majorVer == minK8sMajorVersionOutOfServiceTaint && minorVer >= minK8sMinorVersionSupportingOutOfServiceTaint)
 	utilTaintsLog.Info("out of service taint strategy", "isSupported", IsOutOfServiceTaintSupported, "k8sMajorVersion", majorVer, "k8sMinorVersion", minorVer)
+	IsOutOfServiceTaintGA = majorVer > minK8sMajorVersionOutOfServiceTaint || (majorVer == minK8sMajorVersionOutOfServiceTaint && minorVer >= minK8sMinorVersionGAOutOfServiceTaint)
+	utilTaintsLog.Info("out of service taint strategy", "isGA", IsOutOfServiceTaintGA, "k8sMajorVersion", majorVer, "k8sMinorVersion", minorVer)
 	return nil
 }

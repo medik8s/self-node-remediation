@@ -121,6 +121,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := utils.InitOutOfServiceTaintFlags(mgr.GetConfig()); err != nil {
+		setupLog.Error(err, "unable to verify out-of-service taint support. out-of-service taint isn't supported")
+	}
+
 	if isManager {
 		initSelfNodeRemediationManager(mgr, enableHTTP2)
 	} else {
@@ -149,10 +153,6 @@ func initSelfNodeRemediationManager(mgr manager.Manager, enableHTTP2 bool) {
 	setupLog.Info("Starting as a manager that installs the daemonset")
 
 	configureWebhookServer(mgr, enableHTTP2)
-
-	if err := utils.InitOutOfServiceTaintSupportedFlag(mgr.GetConfig()); err != nil {
-		setupLog.Error(err, "unable to verify out of service taint support. out of service taint isn't supported")
-	}
 
 	if err := (&selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "SelfNodeRemediationConfig")
