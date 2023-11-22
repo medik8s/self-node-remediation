@@ -263,6 +263,28 @@ var _ = Describe("SNR Controller", func() {
 					verifyEvent("Normal", "RemediationStopped", "couldn't find node matching remediation")
 				})
 			})
+
+			When("Node has exclude form remediation label", func() {
+				BeforeEach(func() {
+					node := &v1.Node{}
+					Expect(k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)).To(Succeed())
+					node.Labels["remediation.medik8s.io/exclude-from-remediation"] = "true"
+					Expect(k8sClient.Client.Update(context.TODO(), node)).To(Succeed())
+					DeferCleanup(
+						func() {
+							node := &v1.Node{}
+							Expect(k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)).To(Succeed())
+							delete(node.Labels, "remediation.medik8s.io/exclude-from-remediation")
+							Expect(k8sClient.Client.Update(context.TODO(), node)).To(Succeed())
+						},
+					)
+				})
+
+				It("remediation should stop", func() {
+					time.Sleep(time.Second)
+					verifyEvent("Normal", "RemediationSkipped", "remediation skipped this node is excluded from remediation")
+				})
+			})
 		})
 
 		Context("Automatic strategy - OutOfServiceTaint selected", func() {

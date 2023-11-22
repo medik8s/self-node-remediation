@@ -26,6 +26,15 @@ spec:
             type: Directory
       serviceAccountName: self-node-remediation-controller-manager
       priorityClassName: system-node-critical
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                - key: remediation.medik8s.io/exclude-from-remediation
+                  operator: NotIn
+                  values:
+                  - "true"
       containers:
       - args:
         - --is-manager=false
