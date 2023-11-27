@@ -46,11 +46,13 @@ import (
 )
 
 const (
-	SNRFinalizer         = "self-node-remediation.medik8s.io/snr-finalizer"
-	nhcTimeOutAnnotation = "remediation.medik8s.io/nhc-timed-out"
+	SNRFinalizer            = "self-node-remediation.medik8s.io/snr-finalizer"
+	nhcTimeOutAnnotation    = "remediation.medik8s.io/nhc-timed-out"
+	excludeRemediationLabel = "remediation.medik8s.io/exclude-from-remediation"
 
 	eventReasonRemediationCreated = "RemediationCreated"
 	eventReasonRemediationStopped = "RemediationStopped"
+	eventReasonRemediationSkipped = "RemediationSkipped"
 
 	//remediation
 	eventReasonAddFinalizer              = "AddFinalizer"
@@ -232,12 +234,32 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	result := ctrl.Result{}
 	var err error
 
+	node, err := r.getNodeFromSnr(snr)
+	if err != nil {
+		if apiErrors.IsNotFound(err) {
+			r.logger.Info("couldn't find node matching remediation", "node name", snr.Name)
+			if err = r.updateConditions(remediationFinishedNodeNotFound, snr); err != nil {
+				return ctrl.Result{}, err
+			}
+			r.Recorder.Event(snr, eventTypeNormal, eventReasonRemediationStopped, "couldn't find node matching remediation")
+			return ctrl.Result{}, nil
+		}
+		r.logger.Error(err, "failed to get node", "node name", snr.Name)
+		return ctrl.Result{}, err
+	}
+
+	if node.Labels[excludeRemediationLabel] == "true" {
+		r.logger.Info("remediation skipped this node is excluded from remediation", "node name", node.Name)
+		r.Recorder.Event(snr, eventTypeNormal, eventReasonRemediationSkipped, "remediation skipped this node is excluded from remediation")
+		return ctrl.Result{}, nil
+	}
+
 	strategy := r.getRuntimeStrategy(snr.Spec.RemediationStrategy)
 	switch strategy {
 	case v1alpha1.ResourceDeletionRemediationStrategy:
-		result, err = r.remediateWithResourceDeletion(snr)
+		result, err = r.remediateWithResourceDeletion(snr, node)
 	case v1alpha1.OutOfServiceTaintRemediationStrategy:
-		result, err = r.remediateWithOutOfServiceTaint(snr)
+		result, err = r.remediateWithOutOfServiceTaint(snr, node)
 	default:
 		//this should never happen since we enforce valid values with kubebuilder
 		err := errors.New("unsupported remediation strategy")
@@ -312,8 +334,8 @@ func (r *SelfNodeRemediationReconciler) getPhase(snr *v1alpha1.SelfNodeRemediati
 	}
 }
 
-func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
-	return r.remediateWithResourceRemoval(snr, r.deleteResourcesWrapper)
+func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alpha1.SelfNodeRemediation, node *v1.Node) (ctrl.Result, error) {
+	return r.remediateWithResourceRemoval(snr, node, r.deleteResourcesWrapper)
 }
 
 // deleteResourcesWrapper returns a 'zero' time and nil if it completes to delete node resources successfully
@@ -323,8 +345,8 @@ func (r *SelfNodeRemediationReconciler) deleteResourcesWrapper(node *v1.Node, _ 
 	return 0, resources.DeletePods(context.Background(), r.Client, node.Name)
 }
 
-func (r *SelfNodeRemediationReconciler) remediateWithOutOfServiceTaint(snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
-	return r.remediateWithResourceRemoval(snr, r.useOutOfServiceTaint)
+func (r *SelfNodeRemediationReconciler) remediateWithOutOfServiceTaint(snr *v1alpha1.SelfNodeRemediation, node *v1.Node) (ctrl.Result, error) {
+	return r.remediateWithResourceRemoval(snr, node, r.useOutOfServiceTaint)
 }
 
 func (r *SelfNodeRemediationReconciler) useOutOfServiceTaint(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (time.Duration, error) {
@@ -352,23 +374,10 @@ func (r *SelfNodeRemediationReconciler) useOutOfServiceTaint(node *v1.Node, snr 
 
 type removeNodeResources func(*v1.Node, *v1alpha1.SelfNodeRemediation) (time.Duration, error)
 
-func (r *SelfNodeRemediationReconciler) remediateWithResourceRemoval(snr *v1alpha1.SelfNodeRemediation, rmNodeResources removeNodeResources) (ctrl.Result, error) {
-	node, err := r.getNodeFromSnr(snr)
-	if err != nil {
-		if apiErrors.IsNotFound(err) {
-			r.logger.Info("couldn't find node matching remediation", "node name", snr.Name)
-			if err = r.updateConditions(remediationFinishedNodeNotFound, snr); err != nil {
-				return ctrl.Result{}, err
-			}
-			r.Recorder.Event(snr, eventTypeNormal, eventReasonRemediationStopped, "couldn't find node matching remediation")
-			return ctrl.Result{}, nil
-		}
-		r.logger.Error(err, "failed to get node", "node name", snr.Name)
-		return ctrl.Result{}, err
-	}
-
+func (r *SelfNodeRemediationReconciler) remediateWithResourceRemoval(snr *v1alpha1.SelfNodeRemediation, node *v1.Node, rmNodeResources removeNodeResources) (ctrl.Result, error) {
 	result := ctrl.Result{}
 	phase := r.getPhase(snr)
+	var err error
 	switch phase {
 	case fencingStartedPhase:
 		result, err = r.handleFencingStartedPhase(node, snr)
