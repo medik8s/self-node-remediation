@@ -644,13 +644,14 @@ func (r *SelfNodeRemediationReconciler) getNodeFromSnr(snr *v1alpha1.SelfNodeRem
 	//SNR could be created by either machine based controller (e.g. MHC) or
 	//by a node based controller (e.g. NHC). This assumes that machine based controller
 	//will create the snr with machine owner reference
-
-	for _, ownerRef := range snr.OwnerReferences {
-		if ownerRef.Kind == "Machine" {
-			r.mutex.Lock()
-			wasLastSeenSnrMachine = true
-			r.mutex.Unlock()
-			return r.getNodeFromMachine(ownerRef, snr.Namespace)
+	if !r.isOwnedByNHC(snr) {
+		for _, ownerRef := range snr.OwnerReferences {
+			if ownerRef.Kind == "Machine" {
+				r.mutex.Lock()
+				wasLastSeenSnrMachine = true
+				r.mutex.Unlock()
+				return r.getNodeFromMachine(ownerRef, snr.Namespace)
+			}
 		}
 	}
 
@@ -926,4 +927,13 @@ func (r *SelfNodeRemediationReconciler) getRuntimeStrategy(strategy v1alpha1.Rem
 	r.logger.Info("Automatically selected ResourceDeletion Remediation strategy")
 	return v1alpha1.ResourceDeletionRemediationStrategy
 
+}
+
+func (r *SelfNodeRemediationReconciler) isOwnedByNHC(snr *v1alpha1.SelfNodeRemediation) bool {
+	for _, ownerRef := range snr.OwnerReferences {
+		if ownerRef.Kind == "NodeHealthCheck" {
+			return true
+		}
+	}
+	return false
 }
