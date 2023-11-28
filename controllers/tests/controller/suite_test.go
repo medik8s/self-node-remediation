@@ -26,7 +26,10 @@ import (
 	. "github.com/onsi/gomega"
 
 	v1 "k8s.io/api/core/v1"
+
+	//+kubebuilder:scaffold:imports
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -35,6 +38,8 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	machinev1beta1 "github.com/openshift/api/machine/v1beta1"
+
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/controllers"
 	"github.com/medik8s/self-node-remediation/controllers/tests/shared"
@@ -42,7 +47,6 @@ import (
 	"github.com/medik8s/self-node-remediation/pkg/peers"
 	"github.com/medik8s/self-node-remediation/pkg/reboot"
 	"github.com/medik8s/self-node-remediation/pkg/watchdog"
-	//+kubebuilder:scaffold:imports
 )
 
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
@@ -74,23 +78,32 @@ func TestAPIs(t *testing.T) {
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
+	testScheme := runtime.NewScheme()
+
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("../../..", "config", "crd", "bases")},
-		ErrorIfCRDPathMissing: true,
+		CRDInstallOptions: envtest.CRDInstallOptions{
+			Scheme: testScheme,
+			Paths: []string{
+				filepath.Join("../../..", "vendor", "github.com", "openshift", "api", "machine", "v1beta1"),
+				filepath.Join("../../..", "config", "crd", "bases"),
+			},
+			ErrorIfPathMissing: true,
+		},
 	}
 
 	cfg, err := testEnv.Start()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
-	err = selfnoderemediationv1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
+	Expect(scheme.AddToScheme(testScheme)).To(Succeed())
+	Expect(machinev1beta1.Install(testScheme)).To(Succeed())
+	Expect(selfnoderemediationv1alpha1.AddToScheme(testScheme)).To(Succeed())
 
 	//+kubebuilder:scaffold:scheme
 
 	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:             scheme.Scheme,
+		Scheme:             testScheme,
 		MetricsBindAddress: "0",
 	})
 	Expect(err).ToNot(HaveOccurred())
@@ -107,7 +120,6 @@ var _ = BeforeSuite(func() {
 			Name: shared.Namespace,
 		},
 	}
-
 	Expect(k8sClient.Create(context.Background(), nsToCreate)).To(Succeed())
 	dummyDog = watchdog.NewFake(true)
 	err = k8sManager.Add(dummyDog)
@@ -120,7 +132,7 @@ var _ = BeforeSuite(func() {
 		Client:                    k8sManager.GetClient(),
 		Log:                       ctrl.Log.WithName("controllers").WithName("self-node-remediation-config-controller"),
 		InstallFileFolder:         "../../../install/",
-		Scheme:                    scheme.Scheme,
+		Scheme:                    testScheme,
 		Namespace:                 shared.Namespace,
 		ManagerSafeTimeCalculator: mockManagerCalculator,
 	}).SetupWithManager(k8sManager)

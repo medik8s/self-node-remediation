@@ -20,6 +20,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	machinev1beta1 "github.com/openshift/api/machine/v1beta1"
+
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/controllers"
 	"github.com/medik8s/self-node-remediation/controllers/tests/shared"
@@ -70,6 +72,7 @@ var _ = Describe("SNR Controller", func() {
 		Expect(k8sClient.Update(context.Background(), getNode(shared.PeerNodeName)))
 		time.Sleep(time.Second * 2)
 		deleteRemediations()
+		clearEvents()
 		verifyCleanState()
 	})
 
@@ -320,6 +323,88 @@ var _ = Describe("SNR Controller", func() {
 			})
 		})
 
+		Context("Remediation has a Machine Owner Ref", func() {
+			var machine *machinev1beta1.Machine
+			var machineName = "test-machine"
+			BeforeEach(func() {
+				snr.OwnerReferences = []metav1.OwnerReference{{Name: machineName, Kind: "Machine", APIVersion: "machine.openshift.io/v1beta1", UID: "12345"}}
+			})
+
+			When("A machine exist that matches the remediation OwnerRef machine", func() {
+				var machineStatus *machinev1beta1.MachineStatus
+
+				JustBeforeEach(func() {
+					Expect(k8sClient.Create(context.Background(), machine)).To(Succeed())
+					DeferCleanup(func() {
+						savedMachine := &machinev1beta1.Machine{}
+						Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(machine), savedMachine)).To(Succeed())
+						Expect(k8sClient.Delete(context.Background(), savedMachine))
+					})
+
+					if machineStatus != nil {
+						time.Sleep(time.Second)
+						savedMachine := &machinev1beta1.Machine{}
+						Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(machine), savedMachine)).To(Succeed())
+						savedMachine.Status = *machineStatus
+						Expect(k8sClient.Status().Update(context.Background(), savedMachine)).To(Succeed())
+					}
+
+				})
+				BeforeEach(func() {
+					machine = &machinev1beta1.Machine{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      machineName,
+							Namespace: snrNamespace,
+						},
+					}
+				})
+				When("the correct NodeRef is set in the machine statusThe", func() {
+
+					BeforeEach(func() {
+						machineStatus = &machinev1beta1.MachineStatus{
+							NodeRef: &v1.ObjectReference{Name: shared.UnhealthyNodeName},
+						}
+						DeferCleanup(func() {
+							machineStatus = nil
+						})
+					})
+					It("Node is found and set with Unschedulable taint", func() {
+						time.Sleep(time.Second)
+						verifyEvent("Normal", "MarkUnschedulable", "Remediation process - unhealthy node marked as unschedulable")
+
+					})
+				})
+				When("the wrong  NodeRef is set in the machine statusThe", func() {
+					BeforeEach(func() {
+						machineStatus = &machinev1beta1.MachineStatus{
+							NodeRef: &v1.ObjectReference{Name: "made-up-non-existing-node"},
+						}
+						DeferCleanup(func() {
+							machineStatus = nil
+						})
+					})
+					When("NHC isn't set as owner in the remediation", func() {
+						It("Node is not found", func() {
+							time.Sleep(time.Second)
+							verifyNoEvent("Normal", "MarkUnschedulable", "Remediation process - unhealthy node marked as unschedulable")
+							verifyTypeConditions(snr.Name, metav1.ConditionFalse, metav1.ConditionFalse, "RemediationFinishedNodeNotFound")
+							verifyEvent("Normal", "RemediationStopped", "couldn't find node matching remediation")
+						})
+					})
+					When("NHC isn set as owner in the remediation", func() {
+						BeforeEach(func() {
+							snr.OwnerReferences = append(snr.OwnerReferences, metav1.OwnerReference{Name: "nhc", Kind: "NodeHealthCheck", APIVersion: "remediation.medik8s.io/v1alpha1", UID: "12345"})
+						})
+						It("Node is found and set with Unschedulable taint", func() {
+							time.Sleep(time.Second)
+							verifyEvent("Normal", "MarkUnschedulable", "Remediation process - unhealthy node marked as unschedulable")
+
+						})
+					})
+				})
+			})
+
+		})
 	})
 
 	Context("Unhealthy node without api-server access", func() {
@@ -812,6 +897,17 @@ func verifyNodesAreEqual(expected *v1.Node, actual *v1.Node) {
 	Expect(reflect.DeepEqual(expected.Status, actual.Status)).To(BeTrue())
 	Expect(reflect.DeepEqual(expected.Annotations, actual.Annotations)).To(BeTrue())
 	Expect(reflect.DeepEqual(expected.Labels, actual.Labels)).To(BeTrue())
+}
+
+func clearEvents() {
+	for {
+		select {
+		case _ = <-fakeRecorder.Events:
+
+		default:
+			return
+		}
+	}
 }
 
 func verifyEvent(eventType, reason, message string) {
