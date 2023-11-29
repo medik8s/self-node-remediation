@@ -87,7 +87,7 @@ var (
 	}
 
 	lastSeenSnrNamespace  string
-	wasLastSeenSnrMachine bool
+	isSnrMatchMachineName bool
 )
 
 type processingChangeReason string
@@ -124,12 +124,12 @@ func (r *SelfNodeRemediationReconciler) GetLastSeenSnrNamespace() string {
 	return lastSeenSnrNamespace
 }
 
-// WasLastSeenSnrMachine returns a boolean indicating if the last reconcile SNR
+// IsSnrMatchMachineName returns a boolean indicating if the last reconcile SNR
 // was pointing an unhealthy machine or a node
-func (r *SelfNodeRemediationReconciler) WasLastSeenSnrMachine() bool {
+func (r *SelfNodeRemediationReconciler) IsSnrMatchMachineName() bool {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	return wasLastSeenSnrMachine
+	return isSnrMatchMachineName
 }
 
 // SelfNodeRemediationReconciler reconciles a SelfNodeRemediation object
@@ -642,13 +642,14 @@ func (r *SelfNodeRemediationReconciler) updateTimeAssumedRebooted(node *v1.Node,
 // getNodeFromSnr returns the unhealthy node reported in the given snr
 func (r *SelfNodeRemediationReconciler) getNodeFromSnr(snr *v1alpha1.SelfNodeRemediation) (*v1.Node, error) {
 	//SNR could be created by either machine based controller (e.g. MHC) or
-	//by a node based controller (e.g. NHC). This assumes that machine based controller
-	//will create the snr with machine owner reference
+	//by a node based controller (e.g. NHC).
+	//In case snr is created with machine owner reference if NHC isn't it's owner it means
+	//it was created by a machine based controller (e.g. MHC).
 	if !r.isOwnedByNHC(snr) {
 		for _, ownerRef := range snr.OwnerReferences {
 			if ownerRef.Kind == "Machine" {
 				r.mutex.Lock()
-				wasLastSeenSnrMachine = true
+				isSnrMatchMachineName = true
 				r.mutex.Unlock()
 				return r.getNodeFromMachine(ownerRef, snr.Namespace)
 			}
