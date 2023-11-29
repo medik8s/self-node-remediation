@@ -291,6 +291,18 @@ bundle-community-k8s: bundle-community ## Generate bundle manifests and metadata
 bundle-community: bundle ##Add Community Edition suffix to operator name
 	sed -r -i "s|displayName: Self Node Remediation Operator.*|displayName: Self Node Remediation Operator - Community Edition|;" ${BUNDLE_CSV}
 
+# Split the VERSION into major, minor, and patch parts
+MAJOR := $(word 1, $(subst ., ,$(VERSION)))
+MINOR := $(word 2, $(subst ., ,$(VERSION)))
+PATCH := $(word 3, $(subst ., ,$(VERSION)))
+
+# Subtract 1 from the MINOR part
+NEW_MINOR := $(shell echo $$(($(MINOR) - 1)))
+NEW_MINOR := $(if $(filter $(NEW_MINOR),-1),0,$(NEW_MINOR))
+
+# Recreate the DEC_VERSION variable
+DEC_VERSION := $(MAJOR).$(NEW_MINOR).$(PATCH)
+
 .PHONY: bundle-update
 bundle-update: ## Update containerImage, createdAt, skipRange, and icon fields in the bundle's CSV, then validate the bundle directory
 	# update container image in the metadata
@@ -299,6 +311,8 @@ bundle-update: ## Update containerImage, createdAt, skipRange, and icon fields i
 	sed -r -i "s|createdAt: \".*\"|createdAt: \"`date "+%Y-%m-%d %T" `\"|;" ${BUNDLE_CSV}
 	# set skipRange
 	sed -r -i "s|olm.skipRange: .*|olm.skipRange: '>=0.4.0 <${VERSION}'|;" ${BUNDLE_CSV}
+	# set  replaces
+	sed -r -i "s|replaces: .*|replaces: self-node-remediation.v${DEC_VERSION}|;" ${BUNDLE_CSV}
 	# set icon (not version or build date related, but just to not having this huge data permanently in the CSV)
 	sed -r -i "s|base64data:.*|base64data: ${ICON_BASE64}|;" ${BUNDLE_CSV}
 	$(MAKE) bundle-validate
