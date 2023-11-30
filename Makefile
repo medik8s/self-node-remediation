@@ -296,12 +296,17 @@ MAJOR := $(word 1, $(subst ., ,$(VERSION)))
 MINOR := $(word 2, $(subst ., ,$(VERSION)))
 PATCH := $(word 3, $(subst ., ,$(VERSION)))
 
-# Subtract 1 from the MINOR part
-NEW_MINOR := $(shell echo $$(($(MINOR) - 1)))
-NEW_MINOR := $(if $(filter $(NEW_MINOR),-1),0,$(NEW_MINOR))
+# Determine which part to decrease
+ifeq ($(PATCH),0)
+    # If PATCH is 0, decrease MINOR
+    MINOR := $(shell echo $$(($(MINOR) - 1)))
+else
+    # If PATCH is greater than 0, decrease PATCH
+   PATCH := $(shell echo $$(($(PATCH) - 1)))
+endif
 
 # Recreate the DEC_VERSION variable
-DEC_VERSION := $(MAJOR).$(NEW_MINOR).$(PATCH)
+DEC_VERSION := $(MAJOR).$(MINOR).$(PATCH)
 
 .PHONY: bundle-update
 bundle-update: ## Update containerImage, createdAt, skipRange, and icon fields in the bundle's CSV, then validate the bundle directory
