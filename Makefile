@@ -291,22 +291,32 @@ bundle-community-k8s: bundle-community ## Generate bundle manifests and metadata
 bundle-community: bundle ##Add Community Edition suffix to operator name
 	sed -r -i "s|displayName: Self Node Remediation Operator.*|displayName: Self Node Remediation Operator - Community Edition|;" ${BUNDLE_CSV}
 
-# Split the VERSION into major, minor, and patch parts
-MAJOR := $(word 1, $(subst ., ,$(VERSION)))
-MINOR := $(word 2, $(subst ., ,$(VERSION)))
-PATCH := $(word 3, $(subst ., ,$(VERSION)))
 
-# Determine which part to decrease
-ifeq ($(PATCH),0)
-    # If PATCH is 0, decrease MINOR
-    MINOR := $(shell echo $$(($(MINOR) - 1)))
+# Create the DEC_VERSION variable
+DEC_VERSION := 0.0.0
+
+# Check if PREV_VERSION is defined
+ifdef PREV_VERSION
+    # If PREV_VERSION is defined, use its value for DEC_VERSION
+    DEC_VERSION := $(PREV_VERSION)
 else
-    # If PATCH is greater than 0, decrease PATCH
-   PATCH := $(shell echo $$(($(PATCH) - 1)))
-endif
+	# Split the VERSION into major, minor, and patch parts
+	MAJOR := $(word 1, $(subst ., ,$(VERSION)))
+	MINOR := $(word 2, $(subst ., ,$(VERSION)))
+	PATCH := $(word 3, $(subst ., ,$(VERSION)))
 
-# Recreate the DEC_VERSION variable
-DEC_VERSION := $(MAJOR).$(MINOR).$(PATCH)
+	# Determine which part to decrease
+	ifeq ($(PATCH),0)
+		# If PATCH is 0, decrease MINOR
+		MINOR := $(shell echo $$(($(MINOR) - 1)))
+	else
+		# If PATCH is greater than 0, decrease PATCH
+	   PATCH := $(shell echo $$(($(PATCH) - 1)))
+	endif
+
+	# Recreate the DEC_VERSION variable
+	DEC_VERSION := $(MAJOR).$(MINOR).$(PATCH)
+endif
 
 .PHONY: bundle-update
 bundle-update: ## Update containerImage, createdAt, skipRange, and icon fields in the bundle's CSV, then validate the bundle directory
