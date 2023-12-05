@@ -124,7 +124,7 @@ func (s Server) IsHealthy(ctx context.Context, request *HealthRequest) (*HealthR
 	s.log.Info("checking health for", "node", nodeName)
 
 	namespace := s.snr.GetLastSeenSnrNamespace()
-	isMachine := s.snr.WasLastSeenSnrMachine()
+	isMachine := s.snr.IsSnrMatchMachineName()
 
 	// when namespace is empty, there wasn't a SNR yet, which also means that the node must be healthy
 	if namespace == "" {
