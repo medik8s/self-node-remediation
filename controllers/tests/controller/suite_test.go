@@ -26,8 +26,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	v1 "k8s.io/api/core/v1"
-
-	//+kubebuilder:scaffold:imports
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -47,6 +45,7 @@ import (
 	"github.com/medik8s/self-node-remediation/pkg/peers"
 	"github.com/medik8s/self-node-remediation/pkg/reboot"
 	"github.com/medik8s/self-node-remediation/pkg/watchdog"
+	//+kubebuilder:scaffold:imports
 )
 
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
