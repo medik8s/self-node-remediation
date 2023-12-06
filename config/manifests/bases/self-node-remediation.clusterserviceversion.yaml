@@ -10,7 +10,19 @@ metadata:
     description: Self Node Remediation Operator for remediate itself in case of a
       failure.
     olm.skipRange: '>=0.4.0'
-    operatorframework.io/suggested-namespace: openshift-workload-availability
+    operatorframework.io/suggested-namespace-template: |-
+      [
+        {
+          "apiVersion": "v1",
+          "kind": "Namespace",
+          "metadata": {
+            "name": "openshift-workload-availability",
+            "annotations": {
+              "openshift.io/node-selector": ""
+            }
+          }
+        }
+      ]
     repository: https://github.com/medik8s/self-node-remediation
     support: Medik8s
   name: self-node-remediation.v0.0.0
