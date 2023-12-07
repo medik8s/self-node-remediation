@@ -2,22 +2,23 @@
 SHELL := /bin/bash
 
 # versions at  https://github.com/kubernetes-sigs/controller-tools/releases
-CONTROLLER_GEN_VERSION = v0.12.0
+CONTROLLER_GEN_VERSION = v0.13.0
 
 # GO_VERSION refers to the version of Golang to be downloaded when running dockerized version
 GO_VERSION = 1.20
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary, align with k8s.io/client-go in go.mod
-ENVTEST_K8S_VERSION = 1.25
+ENVTEST_K8S_VERSION = 1.26
 
 # versions at https://github.com/operator-framework/operator-sdk/releases
-OPERATOR_SDK_VERSION = v1.28.1
+# Make sure to update /config/scorecard/patches/basic.config.yaml and /config/scorecard/patches/olm.config.yaml
+OPERATOR_SDK_VERSION = v1.32.0
 
 # versions at https://github.com/operator-framework/operator-registry/releases
-OPM_VERSION = v1.26.5
+OPM_VERSION = v1.33.0
 
 # versions at https://github.com/kubernetes-sigs/kustomize/releases
-KUSTOMIZE_VERSION = v5.0.2
+KUSTOMIZE_VERSION = v5.2.1
 
 # versions at https://github.com/slintes/sort-imports/tags
 SORT_IMPORTS_VERSION = v0.2.1
