@@ -11,6 +11,7 @@ GO_VERSION = 1.20
 ENVTEST_K8S_VERSION = 1.26
 
 # versions at https://github.com/operator-framework/operator-sdk/releases
+# Make sure to update /config/scorecard/patches/basic.config.yaml and /config/scorecard/patches/olm.config.yaml
 OPERATOR_SDK_VERSION = v1.32.0
 
 # versions at https://github.com/operator-framework/operator-registry/releases
