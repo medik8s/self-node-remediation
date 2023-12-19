@@ -10,6 +10,7 @@ metadata:
     description: Self Node Remediation Operator for remediate itself in case of a
       failure.
     olm.skipRange: '>=0.4.0'
+    operatorframework.io/suggested-namespace: openshift-workload-availability
     operatorframework.io/suggested-namespace-template: |-
       [
         {

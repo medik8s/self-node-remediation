@@ -41,6 +41,7 @@ metadata:
     description: Self Node Remediation Operator for remediate itself in case of a
       failure.
     olm.skipRange: '>=0.4.0'
+    operatorframework.io/suggested-namespace: openshift-workload-availability
     operatorframework.io/suggested-namespace-template: |-
       [
         {
@@ -54,7 +55,6 @@ metadata:
           }
         }
       ]
-    operatorframework.io/suggested-namespace: openshift-workload-availability
     operators.operatorframework.io/builder: operator-sdk-v1.32.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v3
     repository: https://github.com/medik8s/self-node-remediation
