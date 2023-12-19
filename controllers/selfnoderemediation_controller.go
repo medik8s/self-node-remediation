@@ -782,9 +782,9 @@ func (r *SelfNodeRemediationReconciler) updateSnrStatusLastError(snr *v1alpha1.S
 		}
 	}
 
-	_, isUnreconcilableError := err.(*UnreconcilableError)
+	_, isUnrecognisableError := err.(*UnreconcilableError)
 
-	if isUnreconcilableError {
+	if isUnrecognisableError {
 		// return nil to not enter reconcile again
 		return nil
 	}
