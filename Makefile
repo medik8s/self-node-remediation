@@ -291,35 +291,8 @@ bundle-community-k8s: bundle-community ## Generate bundle manifests and metadata
 bundle-community: bundle ##Add Community Edition suffix to operator name
 	sed -r -i "s|displayName: Self Node Remediation Operator.*|displayName: Self Node Remediation Operator - Community Edition|;" ${BUNDLE_CSV}
 
-
-# Create the DEC_VERSION variable
-DEC_VERSION := 0.0.0
-
-# Check if PREV_VERSION is defined
-ifdef PREV_VERSION
-    # If PREV_VERSION is defined, use its value for DEC_VERSION
-    DEC_VERSION := $(PREV_VERSION)
-else
-	# Split the VERSION into major, minor, and patch parts
-	MAJOR := $(word 1, $(subst ., ,$(VERSION)))
-	MINOR := $(word 2, $(subst ., ,$(VERSION)))
-	PATCH := $(word 3, $(subst ., ,$(VERSION)))
-
-	# Determine which part to decrease
-	ifeq ($(PATCH),0)
-		# If PATCH is 0, decrease MINOR
-		MINOR := $(shell echo $$(($(MINOR) - 1)))
-	else
-		# If PATCH is greater than 0, decrease PATCH
-	   PATCH := $(shell echo $$(($(PATCH) - 1)))
-	endif
-
-	# Recreate the DEC_VERSION variable
-	DEC_VERSION := $(MAJOR).$(MINOR).$(PATCH)
-endif
-
 .PHONY: bundle-update
-bundle-update: ## Update containerImage, createdAt, skipRange, and icon fields in the bundle's CSV, then validate the bundle directory
+bundle-update: verify-previous-version ## Update containerImage, createdAt, skipRange, and icon fields in the bundle's CSV, then validate the bundle directory
 	# update container image in the metadata
 	sed -r -i "s|containerImage: .*|containerImage: ${IMG}|;" ${BUNDLE_CSV}
 	# set creation date
@@ -327,10 +300,17 @@ bundle-update: ## Update containerImage, createdAt, skipRange, and icon fields i
 	# set skipRange
 	sed -r -i "s|olm.skipRange: .*|olm.skipRange: '>=0.4.0 <${VERSION}'|;" ${BUNDLE_CSV}
 	# set  replaces
-	sed -r -i "s|replaces: .*|replaces: self-node-remediation.v${DEC_VERSION}|;" ${BUNDLE_CSV}
+	sed -r -i "s|replaces: .*|replaces: self-node-remediation.v${PREVIOUS_VERSION}|;" ${BUNDLE_CSV}
 	# set icon (not version or build date related, but just to not having this huge data permanently in the CSV)
 	sed -r -i "s|base64data:.*|base64data: ${ICON_BASE64}|;" ${BUNDLE_CSV}
 	$(MAKE) bundle-validate
+
+.PHONY: verify-previous-version
+verify-previous-version: ## Verifies that PREVIOUS_VERSION variable is set
+	@if [ -z "$$PREVIOUS_VERSION" ]; then \
+		echo "Error: PREVIOUS_VERSION is not set"; \
+		exit 1; \
+	fi
 
 .PHONY: bundle-validate
 bundle-validate: operator-sdk ## Validate the bundle directory with additional validators (suite=operatorframework), such as Kubernetes deprecated APIs (https://kubernetes.io/docs/reference/using-api/deprecation-guide/) based on bundle.CSV.Spec.MinKubeVersion
