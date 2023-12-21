@@ -292,7 +292,7 @@ bundle-community: bundle ##Add Community Edition suffix to operator name
 	sed -r -i "s|displayName: Self Node Remediation Operator.*|displayName: Self Node Remediation Operator - Community Edition|;" ${BUNDLE_CSV}
 
 .PHONY: bundle-update
-bundle-update: verify-previous-version ## Update containerImage, createdAt, skipRange, and icon fields in the bundle's CSV, then validate the bundle directory
+bundle-update: verify-previous-version ## Update CSV fields and validate the bundle directory
 	# update container image in the metadata
 	sed -r -i "s|containerImage: .*|containerImage: ${IMG}|;" ${BUNDLE_CSV}
 	# set creation date
