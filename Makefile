@@ -31,6 +31,7 @@ OPERATOR_NAME ?= self-node-remediation
 # - use environment variables to overwrite this value (e.g export VERSION=0.0.2)
 DEFAULT_VERSION := 0.0.1
 VERSION ?= $(DEFAULT_VERSION)
+PREVIOUS_VERSION ?= $(DEFAULT_VERSION)
 export VERSION
 
 CHANNELS = stable
@@ -307,10 +308,10 @@ bundle-update: verify-previous-version ## Update CSV fields and validate the bun
 
 .PHONY: verify-previous-version
 verify-previous-version: ## Verifies that PREVIOUS_VERSION variable is set
-	@if [ -z "$$PREVIOUS_VERSION" ]; then \
-		echo "Error: PREVIOUS_VERSION is not set"; \
-		exit 1; \
-	fi
+	@if [ $(VERSION) != $(DEFAULT_VERSION) ] && [ $(PREVIOUS_VERSION) = $(DEFAULT_VERSION) ]; then \
+  			echo "Error: PREVIOUS_VERSION must be set for the selected VERSION"; \
+    		exit 1; \
+    fi
 
 .PHONY: bundle-validate
 bundle-validate: operator-sdk ## Validate the bundle directory with additional validators (suite=operatorframework), such as Kubernetes deprecated APIs (https://kubernetes.io/docs/reference/using-api/deprecation-guide/) based on bundle.CSV.Spec.MinKubeVersion
