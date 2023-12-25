@@ -16,7 +16,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/cache"
 
 	selfNodeRemediationApis "github.com/medik8s/self-node-remediation/api"
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
@@ -26,7 +25,6 @@ import (
 
 const (
 	connectionTimeout = 5 * time.Second
-	machineAnnotation = "machine.openshift.io/machine" //todo this is openshift specific
 	//IMPORTANT! this MUST be less than PeerRequestTimeout in apicheck
 	//The difference between them should allow some time for sending the request over the network
 	//todo enforce this
@@ -124,7 +122,7 @@ func (s Server) IsHealthy(ctx context.Context, request *HealthRequest) (*HealthR
 	s.log.Info("checking health for", "node", nodeName)
 
 	namespace := s.snr.GetLastSeenSnrNamespace()
-	isMachine := s.snr.IsSnrMatchMachineName()
+	isMachine := len(request.GetMachineName()) > 0
 
 	// when namespace is empty, there wasn't a SNR yet, which also means that the node must be healthy
 	if namespace == "" {
@@ -140,37 +138,10 @@ func (s Server) IsHealthy(ctx context.Context, request *HealthRequest) (*HealthR
 	}
 
 	if isMachine {
-		return toResponse(s.isHealthyMachine(ctx, nodeName, namespace))
+		return toResponse(s.isHealthyBySnr(ctx, request.MachineName, namespace))
 	} else {
-		return toResponse(s.isHealthyNode(ctx, nodeName, namespace))
+		return toResponse(s.isHealthyBySnr(ctx, nodeName, namespace))
 	}
-}
-
-func (s Server) isHealthyNode(ctx context.Context, nodeName string, namespace string) selfNodeRemediationApis.HealthCheckResponseCode {
-	return s.isHealthyBySnr(ctx, nodeName, namespace)
-}
-
-func (s Server) isHealthyMachine(ctx context.Context, nodeName string, namespace string) selfNodeRemediationApis.HealthCheckResponseCode {
-	node, err := s.getNode(ctx, nodeName)
-	if err != nil {
-		return selfNodeRemediationApis.ApiError
-	}
-
-	ann := node.GetAnnotations()
-	namespacedMachine, exists := ann[machineAnnotation]
-
-	if !exists {
-		s.log.Info("node doesn't have machine annotation")
-		return selfNodeRemediationApis.Unhealthy //todo is this the correct response?
-	}
-	_, machineName, err := cache.SplitMetaNamespaceKey(namespacedMachine)
-
-	if err != nil {
-		s.log.Error(err, "failed to parse machine annotation on the node")
-		return selfNodeRemediationApis.Unhealthy //todo is this the correct response?
-	}
-
-	return s.isHealthyBySnr(ctx, machineName, namespace)
 }
 
 func (s Server) isHealthyBySnr(ctx context.Context, snrName string, snrNamespace string) selfNodeRemediationApis.HealthCheckResponseCode {

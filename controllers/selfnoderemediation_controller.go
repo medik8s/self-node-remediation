@@ -88,8 +88,7 @@ var (
 		Effect: v1.TaintEffectNoExecute,
 	}
 
-	lastSeenSnrNamespace  string
-	isSnrMatchMachineName bool
+	lastSeenSnrNamespace string
 )
 
 type processingChangeReason string
@@ -124,14 +123,6 @@ func (r *SelfNodeRemediationReconciler) GetLastSeenSnrNamespace() string {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	return lastSeenSnrNamespace
-}
-
-// IsSnrMatchMachineName returns a boolean indicating if the last reconcile SNR
-// was pointing an unhealthy machine or a node
-func (r *SelfNodeRemediationReconciler) IsSnrMatchMachineName() bool {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-	return isSnrMatchMachineName
 }
 
 // SelfNodeRemediationReconciler reconciles a SelfNodeRemediation object
@@ -657,9 +648,6 @@ func (r *SelfNodeRemediationReconciler) getNodeFromSnr(snr *v1alpha1.SelfNodeRem
 	if !r.isOwnedByNHC(snr) {
 		for _, ownerRef := range snr.OwnerReferences {
 			if ownerRef.Kind == "Machine" {
-				r.mutex.Lock()
-				isSnrMatchMachineName = true
-				r.mutex.Unlock()
 				return r.getNodeFromMachine(ownerRef, snr.Namespace)
 			}
 		}
