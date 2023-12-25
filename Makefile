@@ -32,6 +32,7 @@ OPERATOR_NAME ?= self-node-remediation
 # - use environment variables to overwrite this value (e.g export VERSION=0.0.2)
 DEFAULT_VERSION := 0.0.1
 VERSION ?= $(DEFAULT_VERSION)
+PREVIOUS_VERSION ?= $(DEFAULT_VERSION)
 export VERSION
 
 CHANNELS = stable
@@ -293,16 +294,25 @@ bundle-community: bundle ##Add Community Edition suffix to operator name
 	sed -r -i "s|displayName: Self Node Remediation Operator.*|displayName: Self Node Remediation Operator - Community Edition|;" ${BUNDLE_CSV}
 
 .PHONY: bundle-update
-bundle-update: ## Update containerImage, createdAt, skipRange, and icon fields in the bundle's CSV, then validate the bundle directory
+bundle-update: verify-previous-version ## Update CSV fields and validate the bundle directory
 	# update container image in the metadata
 	sed -r -i "s|containerImage: .*|containerImage: ${IMG}|;" ${BUNDLE_CSV}
 	# set creation date
 	sed -r -i "s|createdAt: \".*\"|createdAt: \"`date "+%Y-%m-%d %T" `\"|;" ${BUNDLE_CSV}
 	# set skipRange
 	sed -r -i "s|olm.skipRange: .*|olm.skipRange: '>=0.4.0 <${VERSION}'|;" ${BUNDLE_CSV}
+	# set  replaces
+	sed -r -i "s|replaces: .*|replaces: self-node-remediation.v${PREVIOUS_VERSION}|;" ${BUNDLE_CSV}
 	# set icon (not version or build date related, but just to not having this huge data permanently in the CSV)
 	sed -r -i "s|base64data:.*|base64data: ${ICON_BASE64}|;" ${BUNDLE_CSV}
 	$(MAKE) bundle-validate
+
+.PHONY: verify-previous-version
+verify-previous-version: ## Verifies that PREVIOUS_VERSION variable is set
+	@if [ $(VERSION) != $(DEFAULT_VERSION) ] && [ $(PREVIOUS_VERSION) = $(DEFAULT_VERSION) ]; then \
+  			echo "Error: PREVIOUS_VERSION must be set for the selected VERSION"; \
+    		exit 1; \
+    fi
 
 .PHONY: bundle-validate
 bundle-validate: operator-sdk ## Validate the bundle directory with additional validators (suite=operatorframework), such as Kubernetes deprecated APIs (https://kubernetes.io/docs/reference/using-api/deprecation-guide/) based on bundle.CSV.Spec.MinKubeVersion
