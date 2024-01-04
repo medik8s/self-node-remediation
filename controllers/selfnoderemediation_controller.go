@@ -98,7 +98,7 @@ const (
 	remediationStarted              processingChangeReason = "RemediationStarted"
 	remediationTimeoutByNHC         processingChangeReason = "RemediationTimeoutByNHC"
 	remediationFinishedSuccessfully processingChangeReason = "RemediationFinishedSuccessfully"
-	remediationFinishedNodeNotFound processingChangeReason = "RemediationFinishedNodeNotFound"
+	remediationSkippedNodeNotFound  processingChangeReason = "RemediationSkippedNodeNotFound"
 )
 
 type remediationPhase string
@@ -238,7 +238,7 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			r.logger.Info("couldn't find node matching remediation", "node name", snr.Name)
-			if err = r.updateConditions(remediationFinishedNodeNotFound, snr); err != nil {
+			if err = r.updateConditions(remediationSkippedNodeNotFound, snr); err != nil {
 				return ctrl.Result{}, err
 			}
 			r.Recorder.Event(snr, eventTypeNormal, eventReasonRemediationStopped, "couldn't find node matching remediation")
@@ -281,7 +281,7 @@ func (r *SelfNodeRemediationReconciler) updateConditions(processingTypeReason pr
 	case remediationTimeoutByNHC:
 		processingConditionStatus = metav1.ConditionFalse
 		succeededConditionStatus = metav1.ConditionFalse
-	case remediationFinishedNodeNotFound:
+	case remediationSkippedNodeNotFound:
 		processingConditionStatus = metav1.ConditionFalse
 		succeededConditionStatus = metav1.ConditionFalse
 	default:
