@@ -33,6 +33,7 @@ const (
 	nodeExecTimeout    = 20 * time.Second
 	reconnectInterval  = 300 * time.Second
 	skipLogsEnvVarName = "SKIP_LOG_VERIFICATION"
+	skipOOSREnvVarName = "SKIP_OOST_REMEDIATION_VERIFICATION"
 )
 
 var _ = Describe("Self Node Remediation E2E", func() {
@@ -127,6 +128,9 @@ var _ = Describe("Self Node Remediation E2E", func() {
 					var oldPodCreationTime time.Time
 
 					BeforeEach(func() {
+						if _, isExist := os.LookupEnv(skipOOSREnvVarName); isExist {
+							Skip("Skip this test due to out-of-service taint not supported")
+						}
 						remediationStrategy = v1alpha1.OutOfServiceTaintRemediationStrategy
 						oldPodCreationTime = findSnrPod(node).CreationTimestamp.Time
 					})
