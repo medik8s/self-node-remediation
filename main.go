@@ -387,15 +387,15 @@ func getMachineName(reader client.Reader, myNodeName string) (string, error) {
 	var machineName string
 	var err error
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: myNodeName}}
-	if err = reader.Get(context.Background(), client.ObjectKeyFromObject(node), node); err == nil {
-		if namespacedMachine, exists := node.GetAnnotations()[machineAnnotation]; exists {
-			if _, machineName, err = cache.SplitMetaNamespaceKey(namespacedMachine); err != nil {
-				return machineName, err
-			}
-		}
-
+	if err = reader.Get(context.Background(), client.ObjectKeyFromObject(node), node); err != nil {
+		return machineName, err
 	}
-	return machineName, err
+	if namespacedMachine, exists := node.GetAnnotations()[machineAnnotation]; exists {
+		_, machineName, err = cache.SplitMetaNamespaceKey(namespacedMachine)
+		return machineName, err
+	}
+	//Machine name not found
+	return "", nil
 }
 
 func configureWebhookServer(mgr ctrl.Manager, enableHTTP2 bool) {
