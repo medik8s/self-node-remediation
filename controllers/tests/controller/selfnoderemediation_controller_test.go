@@ -261,7 +261,7 @@ var _ = Describe("SNR Controller", func() {
 				})
 
 				It("remediation should stop and update conditions", func() {
-					verifyTypeConditions(snr.Name, metav1.ConditionFalse, metav1.ConditionFalse, "RemediationFinishedNodeNotFound")
+					verifyTypeConditions(snr.Name, metav1.ConditionFalse, metav1.ConditionFalse, "RemediationSkippedNodeNotFound")
 
 					verifyEvent("Normal", "RemediationStopped", "couldn't find node matching remediation")
 				})
@@ -409,7 +409,7 @@ var _ = Describe("SNR Controller", func() {
 						It("Node is not found", func() {
 							time.Sleep(time.Second)
 							verifyNoEvent("Normal", "MarkUnschedulable", "Remediation process - unhealthy node marked as unschedulable")
-							verifyTypeConditions(snr.Name, metav1.ConditionFalse, metav1.ConditionFalse, "RemediationFinishedNodeNotFound")
+							verifyTypeConditions(snr.Name, metav1.ConditionFalse, metav1.ConditionFalse, "RemediationSkippedNodeNotFound")
 							verifyEvent("Normal", "RemediationStopped", "couldn't find node matching remediation")
 						})
 					})
