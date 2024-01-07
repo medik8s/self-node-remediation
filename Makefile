@@ -316,13 +316,6 @@ bundle-build: bundle bundle-update ## Build the bundle image.
 bundle-push: ## Push the bundle image.
 	docker push $(BUNDLE_IMG)
 
-protoc-gen-peerhealth: ## Download protoc (protocol buffers tool needed for gRPC)
-	${PROTOC} --go_out=$(shell pwd) \
-			  --go-grpc_out=$(shell pwd) \
-              --proto_path=$(shell pwd)/pkg/peerhealth \
-              $(shell pwd)/pkg/peerhealth/peerhealth.proto
-
-
 .PHONY: protoc
 PROTOC = $(shell pwd)/bin/proto/bin/protoc
 protoc: protoc-gen-go protoc-gen-go-grpc ## Download protoc (protocol buffers tool needed for gRPC)
