@@ -119,29 +119,24 @@ func (s Server) IsHealthy(ctx context.Context, request *HealthRequest) (*HealthR
 		return nil, fmt.Errorf("empty node name in HealthRequest")
 	}
 
-	s.log.Info("checking health for", "node", nodeName)
+	//fetch all snrs from all ns
+	snrs := &v1alpha1.SelfNodeRemediationList{}
+	if err := s.snr.List(ctx, snrs); err != nil {
+		s.log.Error(err, "failed to fetch snrs")
+		return nil, err
+	}
 
-	namespace := s.snr.GetLastSeenSnrNamespace()
-	isMachine := len(request.GetMachineName()) > 0
-
-	// when namespace is empty, there wasn't a SNR yet, which also means that the node must be healthy
-	if namespace == "" {
-		// we didn't see a SNR yet, so the node is healthy
-		// but we need to check for API error, so let's get node
-		if _, err := s.getNode(ctx, nodeName); err != nil {
-			// TODO do we need to deal with isNotFound, and if so, how?
-			s.log.Info("no SNR seen yet, and API server issue, returning API error", "api error", err)
-			return toResponse(selfNodeRemediationApis.ApiError)
+	//return healthy only if all of snrs are considered healthy for that node
+	for _, snr := range snrs.Items {
+		if controllers.IsOwnedByNHC(&snr) {
+			if healthCode := s.isHealthyBySnr(ctx, request.NodeName, snr.Namespace); healthCode != selfNodeRemediationApis.Healthy {
+				return toResponse(healthCode)
+			}
+		} else if healthCode := s.isHealthyBySnr(ctx, request.MachineName, snr.Namespace); healthCode != selfNodeRemediationApis.Healthy {
+			return toResponse(healthCode)
 		}
-		s.log.Info("no SNR seen yet, node is healthy")
-		return toResponse(selfNodeRemediationApis.Healthy)
 	}
-
-	if isMachine {
-		return toResponse(s.isHealthyBySnr(ctx, request.MachineName, namespace))
-	} else {
-		return toResponse(s.isHealthyBySnr(ctx, nodeName, namespace))
-	}
+	return toResponse(selfNodeRemediationApis.Healthy)
 }
 
 func (s Server) isHealthyBySnr(ctx context.Context, snrName string, snrNamespace string) selfNodeRemediationApis.HealthCheckResponseCode {

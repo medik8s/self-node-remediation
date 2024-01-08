@@ -96,15 +96,14 @@ var _ = Describe("Checking health using grpc client and server", func() {
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      nodeName,
 					Namespace: "default",
+					OwnerReferences: []metav1.OwnerReference{
+						{Name: "Dummy", Kind: "NodeHealthCheck", APIVersion: "Dummy", UID: "Dummy"},
+					},
 				},
 			}
 			err := k8sClient.Create(context.Background(), snr)
 			Expect(err).ToNot(HaveOccurred())
 
-			// wait until reconciled
-			Eventually(func() bool {
-				return snrReconciler.GetLastSeenSnrNamespace() != ""
-			}, 5*time.Second, 250*time.Millisecond).Should(BeTrue(), "SNR not reconciled")
 		})
 
 		It("should return unhealthy", func() {

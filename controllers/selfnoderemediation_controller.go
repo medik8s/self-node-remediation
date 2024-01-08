@@ -19,7 +19,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -87,8 +86,6 @@ var (
 		Value:  "nodeshutdown",
 		Effect: v1.TaintEffectNoExecute,
 	}
-
-	lastSeenSnrNamespace string
 )
 
 type processingChangeReason string
@@ -118,13 +115,6 @@ func (e *UnreconcilableError) Error() string {
 	return e.msg
 }
 
-// GetLastSeenSnrNamespace returns the namespace of the last reconciled SNR
-func (r *SelfNodeRemediationReconciler) GetLastSeenSnrNamespace() string {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-	return lastSeenSnrNamespace
-}
-
 // SelfNodeRemediationReconciler reconciles a SelfNodeRemediation object
 type SelfNodeRemediationReconciler struct {
 	client.Client
@@ -135,7 +125,6 @@ type SelfNodeRemediationReconciler struct {
 	Recorder   record.EventRecorder
 	Rebooter   reboot.Rebooter
 	MyNodeName string
-	mutex      sync.Mutex
 	//we need to restore the node only after the cluster realized it can reschedule the affected workloads
 	//as of writing this lines, kubernetes will check for pods with non-existent node once in 20s, and allows
 	//40s of grace period for the node to reappear before it deletes the pods.
@@ -217,10 +206,6 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 			return ctrl.Result{}, err
 		}
 	}
-
-	r.mutex.Lock()
-	lastSeenSnrNamespace = req.Namespace
-	r.mutex.Unlock()
 
 	result := ctrl.Result{}
 	var err error
@@ -645,7 +630,7 @@ func (r *SelfNodeRemediationReconciler) getNodeFromSnr(snr *v1alpha1.SelfNodeRem
 	//by a node based controller (e.g. NHC).
 	//In case snr is created with machine owner reference if NHC isn't it's owner it means
 	//it was created by a machine based controller (e.g. MHC).
-	if !r.isOwnedByNHC(snr) {
+	if !IsOwnedByNHC(snr) {
 		for _, ownerRef := range snr.OwnerReferences {
 			if ownerRef.Kind == "Machine" {
 				return r.getNodeFromMachine(ownerRef, snr.Namespace)
@@ -927,7 +912,7 @@ func (r *SelfNodeRemediationReconciler) getRuntimeStrategy(strategy v1alpha1.Rem
 
 }
 
-func (r *SelfNodeRemediationReconciler) isOwnedByNHC(snr *v1alpha1.SelfNodeRemediation) bool {
+func IsOwnedByNHC(snr *v1alpha1.SelfNodeRemediation) bool {
 	for _, ownerRef := range snr.OwnerReferences {
 		if ownerRef.Kind == "NodeHealthCheck" {
 			return true
