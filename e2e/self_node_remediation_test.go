@@ -33,6 +33,7 @@ const (
 	nodeExecTimeout    = 20 * time.Second
 	reconnectInterval  = 300 * time.Second
 	skipLogsEnvVarName = "SKIP_LOG_VERIFICATION"
+	skipOOSREnvVarName = "SKIP_OOST_REMEDIATION_VERIFICATION"
 )
 
 var _ = Describe("Self Node Remediation E2E", func() {
@@ -120,6 +121,28 @@ var _ = Describe("Self Node Remediation E2E", func() {
 						snr = nil
 
 						checkNoExecuteTaintRemoved(node)
+					})
+				})
+
+				Context("OutOfService Remediation Strategy", func() {
+					var oldPodCreationTime time.Time
+
+					BeforeEach(func() {
+						if _, isExist := os.LookupEnv(skipOOSREnvVarName); isExist {
+							Skip("Skip this test due to out-of-service taint not supported")
+						}
+						remediationStrategy = v1alpha1.OutOfServiceTaintRemediationStrategy
+						oldPodCreationTime = findSnrPod(node).CreationTimestamp.Time
+					})
+
+					It("should delete pods", func() {
+						checkPodRecreated(node, oldPodCreationTime)
+						//Simulate NHC trying to delete SNR
+						deleteAndWait(snr)
+						snr = nil
+
+						checkNoExecuteTaintRemoved(node)
+						checkOutOfServiceTaintRemoved(node)
 					})
 				})
 
@@ -392,6 +415,15 @@ func getBootTime(node *v1.Node) (*time.Time, error) {
 
 func checkNoExecuteTaintRemoved(node *v1.Node) {
 	By("checking if NoExecute taint was removed")
+	checkTaintRemoved(node, controllers.NodeNoExecuteTaint)
+}
+
+func checkOutOfServiceTaintRemoved(node *v1.Node) {
+	By("checking if out-of-service taint was removed")
+	checkTaintRemoved(node, controllers.OutOfServiceTaint)
+}
+
+func checkTaintRemoved(node *v1.Node, taintToCheck *v1.Taint) {
 	EventuallyWithOffset(1, func() error {
 		key := client.ObjectKey{
 			Name: node.GetName(),
@@ -403,8 +435,8 @@ func checkNoExecuteTaintRemoved(node *v1.Node) {
 		}
 		logger.Info("", "taints", newNode.Spec.Taints)
 		for _, taint := range newNode.Spec.Taints {
-			if taint.MatchTaint(controllers.NodeNoExecuteTaint) {
-				return fmt.Errorf("NoExecute taint still exists")
+			if taint.MatchTaint(taintToCheck) {
+				return fmt.Errorf("Taint still exists taint key:%s, taint effect:%s", taintToCheck.Key, taintToCheck.Effect)
 			}
 		}
 		return nil
