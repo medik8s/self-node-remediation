@@ -9,6 +9,7 @@ service PeerHealth {
 
 message HealthRequest {
   string nodeName = 1;
+  string machineName = 2;
 }
 
 message HealthResponse {

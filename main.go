@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"fmt"
@@ -29,6 +30,8 @@ import (
 	"github.com/pkg/errors"
 	"go.uber.org/zap/zapcore"
 
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	pkgruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -36,7 +39,9 @@ import (
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/client-go/tools/cache"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -60,11 +65,11 @@ import (
 )
 
 const (
-	nodeNameEnvVar = "MY_NODE_NAME"
-
-	WebhookCertDir  = "/apiserver.local.config/certificates"
-	WebhookCertName = "apiserver.crt"
-	WebhookKeyName  = "apiserver.key"
+	nodeNameEnvVar    = "MY_NODE_NAME"
+	machineAnnotation = "machine.openshift.io/machine"
+	WebhookCertDir    = "/apiserver.local.config/certificates"
+	WebhookCertName   = "apiserver.crt"
+	WebhookKeyName    = "apiserver.key"
 )
 
 var (
@@ -312,9 +317,16 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	// init certificate reader
 	certReader := certificates.NewSecretCertStorage(mgr.GetClient(), ctrl.Log.WithName("SecretCertStorage"), ns)
 
+	var machineName string
+	if machineName, err = getMachineName(mgr.GetAPIReader(), myNodeName); err != nil {
+		setupLog.Error(err, "error when trying to fetch machine name")
+		os.Exit(1)
+	}
+
 	apiConnectivityCheckConfig := &apicheck.ApiConnectivityCheckConfig{
 		Log:                       ctrl.Log.WithName("api-check"),
 		MyNodeName:                myNodeName,
+		MyMachineName:             machineName,
 		CheckInterval:             apiCheckInterval,
 		MaxErrorsThreshold:        maxErrorThreshold,
 		Peers:                     myPeers,
@@ -369,6 +381,21 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		setupLog.Error(err, "failed to add grpc server to the manager")
 		os.Exit(1)
 	}
+}
+
+func getMachineName(reader client.Reader, myNodeName string) (string, error) {
+	var machineName string
+	var err error
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: myNodeName}}
+	if err = reader.Get(context.Background(), client.ObjectKeyFromObject(node), node); err != nil {
+		return machineName, err
+	}
+	if namespacedMachine, exists := node.GetAnnotations()[machineAnnotation]; exists {
+		_, machineName, err = cache.SplitMetaNamespaceKey(namespacedMachine)
+		return machineName, err
+	}
+	//Machine name not found
+	return "", nil
 }
 
 func configureWebhookServer(mgr ctrl.Manager, enableHTTP2 bool) {

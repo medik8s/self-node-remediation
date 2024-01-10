@@ -37,6 +37,7 @@ type ApiConnectivityCheck struct {
 type ApiConnectivityCheckConfig struct {
 	Log                       logr.Logger
 	MyNodeName                string
+	MyMachineName             string
 	CheckInterval             time.Duration
 	MaxErrorsThreshold        int
 	Peers                     *peers.Peers
@@ -275,7 +276,8 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, result
 	defer cancel()
 
 	resp, err := phClient.IsHealthy(ctx, &peerhealth.HealthRequest{
-		NodeName: c.config.MyNodeName,
+		NodeName:    c.config.MyNodeName,
+		MachineName: c.config.MyMachineName,
 	})
 	if err != nil {
 		logger.Error(err, "failed to read health response from peer")

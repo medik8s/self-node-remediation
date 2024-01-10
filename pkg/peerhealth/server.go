@@ -10,13 +10,11 @@ import (
 	"google.golang.org/grpc"
 
 	corev1 "k8s.io/api/core/v1"
-	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/cache"
 
 	selfNodeRemediationApis "github.com/medik8s/self-node-remediation/api"
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
@@ -26,7 +24,6 @@ import (
 
 const (
 	connectionTimeout = 5 * time.Second
-	machineAnnotation = "machine.openshift.io/machine" //todo this is openshift specific
 	//IMPORTANT! this MUST be less than PeerRequestTimeout in apicheck
 	//The difference between them should allow some time for sending the request over the network
 	//todo enforce this
@@ -121,74 +118,27 @@ func (s Server) IsHealthy(ctx context.Context, request *HealthRequest) (*HealthR
 		return nil, fmt.Errorf("empty node name in HealthRequest")
 	}
 
-	s.log.Info("checking health for", "node", nodeName)
-
-	namespace := s.snr.GetLastSeenSnrNamespace()
-	isMachine := s.snr.IsSnrMatchMachineName()
-
-	// when namespace is empty, there wasn't a SNR yet, which also means that the node must be healthy
-	if namespace == "" {
-		// we didn't see a SNR yet, so the node is healthy
-		// but we need to check for API error, so let's get node
-		if _, err := s.getNode(ctx, nodeName); err != nil {
-			// TODO do we need to deal with isNotFound, and if so, how?
-			s.log.Info("no SNR seen yet, and API server issue, returning API error", "api error", err)
-			return toResponse(selfNodeRemediationApis.ApiError)
-		}
-		s.log.Info("no SNR seen yet, node is healthy")
-		return toResponse(selfNodeRemediationApis.Healthy)
-	}
-
-	if isMachine {
-		return toResponse(s.isHealthyMachine(ctx, nodeName, namespace))
-	} else {
-		return toResponse(s.isHealthyNode(ctx, nodeName, namespace))
-	}
-}
-
-func (s Server) isHealthyNode(ctx context.Context, nodeName string, namespace string) selfNodeRemediationApis.HealthCheckResponseCode {
-	return s.isHealthyBySnr(ctx, nodeName, namespace)
-}
-
-func (s Server) isHealthyMachine(ctx context.Context, nodeName string, namespace string) selfNodeRemediationApis.HealthCheckResponseCode {
-	node, err := s.getNode(ctx, nodeName)
-	if err != nil {
-		return selfNodeRemediationApis.ApiError
-	}
-
-	ann := node.GetAnnotations()
-	namespacedMachine, exists := ann[machineAnnotation]
-
-	if !exists {
-		s.log.Info("node doesn't have machine annotation")
-		return selfNodeRemediationApis.Unhealthy //todo is this the correct response?
-	}
-	_, machineName, err := cache.SplitMetaNamespaceKey(namespacedMachine)
-
-	if err != nil {
-		s.log.Error(err, "failed to parse machine annotation on the node")
-		return selfNodeRemediationApis.Unhealthy //todo is this the correct response?
-	}
-
-	return s.isHealthyBySnr(ctx, machineName, namespace)
-}
-
-func (s Server) isHealthyBySnr(ctx context.Context, snrName string, snrNamespace string) selfNodeRemediationApis.HealthCheckResponseCode {
 	apiCtx, cancelFunc := context.WithTimeout(ctx, apiServerTimeout)
 	defer cancelFunc()
 
-	_, err := s.client.Resource(snrRes).Namespace(snrNamespace).Get(apiCtx, snrName, metav1.GetOptions{})
-	if err != nil {
-		if apiErrors.IsNotFound(err) {
-			s.log.Info("node is healthy")
-			return selfNodeRemediationApis.Healthy
-		}
-		s.log.Error(err, "api error")
-		return selfNodeRemediationApis.ApiError
+	//fetch all snrs from all ns
+	snrs := &v1alpha1.SelfNodeRemediationList{}
+	if err := s.snr.List(apiCtx, snrs); err != nil {
+		s.log.Error(err, "api error failed to fetch snrs")
+		return toResponse(selfNodeRemediationApis.ApiError)
 	}
 
-	s.log.Info("node is unhealthy")
-	return selfNodeRemediationApis.Unhealthy
+	//return healthy only if all of snrs are considered healthy for that node
+	for _, snr := range snrs.Items {
+		isOwnedByNHC := controllers.IsOwnedByNHC(&snr)
+		if isOwnedByNHC && snr.Name == nodeName {
+			return toResponse(selfNodeRemediationApis.Unhealthy)
+
+		} else if !isOwnedByNHC && snr.Name == request.MachineName {
+			return toResponse(selfNodeRemediationApis.Unhealthy)
+		}
+	}
+	return toResponse(selfNodeRemediationApis.Healthy)
 }
 
 func (s Server) getNode(ctx context.Context, nodeName string) (*unstructured.Unstructured, error) {
