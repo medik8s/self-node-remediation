@@ -230,7 +230,7 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, nil
 	}
 
-	strategy := r.getRuntimeStrategy(snr.Spec.RemediationStrategy)
+	strategy := r.getRuntimeStrategy(snr)
 	switch strategy {
 	case v1alpha1.ResourceDeletionRemediationStrategy:
 		result, err = r.remediateWithResourceDeletion(snr, node)
@@ -897,18 +897,23 @@ func (r *SelfNodeRemediationReconciler) isResourceDeletionExpired(snr *v1alpha1.
 	return true, 0
 }
 
-func (r *SelfNodeRemediationReconciler) getRuntimeStrategy(strategy v1alpha1.RemediationStrategyType) v1alpha1.RemediationStrategyType {
+func (r *SelfNodeRemediationReconciler) getRuntimeStrategy(snr *v1alpha1.SelfNodeRemediation) v1alpha1.RemediationStrategyType {
+	strategy := snr.Spec.RemediationStrategy
 	if strategy != v1alpha1.AutomaticRemediationStrategy {
 		return strategy
 	}
 
+	remediationStrategy := v1alpha1.ResourceDeletionRemediationStrategy
 	if utils.IsOutOfServiceTaintGA {
-		r.logger.Info("Automatically selected OutOfServiceTaint Remediation strategy")
-		return v1alpha1.OutOfServiceTaintRemediationStrategy
+		remediationStrategy = v1alpha1.OutOfServiceTaintRemediationStrategy
 	}
 
-	r.logger.Info("Automatically selected ResourceDeletion Remediation strategy")
-	return v1alpha1.ResourceDeletionRemediationStrategy
+	//used as an indication not to spam the log
+	if isFinalizerAlreadyAdded := controllerutil.ContainsFinalizer(snr, SNRFinalizer); !isFinalizerAlreadyAdded {
+		r.logger.Info(fmt.Sprintf("Automatically selected %s Remediation strategy", remediationStrategy))
+	}
+
+	return remediationStrategy
 
 }
 
