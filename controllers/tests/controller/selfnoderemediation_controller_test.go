@@ -173,7 +173,7 @@ var _ = Describe("SNR Controller", func() {
 			It("Remediation flow", func() {
 				node := verifyNodeIsUnschedulable()
 
-				verifyEvent("Normal", "RemediationCreated", "Remediation started")
+				verifyEvent("Normal", "RemediationStarted", "[remediation] Remediation started")
 
 				verifyEvent("Normal", "MarkUnschedulable", "Remediation process - unhealthy node marked as unschedulable")
 

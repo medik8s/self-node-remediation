@@ -174,7 +174,11 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 		r.logger.Error(err, "failed to get SNR")
 		return ctrl.Result{}, err
 	}
-	events.RemediationStarted(r.Recorder, snr)
+
+	//used as an indication not to spam the event
+	if isFinalizerAlreadyAdded := controllerutil.ContainsFinalizer(snr, SNRFinalizer); !isFinalizerAlreadyAdded {
+		events.RemediationStarted(r.Recorder, snr)
+	}
 
 	defer func() {
 		if updateErr := r.updateSnrStatus(ctx, snr); updateErr != nil {
