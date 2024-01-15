@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/medik8s/common/pkg/events"
 	"github.com/medik8s/common/pkg/resources"
 	"github.com/pkg/errors"
 
@@ -49,7 +50,6 @@ const (
 	nhcTimeOutAnnotation    = "remediation.medik8s.io/nhc-timed-out"
 	excludeRemediationLabel = "remediation.medik8s.io/exclude-from-remediation"
 
-	eventReasonRemediationCreated = "RemediationCreated"
 	eventReasonRemediationStopped = "RemediationStopped"
 	eventReasonRemediationSkipped = "RemediationSkipped"
 
@@ -174,8 +174,7 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 		r.logger.Error(err, "failed to get SNR")
 		return ctrl.Result{}, err
 	}
-
-	r.Recorder.Event(snr, eventTypeNormal, eventReasonRemediationCreated, "Remediation started")
+	events.RemediationStarted(r.Recorder, snr)
 
 	defer func() {
 		if updateErr := r.updateSnrStatus(ctx, snr); updateErr != nil {
@@ -195,9 +194,8 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	}()
 
 	if r.isStoppedByNHC(snr) {
-		msg := "SNR remediation was stopped by Node Healthcheck"
-		r.logger.Info(msg)
-		r.Recorder.Event(snr, eventTypeNormal, eventReasonRemediationStopped, msg)
+		r.logger.Info("NHC added the timed-out annotation, remediation will be stopped")
+		events.RemediationStoppedByNHC(r.Recorder, snr)
 		return ctrl.Result{}, r.updateConditions(remediationTimeoutByNHC, snr)
 	}
 
@@ -483,6 +481,7 @@ func (r *SelfNodeRemediationReconciler) recoverNode(node *v1.Node, snr *v1alpha1
 			return ctrl.Result{}, err
 		}
 		r.Recorder.Event(snr, eventTypeNormal, eventReasonRemoveFinalizer, "Remediation process - remove finalizer from snr")
+		events.RemediationFinished(r.Recorder, snr)
 	}
 
 	return ctrl.Result{}, nil
