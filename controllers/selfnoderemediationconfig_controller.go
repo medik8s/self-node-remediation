@@ -160,7 +160,9 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 		}
 		err = r.syncK8sResource(ctx, snrConfig, obj)
 		if err != nil {
-			if !errors.IsConflict(err) {
+			if errors.IsConflict(err) {
+				logger.Info("Couldn't sync self-node-remediation daemons objects because ds is updated, retrying...")
+			} else {
 				logger.Error(err, "Couldn't sync self-node-remediation daemons objects")
 			}
 			return err
