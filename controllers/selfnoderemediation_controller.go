@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/medik8s/common/pkg/events"
 	"github.com/medik8s/common/pkg/resources"
 	"github.com/pkg/errors"
 
@@ -49,7 +50,6 @@ const (
 	nhcTimeOutAnnotation    = "remediation.medik8s.io/nhc-timed-out"
 	excludeRemediationLabel = "remediation.medik8s.io/exclude-from-remediation"
 
-	eventReasonRemediationCreated = "RemediationCreated"
 	eventReasonRemediationStopped = "RemediationStopped"
 	eventReasonRemediationSkipped = "RemediationSkipped"
 
@@ -175,7 +175,10 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, err
 	}
 
-	r.Recorder.Event(snr, eventTypeNormal, eventReasonRemediationCreated, "Remediation started")
+	//used as an indication not to spam the event
+	if isFinalizerAlreadyAdded := controllerutil.ContainsFinalizer(snr, SNRFinalizer); !isFinalizerAlreadyAdded {
+		events.RemediationStarted(r.Recorder, snr)
+	}
 
 	defer func() {
 		if updateErr := r.updateSnrStatus(ctx, snr); updateErr != nil {
@@ -195,9 +198,8 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	}()
 
 	if r.isStoppedByNHC(snr) {
-		msg := "SNR remediation was stopped by Node Healthcheck"
-		r.logger.Info(msg)
-		r.Recorder.Event(snr, eventTypeNormal, eventReasonRemediationStopped, msg)
+		r.logger.Info("NHC added the timed-out annotation, remediation will be stopped")
+		events.RemediationStoppedByNHC(r.Recorder, snr)
 		return ctrl.Result{}, r.updateConditions(remediationTimeoutByNHC, snr)
 	}
 
@@ -230,7 +232,7 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, nil
 	}
 
-	strategy := r.getRuntimeStrategy(snr.Spec.RemediationStrategy)
+	strategy := r.getRuntimeStrategy(snr)
 	switch strategy {
 	case v1alpha1.ResourceDeletionRemediationStrategy:
 		result, err = r.remediateWithResourceDeletion(snr, node)
@@ -483,6 +485,7 @@ func (r *SelfNodeRemediationReconciler) recoverNode(node *v1.Node, snr *v1alpha1
 			return ctrl.Result{}, err
 		}
 		r.Recorder.Event(snr, eventTypeNormal, eventReasonRemoveFinalizer, "Remediation process - remove finalizer from snr")
+		events.RemediationFinished(r.Recorder, snr)
 	}
 
 	return ctrl.Result{}, nil
@@ -897,18 +900,23 @@ func (r *SelfNodeRemediationReconciler) isResourceDeletionExpired(snr *v1alpha1.
 	return true, 0
 }
 
-func (r *SelfNodeRemediationReconciler) getRuntimeStrategy(strategy v1alpha1.RemediationStrategyType) v1alpha1.RemediationStrategyType {
+func (r *SelfNodeRemediationReconciler) getRuntimeStrategy(snr *v1alpha1.SelfNodeRemediation) v1alpha1.RemediationStrategyType {
+	strategy := snr.Spec.RemediationStrategy
 	if strategy != v1alpha1.AutomaticRemediationStrategy {
 		return strategy
 	}
 
+	remediationStrategy := v1alpha1.ResourceDeletionRemediationStrategy
 	if utils.IsOutOfServiceTaintGA {
-		r.logger.Info("Automatically selected OutOfServiceTaint Remediation strategy")
-		return v1alpha1.OutOfServiceTaintRemediationStrategy
+		remediationStrategy = v1alpha1.OutOfServiceTaintRemediationStrategy
 	}
 
-	r.logger.Info("Automatically selected ResourceDeletion Remediation strategy")
-	return v1alpha1.ResourceDeletionRemediationStrategy
+	//used as an indication not to spam the log
+	if isFinalizerAlreadyAdded := controllerutil.ContainsFinalizer(snr, SNRFinalizer); !isFinalizerAlreadyAdded {
+		r.logger.Info(fmt.Sprintf("Automatically selected %s Remediation strategy", remediationStrategy))
+	}
+
+	return remediationStrategy
 
 }
 
