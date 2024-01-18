@@ -111,11 +111,12 @@ var _ = Describe("Checking health using grpc client and server", func() {
 			By("calling isHealthy")
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer (cancel)()
-			resp, err := phClient.IsHealthy(ctx, &HealthRequest{
-				NodeName: nodeName,
-			})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(api.HealthCheckResponseCode(resp.Status)).To(Equal(api.Unhealthy))
+			Eventually(func() bool {
+				resp, err := phClient.IsHealthy(ctx, &HealthRequest{
+					NodeName: nodeName,
+				})
+				return err == nil && api.HealthCheckResponseCode(resp.Status) == api.Unhealthy
+			}, time.Second*5, time.Millisecond*250).Should(BeTrue())
 
 		})
 

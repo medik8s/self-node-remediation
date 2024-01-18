@@ -132,16 +132,17 @@ var _ = Describe("SNR Config Test", func() {
 				config.Spec.SafeTimeToAssumeNodeRebootedSeconds = 60
 			})
 			It("The Manager Reconciler and the DS should be modified with the new value", func() {
-				Eventually(func() error {
-					return k8sClient.Get(context.Background(), key, ds)
-				}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
-
-				dsContainers := ds.Spec.Template.Spec.Containers
-				Expect(len(dsContainers)).To(BeNumerically("==", 1))
-				container := dsContainers[0]
-				envVars := getEnvVarMap(container.Env)
-				Expect(envVars["TIME_TO_ASSUME_NODE_REBOOTED"].Value).To(Equal("60"))
-				Expect(managerReconciler.SafeTimeCalculator.GetTimeToAssumeNodeRebooted()).To(Equal(time.Minute))
+				Eventually(func(g Gomega) bool {
+					ds = &appsv1.DaemonSet{}
+					g.Expect(k8sClient.Get(context.Background(), key, ds)).To(Succeed())
+					dsContainers := ds.Spec.Template.Spec.Containers
+					g.Expect(len(dsContainers)).To(BeNumerically("==", 1))
+					container := dsContainers[0]
+					envVars := getEnvVarMap(container.Env)
+					g.Expect(envVars["TIME_TO_ASSUME_NODE_REBOOTED"].Value).To(Equal("60"))
+					g.Expect(managerReconciler.SafeTimeCalculator.GetTimeToAssumeNodeRebooted()).To(Equal(time.Minute))
+					return true
+				}, 10*time.Second, 250*time.Millisecond).Should(BeTrue())
 			})
 
 		})
@@ -150,7 +151,10 @@ var _ = Describe("SNR Config Test", func() {
 			var oldDsVersion, currentDsVersion = "0", "1"
 
 			JustBeforeEach(func() {
-				Expect(k8sClient.Create(context.Background(), ds)).To(Succeed())
+				Eventually(func() error {
+					return k8sClient.Create(context.Background(), ds)
+				}, 2*time.Second, 250*time.Millisecond).Should(Succeed())
+
 				Eventually(func() error {
 					return k8sClient.Get(context.Background(), key, ds)
 				}, 2*time.Second, 250*time.Millisecond).Should(BeNil())

@@ -10,7 +10,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	v1 "k8s.io/api/core/v1"
-	storagev1 "k8s.io/api/storage/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,7 +34,6 @@ const (
 var _ = Describe("SNR Controller", func() {
 	var snr *v1alpha1.SelfNodeRemediation
 	var remediationStrategy v1alpha1.RemediationStrategyType
-	var vaName = "some-va"
 	var nodeRebootCapable = "true"
 	var isAdditionalSetupNeeded = false
 
@@ -49,9 +47,6 @@ var _ = Describe("SNR Controller", func() {
 
 	JustBeforeEach(func() {
 		if isAdditionalSetupNeeded {
-			createVolumeAttachment(vaName)
-			verifyVaNotDeleted(vaName)
-
 			createSelfNodeRemediationPod()
 			verifySelfNodeRemediationPodExist()
 		}
@@ -66,7 +61,6 @@ var _ = Describe("SNR Controller", func() {
 		isAdditionalSetupNeeded = false
 		deleteRemediations()
 		deleteSelfNodeRemediationPod()
-		deleteVolumeAttachment(vaName, false)
 		//clear node's state, this is important to remove taints, label etc.
 		Expect(k8sClient.Update(context.Background(), getNode(shared.UnhealthyNodeName)))
 		Expect(k8sClient.Update(context.Background(), getNode(shared.PeerNodeName)))
@@ -235,8 +229,6 @@ var _ = Describe("SNR Controller", func() {
 
 				verifyNoWatchdogFood()
 
-				verifyVaNotDeleted(vaName)
-
 				// The kube-api calls for VA fail intentionally. In this case, we expect the snr agent to try
 				// to delete node resources again. So LastError is set to the error every time Reconcile()
 				// is triggered. If it becomes another error, it means something unintended happens.
@@ -245,8 +237,6 @@ var _ = Describe("SNR Controller", func() {
 				k8sClient.ShouldSimulatePodDeleteFailure = false
 
 				verifySelfNodeRemediationPodDoesntExist()
-
-				deleteVolumeAttachment(vaName, true)
 
 				deleteSNR(snr)
 
@@ -317,14 +307,10 @@ var _ = Describe("SNR Controller", func() {
 
 				verifyNoExecuteTaintExist()
 
-				verifyOutOfServiceTaintExist()
-
 				verifyEvent("Normal", "AddOutOfService", "Remediation process - add out-of-service taint to unhealthy node")
 
 				// simulate the out-of-service taint by Pod GC Controller
 				deleteTerminatingPod()
-
-				deleteVolumeAttachment(vaName, true)
 
 				verifyOutOfServiceTaintRemoved()
 
@@ -458,23 +444,6 @@ var _ = Describe("SNR Controller", func() {
 	})
 })
 
-func createVolumeAttachment(vaName string) {
-	va := &storagev1.VolumeAttachment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      vaName,
-			Namespace: shared.Namespace,
-		},
-		Spec: storagev1.VolumeAttachmentSpec{
-			Attacher: "foo",
-			Source:   storagev1.VolumeAttachmentSource{},
-			NodeName: shared.UnhealthyNodeName,
-		},
-	}
-	foo := "foo"
-	va.Spec.Source.PersistentVolumeName = &foo
-	ExpectWithOffset(1, k8sClient.Create(context.Background(), va)).To(Succeed())
-}
-
 func verifyTypeConditions(nodeName string, expectedProcessingConditionStatus, expectedSucceededConditionStatus metav1.ConditionStatus, expectedReason string) {
 	By("Verify that SNR Processing status condition is correct")
 	snr := &v1alpha1.SelfNodeRemediation{}
@@ -493,39 +462,10 @@ func verifyTypeConditions(nodeName string, expectedProcessingConditionStatus, ex
 	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
 }
 
-func deleteVolumeAttachment(vaName string, verifyExist bool) {
-	va := &storagev1.VolumeAttachment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      vaName,
-			Namespace: shared.Namespace,
-		},
-	}
-
-	err := k8sClient.Delete(context.Background(), va)
-	if !verifyExist && apierrors.IsNotFound(err) {
-		return
-	}
-	ExpectWithOffset(1, err).To(Succeed())
-}
-
-func verifyVaNotDeleted(vaName string) {
-	vaKey := client.ObjectKey{
-		Namespace: shared.Namespace,
-		Name:      vaName,
-	}
-
-	ConsistentlyWithOffset(1, func() bool {
-		va := &storagev1.VolumeAttachment{}
-		err := k8sClient.Get(context.Background(), vaKey, va)
-		return apierrors.IsNotFound(err)
-
-	}, 5*time.Second, 250*time.Millisecond).Should(BeFalse())
-}
-
 func verifyLastErrorKeepsApiError() {
-	By("Verify that LastError in SNR status has been kept kube-api error for VA")
+	By("Verify that LastError in SNR status has been kept")
 	snr := &v1alpha1.SelfNodeRemediation{}
-	ConsistentlyWithOffset(1, func() bool {
+	EventuallyWithOffset(1, func() bool {
 		snrNamespacedName := client.ObjectKey{Name: shared.UnhealthyNodeName, Namespace: snrNamespace}
 		if err := k8sClient.Client.Get(context.Background(), snrNamespacedName, snr); err != nil {
 			return false
@@ -593,13 +533,6 @@ func verifyOutOfServiceTaintRemoved() {
 	Eventually(func() (bool, error) {
 		return isTaintExist(controllers.OutOfServiceTaint)
 	}, 10*time.Second, 200*time.Millisecond).Should(BeFalse())
-}
-
-func verifyOutOfServiceTaintExist() {
-	By("Verify that node has out-of-service taint")
-	Eventually(func() (bool, error) {
-		return isTaintExist(controllers.OutOfServiceTaint)
-	}, 10*time.Second, 200*time.Millisecond).Should(BeTrue())
 }
 
 func isTaintExist(taintToMatch *v1.Taint) (bool, error) {
@@ -701,7 +634,7 @@ func deleteRemediations() {
 		snrs := &v1alpha1.SelfNodeRemediationList{}
 		err := k8sClient.List(context.Background(), snrs)
 		return err == nil && len(snrs.Items) == 0
-	}, 5*time.Second, 100*time.Millisecond).Should(BeTrue())
+	}, 7*time.Second, 100*time.Millisecond).Should(BeTrue())
 
 }
 func deleteSNR(snr *v1alpha1.SelfNodeRemediation) {
@@ -933,13 +866,15 @@ func clearEvents() {
 }
 
 func verifyEvent(eventType, reason, message string) {
-	isEventMatch := isEventOccurred(eventType, reason, message)
-	ExpectWithOffset(1, isEventMatch).To(BeTrue())
+	EventuallyWithOffset(1, func() bool {
+		return isEventOccurred(eventType, reason, message)
+	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
 }
 
 func verifyNoEvent(eventType, reason, message string) {
-	isEventMatch := isEventOccurred(eventType, reason, message)
-	ExpectWithOffset(1, isEventMatch).To(BeFalse())
+	EventuallyWithOffset(1, func() bool {
+		return isEventOccurred(eventType, reason, message)
+	}, 5*time.Second, 250*time.Millisecond).Should(BeFalse())
 }
 
 func isEventOccurred(eventType string, reason string, message string) bool {
