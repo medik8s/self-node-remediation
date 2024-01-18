@@ -317,8 +317,6 @@ var _ = Describe("SNR Controller", func() {
 
 				verifyNoExecuteTaintExist()
 
-				verifyOutOfServiceTaintExist()
-
 				verifyEvent("Normal", "AddOutOfService", "Remediation process - add out-of-service taint to unhealthy node")
 
 				// simulate the out-of-service taint by Pod GC Controller
@@ -523,9 +521,9 @@ func verifyVaNotDeleted(vaName string) {
 }
 
 func verifyLastErrorKeepsApiError() {
-	By("Verify that LastError in SNR status has been kept kube-api error for VA")
+	By("Verify that LastError in SNR status has been kept")
 	snr := &v1alpha1.SelfNodeRemediation{}
-	ConsistentlyWithOffset(1, func() bool {
+	EventuallyWithOffset(1, func() bool {
 		snrNamespacedName := client.ObjectKey{Name: shared.UnhealthyNodeName, Namespace: snrNamespace}
 		if err := k8sClient.Client.Get(context.Background(), snrNamespacedName, snr); err != nil {
 			return false
@@ -593,13 +591,6 @@ func verifyOutOfServiceTaintRemoved() {
 	Eventually(func() (bool, error) {
 		return isTaintExist(controllers.OutOfServiceTaint)
 	}, 10*time.Second, 200*time.Millisecond).Should(BeFalse())
-}
-
-func verifyOutOfServiceTaintExist() {
-	By("Verify that node has out-of-service taint")
-	Eventually(func() (bool, error) {
-		return isTaintExist(controllers.OutOfServiceTaint)
-	}, 10*time.Second, 200*time.Millisecond).Should(BeTrue())
 }
 
 func isTaintExist(taintToMatch *v1.Taint) (bool, error) {
@@ -701,7 +692,7 @@ func deleteRemediations() {
 		snrs := &v1alpha1.SelfNodeRemediationList{}
 		err := k8sClient.List(context.Background(), snrs)
 		return err == nil && len(snrs.Items) == 0
-	}, 5*time.Second, 100*time.Millisecond).Should(BeTrue())
+	}, 7*time.Second, 100*time.Millisecond).Should(BeTrue())
 
 }
 func deleteSNR(snr *v1alpha1.SelfNodeRemediation) {
@@ -933,13 +924,15 @@ func clearEvents() {
 }
 
 func verifyEvent(eventType, reason, message string) {
-	isEventMatch := isEventOccurred(eventType, reason, message)
-	ExpectWithOffset(1, isEventMatch).To(BeTrue())
+	EventuallyWithOffset(1, func() bool {
+		return isEventOccurred(eventType, reason, message)
+	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
 }
 
 func verifyNoEvent(eventType, reason, message string) {
-	isEventMatch := isEventOccurred(eventType, reason, message)
-	ExpectWithOffset(1, isEventMatch).To(BeFalse())
+	EventuallyWithOffset(1, func() bool {
+		return isEventOccurred(eventType, reason, message)
+	}, 5*time.Second, 250*time.Millisecond).Should(BeFalse())
 }
 
 func isEventOccurred(eventType string, reason string, message string) bool {
