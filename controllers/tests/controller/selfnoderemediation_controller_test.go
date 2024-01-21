@@ -167,7 +167,7 @@ var _ = Describe("SNR Controller", func() {
 			It("Remediation flow", func() {
 				node := verifyNodeIsUnschedulable()
 
-				verifyEvent("Normal", "RemediationStarted", "[remediation] Remediation started")
+				verifyEvent("Normal", "RemediationStarted", "Remediation started")
 
 				verifyEvent("Normal", "MarkUnschedulable", "Remediation process - unhealthy node marked as unschedulable")
 
@@ -878,7 +878,7 @@ func verifyNoEvent(eventType, reason, message string) {
 }
 
 func isEventOccurred(eventType string, reason string, message string) bool {
-	expected := fmt.Sprintf("%s %s %s", eventType, reason, message)
+	expected := fmt.Sprintf("%s %s [remediation] %s", eventType, reason, message)
 	isEventMatch := false
 
 	unMatchedEvents := make(chan string, len(fakeRecorder.Events))
