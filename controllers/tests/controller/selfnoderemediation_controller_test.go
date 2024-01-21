@@ -872,7 +872,7 @@ func verifyEvent(eventType, reason, message string) {
 }
 
 func verifyNoEvent(eventType, reason, message string) {
-	EventuallyWithOffset(1, func() bool {
+	ConsistentlyWithOffset(1, func() bool {
 		return isEventOccurred(eventType, reason, message)
 	}, 5*time.Second, 250*time.Millisecond).Should(BeFalse())
 }
