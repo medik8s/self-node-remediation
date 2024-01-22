@@ -167,7 +167,7 @@ var _ = Describe("SNR Controller", func() {
 			It("Remediation flow", func() {
 				node := verifyNodeIsUnschedulable()
 
-				verifyEvent("Normal", "RemediationStarted", "[remediation] Remediation started")
+				verifyEvent("Normal", "RemediationStarted", "Remediation started")
 
 				verifyEvent("Normal", "MarkUnschedulable", "Remediation process - unhealthy node marked as unschedulable")
 
@@ -608,35 +608,29 @@ func verifySelfNodeRemediationPodExist() {
 	}, 5*time.Second, 250*time.Millisecond).Should(Equal(1))
 }
 func deleteRemediations() {
-	//Delete
-	Eventually(func() error {
+
+	Eventually(func(g Gomega) bool {
 		snrs := &v1alpha1.SelfNodeRemediationList{}
-		if err := k8sClient.List(context.Background(), snrs); err != nil {
-			return err
-		}
+		g.Expect(k8sClient.List(context.Background(), snrs)).To(Succeed())
 		if len(snrs.Items) == 0 {
-			return nil
+			return true
 		}
 
 		for _, snr := range snrs.Items {
-			if err := removeFinalizers(&snr); err != nil {
-				return err
-			}
-			if err := k8sClient.Client.Delete(context.Background(), &snr); err != nil {
-				return err
-			}
+			tmpSnr := snr
+			g.Expect(removeFinalizers(&tmpSnr)).To(Succeed())
+			g.Expect(k8sClient.Client.Delete(context.Background(), &tmpSnr)).To(Succeed())
+
 		}
-		return nil
-	}, 5*time.Second, 100*time.Millisecond).ShouldNot(HaveOccurred())
 
-	//Wait for clean state
-	Eventually(func() bool {
-		snrs := &v1alpha1.SelfNodeRemediationList{}
-		err := k8sClient.List(context.Background(), snrs)
-		return err == nil && len(snrs.Items) == 0
-	}, 7*time.Second, 100*time.Millisecond).Should(BeTrue())
+		expectedEmptySnrs := &v1alpha1.SelfNodeRemediationList{}
+		g.Expect(k8sClient.List(context.Background(), expectedEmptySnrs)).To(Succeed())
+		g.Expect(len(expectedEmptySnrs.Items)).To(Equal(0))
 
+		return true
+	}, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
 }
+
 func deleteSNR(snr *v1alpha1.SelfNodeRemediation) {
 	snrKey := client.ObjectKey{Name: snr.Name, Namespace: snr.Namespace}
 
@@ -872,13 +866,13 @@ func verifyEvent(eventType, reason, message string) {
 }
 
 func verifyNoEvent(eventType, reason, message string) {
-	EventuallyWithOffset(1, func() bool {
+	ConsistentlyWithOffset(1, func() bool {
 		return isEventOccurred(eventType, reason, message)
 	}, 5*time.Second, 250*time.Millisecond).Should(BeFalse())
 }
 
 func isEventOccurred(eventType string, reason string, message string) bool {
-	expected := fmt.Sprintf("%s %s %s", eventType, reason, message)
+	expected := fmt.Sprintf("%s %s [remediation] %s", eventType, reason, message)
 	isEventMatch := false
 
 	unMatchedEvents := make(chan string, len(fakeRecorder.Events))

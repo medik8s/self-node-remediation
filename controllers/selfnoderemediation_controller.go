@@ -219,7 +219,7 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 			if err = r.updateConditions(remediationSkippedNodeNotFound, snr); err != nil {
 				return ctrl.Result{}, err
 			}
-			r.Recorder.Event(snr, eventTypeNormal, eventReasonRemediationStopped, "couldn't find node matching remediation")
+			events.NormalEvent(r.Recorder, snr, eventReasonRemediationStopped, "couldn't find node matching remediation")
 			return ctrl.Result{}, nil
 		}
 		r.logger.Error(err, "failed to get node", "node name", snr.Name)
@@ -228,7 +228,7 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	if node.Labels[excludeRemediationLabel] == "true" {
 		r.logger.Info("remediation skipped this node is excluded from remediation", "node name", node.Name)
-		r.Recorder.Event(snr, eventTypeNormal, eventReasonRemediationSkipped, "remediation skipped this node is excluded from remediation")
+		events.NormalEvent(r.Recorder, snr, eventReasonRemediationSkipped, "remediation skipped this node is excluded from remediation")
 		return ctrl.Result{}, nil
 	}
 
@@ -438,7 +438,7 @@ func (r *SelfNodeRemediationReconciler) handleRebootCompletedPhase(node *v1.Node
 	} else if waitTime != 0 {
 		return ctrl.Result{RequeueAfter: waitTime}, nil
 	}
-	r.Recorder.Event(node, eventTypeNormal, eventReasonDeleteResources, "Remediation process - finished deleting unhealthy node resources")
+	events.NormalEvent(r.Recorder, node, eventReasonDeleteResources, "Remediation process - finished deleting unhealthy node resources")
 
 	fencingCompleted := string(fencingCompletedPhase)
 	snr.Status.Phase = &fencingCompleted
@@ -468,7 +468,7 @@ func (r *SelfNodeRemediationReconciler) recoverNode(node *v1.Node, snr *v1alpha1
 			r.logger.Error(err, "failed to unmark node as schedulable")
 			return ctrl.Result{}, err
 		}
-		r.Recorder.Event(node, eventTypeNormal, eventReasonMarkSchedulable, "Remediation process - mark healthy remediated node as schedulable")
+		events.NormalEvent(r.Recorder, node, eventReasonMarkSchedulable, "Remediation process - mark healthy remediated node as schedulable")
 	}
 
 	// wait until NoSchedulable taint was removed
@@ -484,7 +484,7 @@ func (r *SelfNodeRemediationReconciler) recoverNode(node *v1.Node, snr *v1alpha1
 		if err := r.removeFinalizer(snr); err != nil {
 			return ctrl.Result{}, err
 		}
-		r.Recorder.Event(snr, eventTypeNormal, eventReasonRemoveFinalizer, "Remediation process - remove finalizer from snr")
+		events.NormalEvent(r.Recorder, snr, eventReasonRemoveFinalizer, "Remediation process - remove finalizer from snr")
 		events.RemediationFinished(r.Recorder, snr)
 	}
 
@@ -502,7 +502,8 @@ func (r *SelfNodeRemediationReconciler) rebootIfNeeded(snr *v1alpha1.SelfNodeRem
 		//node already rebooted once during this SNR lifecycle, no need for additional reboot
 		return ctrl.Result{}, nil
 	}
-	r.Recorder.Event(node, eventTypeNormal, eventReasonNodeReboot, "Remediation process - about to attempt fencing the unhealthy node by rebooting it")
+	events.NormalEvent(r.Recorder, node, eventReasonNodeReboot, "Remediation process - about to attempt fencing the unhealthy node by rebooting it")
+
 	return ctrl.Result{RequeueAfter: reboot.TimeToAssumeRebootHasStarted}, r.Rebooter.Reboot()
 }
 
@@ -587,7 +588,8 @@ func (r *SelfNodeRemediationReconciler) addFinalizer(snr *v1alpha1.SelfNodeRemed
 		return ctrl.Result{}, err
 	}
 	r.logger.Info("finalizer added")
-	r.Recorder.Event(snr, eventTypeNormal, eventReasonAddFinalizer, "Remediation process - successful adding finalizer")
+	events.NormalEvent(r.Recorder, snr, eventReasonAddFinalizer, "Remediation process - successful adding finalizer")
+
 	return ctrl.Result{Requeue: true}, nil
 }
 
@@ -624,7 +626,7 @@ func (r *SelfNodeRemediationReconciler) updateTimeAssumedRebooted(node *v1.Node,
 	//we assume the unhealthy node will be rebooted by maxTimeNodeHasRebooted
 	maxTimeNodeHasRebooted := metav1.NewTime(metav1.Now().Add(r.SafeTimeCalculator.GetTimeToAssumeNodeRebooted()))
 	snr.Status.TimeAssumedRebooted = &maxTimeNodeHasRebooted
-	r.Recorder.Event(snr, eventTypeNormal, eventReasonUpdateTimeAssumedRebooted, "Remediation process - about to update required fencing time on snr")
+	events.NormalEvent(r.Recorder, snr, eventReasonUpdateTimeAssumedRebooted, "Remediation process - about to update required fencing time on snr")
 }
 
 // getNodeFromSnr returns the unhealthy node reported in the given snr
@@ -708,7 +710,7 @@ func (r *SelfNodeRemediationReconciler) markNodeAsUnschedulable(node *v1.Node) (
 		r.logger.Error(err, "failed to mark node as unschedulable")
 		return ctrl.Result{}, err
 	}
-	r.Recorder.Event(node, eventTypeNormal, eventReasonMarkUnschedulable, "Remediation process - unhealthy node marked as unschedulable")
+	events.NormalEvent(r.Recorder, node, eventReasonMarkUnschedulable, "Remediation process - unhealthy node marked as unschedulable")
 	return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 }
 
@@ -783,7 +785,7 @@ func (r *SelfNodeRemediationReconciler) addNoExecuteTaint(node *v1.Node) error {
 		return err
 	}
 	r.logger.Info("NoExecute taint added", "new taints", node.Spec.Taints)
-	r.Recorder.Event(node, eventTypeNormal, eventReasonAddNoExecute, "Remediation process - NoExecute taint added to the unhealthy node")
+	events.NormalEvent(r.Recorder, node, eventReasonAddNoExecute, "Remediation process - NoExecute taint added to the unhealthy node")
 	return nil
 }
 
@@ -805,7 +807,7 @@ func (r *SelfNodeRemediationReconciler) removeNoExecuteTaint(node *v1.Node) erro
 		return err
 	}
 	r.logger.Info("NoExecute taint removed", "new taints", node.Spec.Taints)
-	r.Recorder.Event(node, eventTypeNormal, eventReasonRemoveNoExecute, "Remediation process - remove NoExecute taint from healthy remediated node")
+	events.NormalEvent(r.Recorder, node, eventReasonRemoveNoExecute, "Remediation process - remove NoExecute taint from healthy remediated node")
 
 	return nil
 }
@@ -832,7 +834,7 @@ func (r *SelfNodeRemediationReconciler) addOutOfServiceTaint(node *v1.Node) erro
 		r.logger.Error(err, "Failed to add out-of-service taint on node", "node name", node.Name)
 		return err
 	}
-	r.Recorder.Event(node, eventTypeNormal, eventReasonAddOutOfService, "Remediation process - add out-of-service taint to unhealthy node")
+	events.NormalEvent(r.Recorder, node, eventReasonAddOutOfService, "Remediation process - add out-of-service taint to unhealthy node")
 	r.logger.Info("out-of-service taint added", "new taints", node.Spec.Taints)
 	return nil
 }
@@ -854,7 +856,7 @@ func (r *SelfNodeRemediationReconciler) removeOutOfServiceTaint(node *v1.Node) e
 		r.logger.Error(err, "Failed to remove taint from node,", "node name", node.Name, "taint key", OutOfServiceTaint.Key, "taint effect", OutOfServiceTaint.Effect)
 		return err
 	}
-	r.Recorder.Event(node, eventTypeNormal, eventReasonRemoveOutOfService, "Remediation process - remove out-of-service taint from node")
+	events.NormalEvent(r.Recorder, node, eventReasonRemoveOutOfService, "Remediation process - remove out-of-service taint from node")
 	r.logger.Info("out-of-service taint removed", "new taints", node.Spec.Taints)
 	return nil
 }
