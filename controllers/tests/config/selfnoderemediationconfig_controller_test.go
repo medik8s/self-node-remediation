@@ -104,26 +104,46 @@ var _ = Describe("SNR Config Test", func() {
 				config.Spec.CustomDsTolerations = []corev1.Toleration{expectedToleration}
 			})
 			It("Daemonset should have customized tolerations", func() {
-				Eventually(func() error {
-					return k8sClient.Get(context.Background(), key, ds)
-				}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
+				Eventually(func(g Gomega) bool {
+					ds = &appsv1.DaemonSet{}
+					g.Expect(k8sClient.Get(context.Background(), key, ds)).Should(BeNil())
 
-				//verify toleration is added to ds
-				verifyExpectedToleration(ds, &expectedToleration)
+					g.Expect(ds.Spec.Template.Spec.Tolerations).ToNot(BeNil())
+					g.Expect(len(ds.Spec.Template.Spec.Tolerations)).To(Equal(4))
+
+					actualToleration := findToleration(expectedToleration, ds.Spec.Template.Spec.Tolerations)
+					//Verify customized toleration found
+					g.Expect(actualToleration).ToNot(BeNil())
+					g.Expect(string(expectedToleration.Effect)).To(Equal(string(actualToleration.Effect)))
+					g.Expect(string(expectedToleration.Operator)).To(Equal(string(actualToleration.Operator)))
+
+					return true
+				}, 10*time.Second, 250*time.Millisecond).Should(BeTrue())
 
 				//update configuration
 				config.Spec.PeerUpdateInterval = &metav1.Duration{Duration: time.Second * 10}
 				Expect(k8sClient.Update(context.Background(), config)).To(Succeed())
-				//give the ds time to update
-				time.Sleep(time.Second)
-				//fetch updated ds
-				Expect(k8sClient.Get(context.Background(), key, ds)).To(Succeed())
-				//verify ds has new configuration
-				envVars := getEnvVarMap(ds.Spec.Template.Spec.Containers[0].Env)
-				Expect(envVars["PEER_UPDATE_INTERVAL"].Value).To(Equal(strconv.Itoa(int(time.Second * 10))))
-				//verify toleration remains on ds
-				verifyExpectedToleration(ds, &expectedToleration)
 
+				Eventually(func(g Gomega) bool {
+					ds = &appsv1.DaemonSet{}
+					g.Expect(k8sClient.Get(context.Background(), key, ds)).Should(BeNil())
+
+					//verify ds has new configuration
+					envVars := getEnvVarMap(ds.Spec.Template.Spec.Containers[0].Env)
+					g.Expect(envVars["PEER_UPDATE_INTERVAL"].Value).To(Equal(strconv.Itoa(int(time.Second * 10))))
+					//verify toleration remains on ds
+
+					g.Expect(ds.Spec.Template.Spec.Tolerations).ToNot(BeNil())
+					g.Expect(len(ds.Spec.Template.Spec.Tolerations)).To(Equal(4))
+
+					actualToleration := findToleration(expectedToleration, ds.Spec.Template.Spec.Tolerations)
+					//Verify customized toleration found
+					g.Expect(actualToleration).ToNot(BeNil())
+					g.Expect(string(expectedToleration.Effect)).To(Equal(string(actualToleration.Effect)))
+					g.Expect(string(expectedToleration.Operator)).To(Equal(string(actualToleration.Operator)))
+
+					return true
+				}, 10*time.Second, 250*time.Millisecond).Should(BeTrue())
 			})
 		})
 		When("SafeTimeToAssumeNodeRebootedSeconds is modified in Configuration", func() {
@@ -264,21 +284,15 @@ var _ = Describe("SNR Config Test", func() {
 
 })
 
-func verifyExpectedToleration(ds *appsv1.DaemonSet, expectedToleration *corev1.Toleration) {
-	Expect(ds.Spec.Template.Spec.Tolerations).ToNot(BeNil())
-	Expect(len(ds.Spec.Template.Spec.Tolerations)).To(Equal(4))
-
+func findToleration(expectedToleration corev1.Toleration, tolerations []corev1.Toleration) corev1.Toleration {
 	var actualToleration corev1.Toleration
-	for _, t := range ds.Spec.Template.Spec.Tolerations {
+	for _, t := range tolerations {
 		if t.Key == expectedToleration.Key {
 			actualToleration = t
 			break
 		}
 	}
-	//Verify customized toleration found
-	Expect(actualToleration).ToNot(BeNil())
-	Expect(string(expectedToleration.Effect)).To(Equal(string(actualToleration.Effect)))
-	Expect(string(expectedToleration.Operator)).To(Equal(string(actualToleration.Operator)))
+	return actualToleration
 }
 
 func getEnvVarMap(vars []corev1.EnvVar) map[string]corev1.EnvVar {
