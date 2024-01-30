@@ -93,6 +93,9 @@ func (r *SelfNodeRemediationConfigReconciler) Reconcile(ctx context.Context, req
 	}
 
 	if err := r.syncConfigDaemonSet(ctx, config); err != nil {
+		if errors.IsConflict(err) {
+			return ctrl.Result{RequeueAfter: time.Second}, nil
+		}
 		logger.Error(err, "error syncing DS")
 		return ctrl.Result{}, err
 	}
@@ -180,7 +183,7 @@ func (r *SelfNodeRemediationConfigReconciler) syncK8sResource(ctx context.Contex
 	}
 
 	if err := apply.ApplyObject(ctx, r.Client, in); err != nil {
-		return fmt.Errorf("failed to apply object %v with err: %v", in, err)
+		return pkgerrors.Wrapf(err, "failed to apply object %v", in)
 	}
 	return nil
 }
