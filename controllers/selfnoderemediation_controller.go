@@ -913,10 +913,7 @@ func (r *SelfNodeRemediationReconciler) getRuntimeStrategy(snr *v1alpha1.SelfNod
 		remediationStrategy = v1alpha1.OutOfServiceTaintRemediationStrategy
 	}
 
-	//used as an indication not to spam the log
-	if isFinalizerAlreadyAdded := controllerutil.ContainsFinalizer(snr, SNRFinalizer); !isFinalizerAlreadyAdded {
-		r.logger.Info(fmt.Sprintf("Automatically selected %s Remediation strategy", remediationStrategy))
-	}
+	r.logger.Info(fmt.Sprintf("Remediating with %s Remediation strategy (auto-selected)", remediationStrategy))
 
 	return remediationStrategy
 
