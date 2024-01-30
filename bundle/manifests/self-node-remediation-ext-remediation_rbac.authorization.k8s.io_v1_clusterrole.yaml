@@ -13,6 +13,8 @@ rules:
   - selfnoderemediationtemplates
   verbs:
   - get
+  - list
+  - watch
 - apiGroups:
   - self-node-remediation.medik8s.io
   resources:
