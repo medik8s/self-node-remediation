@@ -220,7 +220,7 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 				return ctrl.Result{}, err
 			}
 			events.NormalEvent(r.Recorder, snr, eventReasonRemediationStopped, "couldn't find node matching remediation")
-			return ctrl.Result{}, nil
+			return ctrl.Result{}, r.updateSnrStatusLastError(snr, err)
 		}
 		r.logger.Error(err, "failed to get node", "node name", snr.Name)
 		return ctrl.Result{}, err
