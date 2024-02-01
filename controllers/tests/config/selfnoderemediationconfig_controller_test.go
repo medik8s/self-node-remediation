@@ -232,7 +232,7 @@ var _ = Describe("SNR Config Test", func() {
 			}, 5*time.Second, 250*time.Millisecond).Should(BeNil())
 
 			Expect(createdConfig.Spec.WatchdogFilePath).To(Equal("/dev/watchdog"))
-			Expect(createdConfig.Spec.SafeTimeToAssumeNodeRebootedSeconds).To(Equal(180))
+			Expect(createdConfig.Spec.SafeTimeToAssumeNodeRebootedSeconds).To(Equal(210))
 			Expect(createdConfig.Spec.MaxApiErrorThreshold).To(Equal(3))
 
 			Expect(createdConfig.Spec.PeerApiServerTimeout.Seconds()).To(BeEquivalentTo(5))
