@@ -216,14 +216,14 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			r.logger.Info("couldn't find node matching remediation", "node name", snr.Name)
-			if err = r.updateConditions(remediationSkippedNodeNotFound, snr); err != nil {
-				return ctrl.Result{}, err
+			if updateErr := r.updateConditions(remediationSkippedNodeNotFound, snr); updateErr != nil {
+				return ctrl.Result{}, updateErr
 			}
 			events.NormalEvent(r.Recorder, snr, eventReasonRemediationStopped, "couldn't find node matching remediation")
-			return ctrl.Result{}, r.updateSnrStatusLastError(snr, err)
+		} else {
+			r.logger.Error(err, "failed to get node", "node name", snr.Name)
 		}
-		r.logger.Error(err, "failed to get node", "node name", snr.Name)
-		return ctrl.Result{}, err
+		return ctrl.Result{}, r.updateSnrStatusLastError(snr, err)
 	}
 
 	if node.Labels[excludeRemediationLabel] == "true" {
