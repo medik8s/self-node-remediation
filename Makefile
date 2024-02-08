@@ -310,10 +310,10 @@ bundle-update: verify-previous-version ## Update CSV fields and validate the bun
 
 .PHONY: verify-previous-version
 verify-previous-version: ## Verifies that PREVIOUS_VERSION variable is set
-	@if [ $(VERSION) != $(DEFAULT_VERSION) && $(VERSION) != $(CI_VERSION) ] && [ $(PREVIOUS_VERSION) = $(DEFAULT_VERSION) ]; then \
-  			echo "Error: PREVIOUS_VERSION must be set for the selected VERSION"; \
+	@if [ $(VERSION) != $(DEFAULT_VERSION) ] && [ $(VERSION) != $(CI_VERSION) ] && [ $(PREVIOUS_VERSION) = $(DEFAULT_VERSION) ]; then \
+		echo "Error: PREVIOUS_VERSION must be set for the selected VERSION"; \
     		exit 1; \
-    fi
+	fi
 
 .PHONY: bundle-validate
 bundle-validate: operator-sdk ## Validate the bundle directory with additional validators (suite=operatorframework), such as Kubernetes deprecated APIs (https://kubernetes.io/docs/reference/using-api/deprecation-guide/) based on bundle.CSV.Spec.MinKubeVersion
