@@ -176,12 +176,16 @@ test: envtest manifests generate fmt vet ## Run tests.
 
 .PHONY: bundle-run
 export BUNDLE_RUN_NAMESPACE ?= openshift-workload-availability
-bundle-run: operator-sdk ## Run bundle image. Default NS is "openshift-workload-availability", redefine BUNDLE_RUN_NAMESPACE to override it.
+bundle-run: operator-sdk create-ns ## Run bundle image. Default NS is "openshift-workload-availability", redefine BUNDLE_RUN_NAMESPACE to override it.
 	$(OPERATOR_SDK) -n $(BUNDLE_RUN_NAMESPACE) run bundle $(BUNDLE_IMG)
 
 .PHONY: bundle-cleanup
 bundle-cleanup: operator-sdk ## Remove bundle installed via bundle-run
 	$(OPERATOR_SDK) -n $(BUNDLE_RUN_NAMESPACE) cleanup $(OPERATOR_NAME)
+
+.PHONY: create-ns
+create-ns: ## Create namespace
+	$(KUBECTL) get ns $(BUNDLE_RUN_NAMESPACE) 2>&1> /dev/null || $(KUBECTL) create ns $(BUNDLE_RUN_NAMESPACE)
 
 ##@ Build
 
