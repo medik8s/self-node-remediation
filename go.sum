@@ -215,8 +215,8 @@ github.com/mailru/easyjson v0.7.6/go.mod h1:xzfreul335JAWq5oZzymOObrkdz5UnU4kGfJ
 github.com/matttproud/golang_protobuf_extensions v1.0.1/go.mod h1:D8He9yQNgCq6Z5Ld7szi9bcBfOoFv/3dc6xSMkL2PC0=
 github.com/matttproud/golang_protobuf_extensions v1.0.2 h1:hAHbPm5IJGijwng3PWk09JkG9WeqChjprR5s9bBZ+OM=
 github.com/matttproud/golang_protobuf_extensions v1.0.2/go.mod h1:BSXmuO+STAnVfrANrmjBb36TMTDstsz7MSK+HVaYKv4=
-github.com/medik8s/common v1.12.0 h1:UJ5VS4rbo/K0snfuqRiYam1NhXTwo4Q7fTng34YSlmA=
-github.com/medik8s/common v1.12.0/go.mod h1:Q6YR2rgyiLl6ob4Mx2uDBmybAB3d94fImwoHPbeiE54=
+github.com/medik8s/common v1.15.1 h1:qo2FBZGSegf5q35AZlWzrmgwW1GfUPNmmWaPhb/Uurc=
+github.com/medik8s/common v1.15.1/go.mod h1:A9jYldC6PZcAuBowNNm712FqWdASB2ey5Vjp8MYN/PY=
 github.com/mitchellh/copystructure v1.1.2 h1:Th2TIvG1+6ma3e/0/bopBKohOTY7s4dA8V2q4EUcBJ0=
 github.com/mitchellh/copystructure v1.1.2/go.mod h1:EBArHfARyrSWO/+Wyr9zwEkc6XMFB9XyNgFNmRkZZU4=
 github.com/mitchellh/reflectwalk v1.0.1 h1:FVzMWA5RllMAKIdUSC8mdWo3XtwoecrH79BY70sEEpE=

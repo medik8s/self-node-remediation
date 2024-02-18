@@ -175,11 +175,6 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, err
 	}
 
-	//used as an indication not to spam the event
-	if isFinalizerAlreadyAdded := controllerutil.ContainsFinalizer(snr, SNRFinalizer); !isFinalizerAlreadyAdded {
-		events.RemediationStarted(r.Recorder, snr)
-	}
-
 	defer func() {
 		if updateErr := r.updateSnrStatus(ctx, snr); updateErr != nil {
 			if apiErrors.IsConflict(updateErr) {
@@ -219,7 +214,7 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 			if updateErr := r.updateConditions(remediationSkippedNodeNotFound, snr); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
-			events.NormalEvent(r.Recorder, snr, eventReasonRemediationStopped, "couldn't find node matching remediation")
+			events.GetTargetNodeFailed(r.Recorder, snr)
 		} else {
 			r.logger.Error(err, "failed to get node", "node name", snr.Name)
 		}
@@ -230,6 +225,15 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 		r.logger.Info("remediation skipped this node is excluded from remediation", "node name", node.Name)
 		events.NormalEvent(r.Recorder, snr, eventReasonRemediationSkipped, "remediation skipped this node is excluded from remediation")
 		return ctrl.Result{}, nil
+	}
+
+	//used as an indication not to spam the event
+	if isFinalizerAlreadyAdded := controllerutil.ContainsFinalizer(snr, SNRFinalizer); !isFinalizerAlreadyAdded {
+		eventMessage := "Remediation started by SNR manager"
+		if r.IsAgent() {
+			eventMessage = "Remediation started by SNR agent"
+		}
+		events.NormalEvent(r.Recorder, snr, "RemediationStarted", eventMessage)
 	}
 
 	strategy := r.getRuntimeStrategy(snr)

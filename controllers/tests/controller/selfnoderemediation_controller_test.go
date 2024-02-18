@@ -167,7 +167,7 @@ var _ = Describe("SNR Controller", func() {
 			It("Remediation flow", func() {
 				node := verifyNodeIsUnschedulable()
 
-				verifyEvent("Normal", "RemediationStarted", "Remediation started")
+				verifyEvent("Normal", "RemediationStarted", "Remediation started by SNR manager")
 
 				verifyEvent("Normal", "MarkUnschedulable", "Remediation process - unhealthy node marked as unschedulable")
 
@@ -252,8 +252,7 @@ var _ = Describe("SNR Controller", func() {
 
 				It("remediation should stop and update conditions", func() {
 					verifyTypeConditions(snr.Name, metav1.ConditionFalse, metav1.ConditionFalse, "RemediationSkippedNodeNotFound")
-
-					verifyEvent("Normal", "RemediationStopped", "couldn't find node matching remediation")
+					verifyEvent("Warning", "RemediationCannotStart", "Could not get remediation target Node")
 				})
 			})
 
@@ -396,7 +395,7 @@ var _ = Describe("SNR Controller", func() {
 							time.Sleep(time.Second)
 							verifyNoEvent("Normal", "MarkUnschedulable", "Remediation process - unhealthy node marked as unschedulable")
 							verifyTypeConditions(snr.Name, metav1.ConditionFalse, metav1.ConditionFalse, "RemediationSkippedNodeNotFound")
-							verifyEvent("Normal", "RemediationStopped", "couldn't find node matching remediation")
+							verifyEvent("Warning", "RemediationCannotStart", "Could not get remediation target Node")
 						})
 					})
 					When("NHC isn set as owner in the remediation", func() {
