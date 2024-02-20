@@ -1,0 +1,20 @@
+name: Release bundles
+on:
+  workflow_dispatch:
+    inputs:
+        version:
+          description: "The version to release, without the leading `v`"
+          required: true
+          type: string
+        previous_version:
+          description: "The previous version, used for the CVS's `replaces` field, without the leading `v`"
+          required: true
+          type: string
+
+jobs:
+  make_rh_community_bundle:
+    uses: medik8s/.github/.github/workflows/release_rh_community_bundle.yml@main
+    secrets: inherit
+    with:
+      version: ${{ inputs.version }}
+      previous_version: ${{ inputs.previous_version }}
