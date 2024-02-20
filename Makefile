@@ -60,19 +60,15 @@ BUNDLE_DEFAULT_CHANNEL := --default-channel=$(DEFAULT_CHANNEL)
 endif
 BUNDLE_METADATA_OPTS ?= $(BUNDLE_CHANNELS) $(BUNDLE_DEFAULT_CHANNEL)
 
-# IMAGE_REGISTRY used to indicate the registery/group for the operator, bundle and catalog
+# IMAGE_REGISTRY used to indicate the registery/group for the operator and bundle
 IMAGE_REGISTRY ?= quay.io/medik8s
 export IMAGE_REGISTRY
 
 # IMAGE_TAG_BASE defines the docker.io namespace and part of the image name for remote images.
-# This variable is used to construct full image tags for bundle and catalog images.
+# This variable is used to construct full image tags for bundle
 #
-# For example, running 'make bundle-build bundle-push catalog-build catalog-push' will build and push both
-# medik8s/self-node-remediation-bundle:$(IMAGE_TAG) and medik8s/self-node-remediation-catalog:$(IMAGE_TAG).
+# For example, running 'make bundle-build bundle-push' will build and push medik8s/self-node-remediation-bundle:$(IMAGE_TAG).
 IMAGE_TAG_BASE ?= $(IMAGE_REGISTRY)/$(OPERATOR_NAME)
-
-# The image tag given to the resulting catalog image (e.g. make catalog-build CATALOG_IMG=example.com/operator-catalog:v0.2.0).
-CATALOG_IMG ?= $(IMAGE_TAG_BASE)-operator-catalog:$(IMAGE_TAG)
 
 # When no version is set, use latest as image tags
 ifeq ($(VERSION), $(DEFAULT_VERSION))
@@ -382,21 +378,6 @@ ifeq (,$(wildcard $(OPM)))
 	}
 endif
 
-# Set CATALOG_BASE_IMG to an existing catalog image tag to add $BUNDLE_IMG to that image.
-ifneq ($(origin CATALOG_BASE_IMG), undefined)
-FROM_INDEX_OPT := --from-index $(CATALOG_BASE_IMG)
-endif
-# Build a catalog image by adding bundle images to an empty catalog using the operator package manager tool, 'opm'.
-# This recipe invokes 'opm' in 'semver' bundle add mode. For more information on add modes, see:
-# https://github.com/operator-framework/community-operators/blob/7f1438c/docs/packaging-operator.md#updating-your-existing-operator
-.PHONY: catalog-build
-catalog-build: opm ## Build a catalog image.
-	$(OPM) index add --container-tool docker --mode semver --tag $(CATALOG_IMG) --bundles $(BUNDLE_IMG) $(FROM_INDEX_OPT)
-
-.PHONY: catalog-push
-catalog-push: ## Push a catalog image.
-	$(MAKE) docker-push IMG=$(CATALOG_IMG)
-
 ##@ Targets used by CI
 
 .PHONY: check
@@ -413,8 +394,8 @@ container-build: docker-build bundle-build ## Build containers
 
 
 .PHONY: container-push
-container-push: ## Push containers (NOTE: catalog can't be build before bundle was pushed)
-	make docker-push bundle-push catalog-build catalog-push
+container-push: ## Push containers
+	make docker-push bundle-push
 
 .PHONY: vendor
 vendor: ## Runs go mod vendor
