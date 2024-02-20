@@ -26,6 +26,9 @@ SORT_IMPORTS_VERSION = v0.2.1
 # version at https://github.com/a8m/envsubst/releases
 ENVSUBST_VERSION = v1.4.2
 
+# OCP Version: for Red Hat bundle community
+OCP_VERSION = 4.12
+
 OPERATOR_NAME ?= self-node-remediation
 
 # VERSION defines the project version for the bundle.
@@ -301,6 +304,11 @@ bundle: manifests operator-sdk kustomize envsubst ## Generate bundle manifests a
 bundle-community-k8s: bundle-community ## Generate bundle manifests and metadata customized to k8s community release, then validate generated files.
 	# Note that k8s 1.25+ needs PSA label
 	sed -r -i "s|by default\.|by default.\n    Note that prior to installing SNR on a Kubernetes 1.25+ cluster, a user must manually set a [privileged PSA label](https://kubernetes.io/docs/tasks/configure-pod-container/enforce-standards-namespace-labels/) on SNR's namespace. It gives SNR's agents permissions to reboot the node (in case it needs to be remediated).|;" ${BUNDLE_CSV}
+	$(MAKE) bundle-update
+
+.PHONY: bundle-community-rh
+bundle-community-rh: bundle-community ## Generate bundle manifests and metadata customized to Red Hat community release
+	echo -e "\n  # Annotations for OCP\n  com.redhat.openshift.versions: \"v${OCP_VERSION}\"" >> bundle/metadata/annotations.yaml
 	$(MAKE) bundle-update
 
 .PHONY: bundle-community
