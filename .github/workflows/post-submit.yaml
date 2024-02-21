@@ -56,7 +56,6 @@ jobs:
             ### Images
             * Operator: quay.io/medik8s/self-node-remediation-operator:${{ github.ref_name }}
             * Bundle: quay.io/medik8s/self-node-remediation-operator-bundle:${{ github.ref_name }}
-            * Catalog aka Index: quay.io/medik8s/self-node-remediation-operator-catalog:${{ github.ref_name }}
             
             ### Source code and OLM manifests
             Please find the source code and the OLM manifests in the `Assets` section below.
