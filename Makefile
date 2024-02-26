@@ -23,6 +23,12 @@ KUSTOMIZE_VERSION = v5.2.1
 # versions at https://github.com/slintes/sort-imports/tags
 SORT_IMPORTS_VERSION = v0.2.1
 
+# version at https://github.com/a8m/envsubst/releases
+ENVSUBST_VERSION = v1.4.2
+
+# OCP Version: for Red Hat bundle community
+OCP_VERSION = 4.12
+
 OPERATOR_NAME ?= self-node-remediation
 
 # VERSION defines the project version for the bundle.
@@ -224,9 +230,9 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete -f -
 
 .PHONY: deploy
-deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
+deploy: manifests kustomize envsubst ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
-	$(KUSTOMIZE) build config/default | envsubst | $(KUBECTL) apply -f -
+	$(KUSTOMIZE) build config/default | $(ENVSUBST) | $(KUBECTL) apply -f -
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
@@ -245,6 +251,12 @@ ifeq (,$(wildcard $(CONTROLLER_GEN)))
 	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@${CONTROLLER_GEN_VERSION}) ;\
 	}
 endif
+
+ENVSUBST_BIN_FOLDER = $(shell pwd)/bin/envsubst
+ENVSUBST = $(ENVSUBST_BIN_FOLDER)/$(ENVSUBST_VERSION)/envsubst
+.PHONY: envsubst
+envsubst: ## Download envsubst locally if necessary.
+	$(call go-install-tool,$(ENVSUBST),github.com/a8m/envsubst/cmd/envsubst@${ENVSUBST_VERSION}) ;\
 
 KUSTOMIZE_BIN_FOLDER = $(shell pwd)/bin/kustomize
 KUSTOMIZE = $(KUSTOMIZE_BIN_FOLDER)/$(KUSTOMIZE_VERSION)/kustomize
@@ -282,16 +294,21 @@ DEFAULT_ICON_BASE64 := $(shell base64 --wrap=0 ./config/assets/snr_icon_blue.png
 export ICON_BASE64 ?= ${DEFAULT_ICON_BASE64}
 export BUNDLE_CSV ?= "./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml"
 .PHONY: bundle
-bundle: manifests operator-sdk kustomize ## Generate bundle manifests and metadata, then validate generated files.
+bundle: manifests operator-sdk kustomize envsubst ## Generate bundle manifests and metadata, then validate generated files.
 	$(OPERATOR_SDK) generate kustomize manifests -q
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
-	$(KUSTOMIZE) build config/manifests | envsubst | $(OPERATOR_SDK) generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
+	$(KUSTOMIZE) build config/manifests | $(ENVSUBST) | $(OPERATOR_SDK) generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
 	$(MAKE) bundle-validate
 
 .PHONY: bundle-community-k8s
 bundle-community-k8s: bundle-community ## Generate bundle manifests and metadata customized to k8s community release, then validate generated files.
 	# Note that k8s 1.25+ needs PSA label
 	sed -r -i "s|by default\.|by default.\n    Note that prior to installing SNR on a Kubernetes 1.25+ cluster, a user must manually set a [privileged PSA label](https://kubernetes.io/docs/tasks/configure-pod-container/enforce-standards-namespace-labels/) on SNR's namespace. It gives SNR's agents permissions to reboot the node (in case it needs to be remediated).|;" ${BUNDLE_CSV}
+	$(MAKE) bundle-update
+
+.PHONY: bundle-community-rh
+bundle-community-rh: bundle-community ## Generate bundle manifests and metadata customized to Red Hat community release
+	echo -e "\n  # Annotations for OCP\n  com.redhat.openshift.versions: \"v${OCP_VERSION}\"" >> bundle/metadata/annotations.yaml
 	$(MAKE) bundle-update
 
 .PHONY: bundle-community
