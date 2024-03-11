@@ -2,23 +2,29 @@
 SHELL := /bin/bash
 
 # versions at  https://github.com/kubernetes-sigs/controller-tools/releases
-CONTROLLER_GEN_VERSION = v0.13.0
+CONTROLLER_GEN_VERSION = v0.14.0
 
 # GO_VERSION refers to the version of Golang to be downloaded when running dockerized version
-GO_VERSION = 1.20
+GO_VERSION = 1.21
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary, align with k8s.io/client-go in go.mod
 ENVTEST_K8S_VERSION = 1.26
 
 # versions at https://github.com/operator-framework/operator-sdk/releases
 # Make sure to update /config/scorecard/patches/basic.config.yaml and /config/scorecard/patches/olm.config.yaml
-OPERATOR_SDK_VERSION = v1.32.0
+OPERATOR_SDK_VERSION = v1.33.0
 
 # versions at https://github.com/operator-framework/operator-registry/releases
-OPM_VERSION = v1.33.0
+OPM_VERSION = v1.36.0
 
+
+# update for major version updates to KUSTOMIZE_VERSION!
+KUSTOMIZE_API_VERSION = v5
 # versions at https://github.com/kubernetes-sigs/kustomize/releases
-KUSTOMIZE_VERSION = v5.2.1
+KUSTOMIZE_VERSION = v5.3.0
+
+# https://pkg.go.dev/sigs.k8s.io/controller-runtime/tools/setup-envtest/env?tab=versions
+ENVTEST_VERSION = v0.0.0-20240215124517-56159419231e
 
 # versions at https://github.com/slintes/sort-imports/tags
 SORT_IMPORTS_VERSION = v0.2.1
@@ -266,13 +272,13 @@ ifeq (,$(wildcard $(KUSTOMIZE)))
 	@{ \
 	rm -rf $(KUSTOMIZE_BIN_FOLDER) ;\
 	mkdir -p $(dir $(KUSTOMIZE)) ;\
-	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5@${KUSTOMIZE_VERSION}) ;\
+	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/$(KUSTOMIZE_API_VERSION)@${KUSTOMIZE_VERSION}) ;\
 	}
 endif
 
 .PHONY: envtest
 envtest: ## Download envtest-setup locally if necessary.
-	$(call go-install-tool,$(ENVTEST_ASSETS_DIR),sigs.k8s.io/controller-runtime/tools/setup-envtest@v0.0.0-20220407132358-188b48630db2) # no tagged versions :/
+	$(call go-install-tool,$(ENVTEST_ASSETS_DIR),sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_VERSION)) # no tagged versions :/
 
 # go-install-tool will 'go install' any package $2 and install it to $1.
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))

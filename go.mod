@@ -1,6 +1,6 @@
 module github.com/medik8s/self-node-remediation
 
-go 1.20
+go 1.21
 
 require (
 	github.com/Masterminds/sprig v2.22.0+incompatible
