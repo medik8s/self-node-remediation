@@ -10,11 +10,31 @@ on:
           description: "The previous version, used for the CVS's `replaces` field, without the leading `v`"
           required: true
           type: string
+        community:
+          description: "The community to release the bundle to"
+          required: true
+          type: choice
+          default: "K8S"
+          options:
+            - K8S
+            - OKD
 
 jobs:
-  make_rh_community_bundle:
-    uses: medik8s/.github/.github/workflows/release_rh_community_bundle.yml@main
+  make_k8s_community_bundle:
+    if: inputs.community == 'K8S'
+    uses: medik8s/.github/.github/workflows/release_community_bundle_parametric.yaml@main
     secrets: inherit
     with:
       version: ${{ inputs.version }}
       previous_version: ${{ inputs.previous_version }}
+      community: ${{ inputs.community }}
+      make_targets: "bundle-community-k8s"
+  make_okd_community_bundle:
+    if: inputs.community == 'OKD'
+    uses: medik8s/.github/.github/workflows/release_community_bundle_parametric.yaml@main
+    secrets: inherit
+    with:
+      version: ${{ inputs.version }}
+      previous_version: ${{ inputs.previous_version }}
+      community: ${{ inputs.community }}
+      make_targets: "bundle-community-rh"
