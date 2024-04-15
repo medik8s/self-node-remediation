@@ -67,12 +67,11 @@ func NewAgentSafeTimeCalculator(k8sClient client.Client, recorder record.EventRe
 	}
 }
 
-func NewManagerSafeTimeCalculator(k8sClient client.Client, timeToAssumeNodeRebooted time.Duration) SafeTimeCalculator {
+func NewManagerSafeTimeCalculator(k8sClient client.Client) SafeTimeCalculator {
 	return &safeTimeCalculator{
-		timeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
-		k8sClient:                k8sClient,
-		isAgent:                  false,
-		log:                      ctrl.Log.WithName("safe-time-calculator"),
+		k8sClient: k8sClient,
+		isAgent:   false,
+		log:       ctrl.Log.WithName("safe-time-calculator"),
 	}
 }
 

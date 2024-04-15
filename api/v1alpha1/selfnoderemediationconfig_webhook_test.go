@@ -211,9 +211,8 @@ func testValidCR(validationType string) {
 	snrc.Spec.ApiCheckInterval = &metav1.Duration{Duration: 10*time.Second + 500*time.Millisecond}
 	snrc.Spec.PeerUpdateInterval = &metav1.Duration{Duration: 10 * time.Second}
 	snrc.Spec.CustomDsTolerations = []v1.Toleration{{Key: "validValue", Effect: v1.TaintEffectNoExecute}, {}, {Operator: v1.TolerationOpEqual, TolerationSeconds: pointer.Int64(-5)}, {Value: "SomeValidValue"}}
-	snrc.Spec.SafeTimeToAssumeNodeRebootedSeconds = DefaultSafeToAssumeNodeRebootTimeout
 	snrc.Annotations = map[string]string{utils.MinSafeTimeAnnotation: "150"}
-
+	snrc.Spec.SafeTimeToAssumeNodeRebootedSeconds = 160
 	Context("for valid CR", func() {
 		It("should not be rejected", func() {
 			var err error

@@ -180,7 +180,7 @@ func initSelfNodeRemediationManager(mgr manager.Manager, enableHTTP2 bool) {
 		os.Exit(1)
 	}
 
-	safeRebootCalc := reboot.NewManagerSafeTimeCalculator(mgr.GetClient(), selfnoderemediationv1alpha1.DefaultSafeToAssumeNodeRebootTimeout*time.Second)
+	safeRebootCalc := reboot.NewManagerSafeTimeCalculator(mgr.GetClient())
 	if err = mgr.Add(safeRebootCalc); err != nil {
 		setupLog.Error(err, "failed to add safe reboot time calculator to the manager")
 		os.Exit(1)

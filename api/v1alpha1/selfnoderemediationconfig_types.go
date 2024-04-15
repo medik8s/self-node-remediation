@@ -25,10 +25,9 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 const (
-	ConfigCRName                         = "self-node-remediation-config"
-	defaultWatchdogPath                  = "/dev/watchdog"
-	DefaultSafeToAssumeNodeRebootTimeout = 180
-	defaultIsSoftwareRebootEnabled       = true
+	ConfigCRName                   = "self-node-remediation-config"
+	defaultWatchdogPath            = "/dev/watchdog"
+	defaultIsSoftwareRebootEnabled = true
 )
 
 // SelfNodeRemediationConfigSpec defines the desired state of SelfNodeRemediationConfig
@@ -47,7 +46,6 @@ type SelfNodeRemediationConfigSpec struct {
 	// In an effort to prevent this, the operator ignores values lower than a minimum calculated from the
 	// ApiCheckInterval, ApiServerTimeout, MaxApiErrorThreshold, PeerDialTimeout, and PeerRequestTimeout fields.
 	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:default=180
 	SafeTimeToAssumeNodeRebootedSeconds int `json:"safeTimeToAssumeNodeRebootedSeconds,omitempty"`
 
 	// Valid time units are "ms", "s", "m", "h".
@@ -162,9 +160,8 @@ func NewDefaultSelfNodeRemediationConfig() SelfNodeRemediationConfig {
 	return SelfNodeRemediationConfig{
 		ObjectMeta: metav1.ObjectMeta{Name: ConfigCRName},
 		Spec: SelfNodeRemediationConfigSpec{
-			WatchdogFilePath:                    defaultWatchdogPath,
-			SafeTimeToAssumeNodeRebootedSeconds: DefaultSafeToAssumeNodeRebootTimeout,
-			IsSoftwareRebootEnabled:             defaultIsSoftwareRebootEnabled,
+			WatchdogFilePath:        defaultWatchdogPath,
+			IsSoftwareRebootEnabled: defaultIsSoftwareRebootEnabled,
 		},
 	}
 }
