@@ -10,6 +10,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
+
+	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
 // default CR fields durations
@@ -70,6 +72,41 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 
 		// test update validation on a valid CR
 		testValidCR("update")
+
+		Context("SafeTimeToAssumeNodeRebootedSeconds Validation", func() {
+			var oldSnrc, newSnrc *SelfNodeRemediationConfig
+			BeforeEach(func() {
+				oldSnrc = createDefaultSelfNodeRemediationConfigCR()
+				newSnrc = oldSnrc.DeepCopy()
+				newSnrc.Spec.SafeTimeToAssumeNodeRebootedSeconds = 200
+			})
+			When("Annotation does not exit", func() {
+				It("validation should fail", func() {
+					err := newSnrc.ValidateUpdate(oldSnrc)
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(MatchRegexp("annotation should not be empty"))
+				})
+			})
+			When("Annotation value is higher than user assigned value", func() {
+				BeforeEach(func() {
+					newSnrc.Annotations = map[string]string{utils.MinSafeTimeAnnotation: "220"}
+				})
+				It("validation should fail", func() {
+					err := newSnrc.ValidateUpdate(oldSnrc)
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(MatchRegexp("value below the calculated minimum value of: 220"))
+				})
+			})
+			When("Annotation value is lower than user assigned value", func() {
+				BeforeEach(func() {
+					newSnrc.Annotations = map[string]string{utils.MinSafeTimeAnnotation: "190"}
+				})
+				It("validation should pass", func() {
+					Expect(newSnrc.ValidateUpdate(oldSnrc)).To(Succeed())
+				})
+			})
+
+		})
 
 	})
 
@@ -174,6 +211,8 @@ func testValidCR(validationType string) {
 	snrc.Spec.ApiCheckInterval = &metav1.Duration{Duration: 10*time.Second + 500*time.Millisecond}
 	snrc.Spec.PeerUpdateInterval = &metav1.Duration{Duration: 10 * time.Second}
 	snrc.Spec.CustomDsTolerations = []v1.Toleration{{Key: "validValue", Effect: v1.TaintEffectNoExecute}, {}, {Operator: v1.TolerationOpEqual, TolerationSeconds: pointer.Int64(-5)}, {Value: "SomeValidValue"}}
+	snrc.Spec.SafeTimeToAssumeNodeRebootedSeconds = DefaultSafeToAssumeNodeRebootTimeout
+	snrc.Annotations = map[string]string{utils.MinSafeTimeAnnotation: "150"}
 
 	Context("for valid CR", func() {
 		It("should not be rejected", func() {
