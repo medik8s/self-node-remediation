@@ -18,7 +18,10 @@ package v1alpha1
 
 import (
 	"fmt"
+	"strconv"
 	"time"
+
+	pkgerrors "github.com/pkg/errors"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -26,6 +29,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
 // fields names
@@ -85,6 +90,7 @@ func (r *SelfNodeRemediationConfig) ValidateUpdate(_ runtime.Object) error {
 	return errors.NewAggregate([]error{
 		r.validateTimes(),
 		r.validateCustomTolerations(),
+		r.validateMinRebootTime(),
 	})
 }
 
@@ -168,6 +174,22 @@ func validateToleration(toleration v1.Toleration) error {
 			err := fmt.Errorf("invalid taint effect for toleration: %s", toleration.Effect)
 			selfNodeRemediationConfigLog.Error(err, "invalid taint effect for toleration", "valid values", []v1.TaintEffect{v1.TaintEffectNoSchedule, v1.TaintEffectPreferNoSchedule, v1.TaintEffectNoExecute}, "received value", toleration.Effect)
 			return err
+		}
+	}
+	return nil
+}
+
+func (r *SelfNodeRemediationConfig) validateMinRebootTime() error {
+	annotations := r.GetAnnotations()
+	if annotations == nil {
+		return fmt.Errorf("failed to verify min value of SafeRebootTimeSec, %s annotation should not be empty", utils.MinSafeTimeAnnotation)
+
+	}
+	if minValString, isSet := annotations[utils.MinSafeTimeAnnotation]; isSet {
+		if minVal, err := strconv.Atoi(minValString); err != nil {
+			return pkgerrors.Wrapf(err, "failed to verify min value of SafeRebootTimeSec")
+		} else if r.Spec.SafeTimeToAssumeNodeRebootedSeconds < minVal {
+			return fmt.Errorf("can not set SafeTimeToAssumeNodeRebootedSeconds value below the calculated minimum value of: %s", minValString)
 		}
 	}
 	return nil
