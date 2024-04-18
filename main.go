@@ -305,7 +305,8 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	timeToAssumeNodeRebootedInSeconds := getIntEnvVarOrDie("TIME_TO_ASSUME_NODE_REBOOTED")
 	peerHealthDefaultPort := getIntEnvVarOrDie("HOST_PORT")
 
-	safeRebootCalc := reboot.NewAgentSafeTimeCalculator(mgr.GetClient(), wd, maxErrorThreshold, apiCheckInterval, apiServerTimeout, peerDialTimeout, peerRequestTimeout, time.Duration(timeToAssumeNodeRebootedInSeconds)*time.Second)
+	snrRecorder := mgr.GetEventRecorderFor("SelfNodeRemediation")
+	safeRebootCalc := reboot.NewAgentSafeTimeCalculator(mgr.GetClient(), snrRecorder, wd, maxErrorThreshold, apiCheckInterval, apiServerTimeout, peerDialTimeout, peerRequestTimeout, time.Duration(timeToAssumeNodeRebootedInSeconds)*time.Second)
 	if err = mgr.Add(safeRebootCalc); err != nil {
 		setupLog.Error(err, "failed to add safe reboot time calculator to the manager")
 		os.Exit(1)
@@ -358,7 +359,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		Client:             mgr.GetClient(),
 		Log:                ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
 		Scheme:             mgr.GetScheme(),
-		Recorder:           mgr.GetEventRecorderFor("SelfNodeRemediation"),
+		Recorder:           snrRecorder,
 		Rebooter:           rebooter,
 		MyNodeName:         myNodeName,
 		RestoreNodeAfter:   restoreNodeAfter,

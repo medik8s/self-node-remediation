@@ -107,7 +107,7 @@ github.com/mailru/easyjson/jwriter
 # github.com/matttproud/golang_protobuf_extensions v1.0.2
 ## explicit; go 1.9
 github.com/matttproud/golang_protobuf_extensions/pbutil
-# github.com/medik8s/common v1.15.1
+# github.com/medik8s/common v1.17.0
 ## explicit; go 1.20
 github.com/medik8s/common/pkg/events
 github.com/medik8s/common/pkg/labels

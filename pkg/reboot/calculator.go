@@ -3,17 +3,22 @@ package reboot
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/medik8s/common/pkg/events"
 	commonlabels "github.com/medik8s/common/pkg/labels"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/medik8s/self-node-remediation/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/pkg/utils"
 	"github.com/medik8s/self-node-remediation/pkg/watchdog"
 )
 
@@ -41,11 +46,12 @@ type safeTimeCalculator struct {
 	apiCheckInterval, apiServerTimeout, peerDialTimeout, peerRequestTimeout time.Duration
 	log                                                                     logr.Logger
 	k8sClient                                                               client.Client
+	recorder                                                                record.EventRecorder
 	highestCalculatedBatchNumber                                            int
 	isAgent                                                                 bool
 }
 
-func NewAgentSafeTimeCalculator(k8sClient client.Client, wd watchdog.Watchdog, maxErrorThreshold int, apiCheckInterval, apiServerTimeout, peerDialTimeout, peerRequestTimeout, timeToAssumeNodeRebooted time.Duration) SafeTimeCalculator {
+func NewAgentSafeTimeCalculator(k8sClient client.Client, recorder record.EventRecorder, wd watchdog.Watchdog, maxErrorThreshold int, apiCheckInterval, apiServerTimeout, peerDialTimeout, peerRequestTimeout, timeToAssumeNodeRebooted time.Duration) SafeTimeCalculator {
 	return &safeTimeCalculator{
 		wd:                       wd,
 		maxErrorThreshold:        maxErrorThreshold,
@@ -55,6 +61,7 @@ func NewAgentSafeTimeCalculator(k8sClient client.Client, wd watchdog.Watchdog, m
 		peerRequestTimeout:       peerRequestTimeout,
 		timeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
 		k8sClient:                k8sClient,
+		recorder:                 recorder,
 		isAgent:                  true,
 		log:                      ctrl.Log.WithName("safe-time-calculator"),
 	}
@@ -106,10 +113,65 @@ func (s *safeTimeCalculator) calcMinTimeAssumeRebooted() error {
 	s.log.Info("calculated minTimeToAssumeNodeRebooted is:", "minTimeToAssumeNodeRebooted", minTime)
 	s.minTimeToAssumeNodeRebooted = minTime
 
-	if s.timeToAssumeNodeRebooted < minTime {
-		err := fmt.Errorf("snr agent can't start: the requested value for SafeTimeToAssumeNodeRebootedSeconds is too low")
-		s.log.Error(err, err.Error(), "requested SafeTimeToAssumeNodeRebootedSeconds", s.timeToAssumeNodeRebooted, "minimal calculated value for SafeTimeToAssumeNodeRebootedSeconds", minTime)
+	//update related logic of min time on configuration if necessary
+	if err := s.manageSafeRebootTimeInConfiguration(minTime); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// manageSafeRebootTimeInConfiguration does two things:
+//  1. It sets an annotation on the configuration with the most updated value of minTimeToAssumeNodeRebooted in seconds (this value will be used by the webhook to verify user doesn't set an invalid value for SafeTimeToAssumeNodeRebootedSeconds).
+//  2. In case SafeTimeToAssumeNodeRebootedSeconds is too low (either because of the default configuration or because minvalue has changed due to an update of another field) it'll set it to a valid value and issue an event.
+func (s *safeTimeCalculator) manageSafeRebootTimeInConfiguration(minTime time.Duration) error {
+	minTimeSec := int(minTime.Seconds())
+	//set it on configuration
+	confList := &v1alpha1.SelfNodeRemediationConfigList{}
+	if err := s.k8sClient.List(context.Background(), confList); err != nil {
+		s.log.Error(err, "failed to get snr configuration")
+
+		return err
+	}
+
+	for _, snrConf := range confList.Items {
+		var isUpdateRequired bool
+		if snrConf.GetAnnotations() == nil {
+			snrConf.Annotations = make(map[string]string)
+		}
+		prevMinRebootTimeSec, isSet := snrConf.GetAnnotations()[utils.MinSafeTimeAnnotation]
+
+		minTimeSecString := strconv.Itoa(minTimeSec)
+		if !isSet || prevMinRebootTimeSec != minTimeSecString {
+			if !isSet {
+				s.log.Info("snr agent about to modify config adding an annotation", "annotation key", utils.MinSafeTimeAnnotation, "annotation value", minTimeSecString)
+			} else {
+				s.log.Info("snr agent about to modify config updating annotation value", "annotation key", utils.MinSafeTimeAnnotation, "annotation previous value", prevMinRebootTimeSec, "annotation new value", minTimeSecString)
+			}
+			snrConf.GetAnnotations()[utils.MinSafeTimeAnnotation] = minTimeSecString
+			isUpdateRequired = true
+		}
+
+		if snrConf.Spec.SafeTimeToAssumeNodeRebootedSeconds < minTimeSec {
+			isUpdateRequired = true
+			snrConf.Spec.SafeTimeToAssumeNodeRebootedSeconds = minTimeSec
+			s.SetTimeToAssumeNodeRebooted(time.Duration(minTimeSec) * time.Second)
+			msg, reason := "Automatic update since value isn't valid anymore", "SafeTimeToAssumeNodeRebootedSecondsModified"
+			if !isSet {
+				msg = "Default value was lower than minimum value"
+			} else if prevMinRebootTimeSec != minTimeSecString {
+				msg = "Minimum value has changed and now is greater than configured value"
+			}
+			s.log.Info(fmt.Sprintf("%s:%s", reason, msg))
+			events.NormalEvent(s.recorder, &snrConf, reason, msg)
+		}
+
+		if isUpdateRequired {
+			if err := s.k8sClient.Update(context.Background(), &snrConf); err != nil {
+				s.log.Error(err, "failed to update SafeTimeToAssumeNodeRebootedSeconds with min value")
+				return err
+			}
+		}
 	}
 	return nil
 }
