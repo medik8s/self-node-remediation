@@ -74,35 +74,35 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 		testValidCR("update")
 
 		Context("SafeTimeToAssumeNodeRebootedSeconds Validation", func() {
-			var oldSnrc, newSnrc *SelfNodeRemediationConfig
+			var originalSnrc, updatedSnrc *SelfNodeRemediationConfig
 			BeforeEach(func() {
-				oldSnrc = createDefaultSelfNodeRemediationConfigCR()
-				newSnrc = oldSnrc.DeepCopy()
-				newSnrc.Spec.SafeTimeToAssumeNodeRebootedSeconds = 200
+				originalSnrc = createDefaultSelfNodeRemediationConfigCR()
+				updatedSnrc = originalSnrc.DeepCopy()
+				updatedSnrc.Spec.SafeTimeToAssumeNodeRebootedSeconds = 200
 			})
-			When("Annotation does not exit", func() {
+			When("Annotation does not exist", func() {
 				It("validation should fail", func() {
-					err := newSnrc.ValidateUpdate(oldSnrc)
+					err := updatedSnrc.ValidateUpdate(originalSnrc)
 					Expect(err).To(HaveOccurred())
 					Expect(err.Error()).To(MatchRegexp("annotation should not be empty"))
 				})
 			})
 			When("Annotation value is higher than user assigned value", func() {
 				BeforeEach(func() {
-					newSnrc.Annotations = map[string]string{utils.MinSafeTimeAnnotation: "220"}
+					updatedSnrc.Annotations = map[string]string{utils.MinSafeTimeAnnotation: "220"}
 				})
 				It("validation should fail", func() {
-					err := newSnrc.ValidateUpdate(oldSnrc)
+					err := updatedSnrc.ValidateUpdate(originalSnrc)
 					Expect(err).To(HaveOccurred())
 					Expect(err.Error()).To(MatchRegexp("value below the calculated minimum value of: 220"))
 				})
 			})
 			When("Annotation value is lower than user assigned value", func() {
 				BeforeEach(func() {
-					newSnrc.Annotations = map[string]string{utils.MinSafeTimeAnnotation: "190"}
+					updatedSnrc.Annotations = map[string]string{utils.MinSafeTimeAnnotation: "190"}
 				})
 				It("validation should pass", func() {
-					Expect(newSnrc.ValidateUpdate(oldSnrc)).To(Succeed())
+					Expect(updatedSnrc.ValidateUpdate(originalSnrc)).To(Succeed())
 				})
 			})
 
