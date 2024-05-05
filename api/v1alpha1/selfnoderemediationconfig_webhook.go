@@ -35,12 +35,13 @@ import (
 
 // fields names
 const (
-	peerApiServerTimeout = "PeerApiServerTimeout"
-	apiServerTimeout     = "ApiServerTimeout"
-	peerDialTimeout      = "PeerDialTimeout"
-	peerRequestTimeout   = "PeerRequestTimeout"
-	apiCheckInterval     = "ApiCheckInterval"
-	peerUpdateInterval   = "PeerUpdateInterval"
+	peerApiServerTimeout                = "PeerApiServerTimeout"
+	apiServerTimeout                    = "ApiServerTimeout"
+	peerDialTimeout                     = "PeerDialTimeout"
+	peerRequestTimeout                  = "PeerRequestTimeout"
+	apiCheckInterval                    = "ApiCheckInterval"
+	peerUpdateInterval                  = "PeerUpdateInterval"
+	safeTimeToAssumeNodeRebootedSeconds = "SafeTimeToAssumeNodeRebootedSeconds"
 )
 
 // minimal time durations allowed for fields
@@ -79,6 +80,7 @@ func (r *SelfNodeRemediationConfig) ValidateCreate() error {
 	return errors.NewAggregate([]error{
 		r.validateTimes(),
 		r.validateCustomTolerations(),
+		r.validateSafeTimeEmpty(),
 	})
 
 }
@@ -191,6 +193,13 @@ func (r *SelfNodeRemediationConfig) validateMinRebootTime() error {
 		} else if r.Spec.SafeTimeToAssumeNodeRebootedSeconds < minVal {
 			return fmt.Errorf("can not set SafeTimeToAssumeNodeRebootedSeconds value below the calculated minimum value of: %s", minValString)
 		}
+	}
+	return nil
+}
+
+func (r *SelfNodeRemediationConfig) validateSafeTimeEmpty() error {
+	if r.Spec.SafeTimeToAssumeNodeRebootedSeconds > 0 {
+		return fmt.Errorf("SafeTimeToAssumeNodeRebootedSeconds can only be set after configuration is created")
 	}
 	return nil
 }

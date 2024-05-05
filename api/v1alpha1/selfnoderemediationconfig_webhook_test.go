@@ -182,6 +182,11 @@ func testMultipleInvalidFields(validationType string) {
 	snrc.Spec.CustomDsTolerations = []v1.Toleration{{Key: "validValue", Operator: "dummyInvalidOperatorValue"}}
 	errorMsg += ", invalid operator for toleration: dummyInvalidOperatorValue"
 
+	if validationType == "create" {
+		setFieldValue(snrc, safeTimeToAssumeNodeRebootedSeconds, 180)
+		errorMsg += ", SafeTimeToAssumeNodeRebootedSeconds can only be set after configuration is created"
+	}
+
 	Context("for CR multiple invalid fields", func() {
 		It("should be rejected", func() {
 			var err error
@@ -212,7 +217,9 @@ func testValidCR(validationType string) {
 	snrc.Spec.PeerUpdateInterval = &metav1.Duration{Duration: 10 * time.Second}
 	snrc.Spec.CustomDsTolerations = []v1.Toleration{{Key: "validValue", Effect: v1.TaintEffectNoExecute}, {}, {Operator: v1.TolerationOpEqual, TolerationSeconds: pointer.Int64(-5)}, {Value: "SomeValidValue"}}
 	snrc.Annotations = map[string]string{utils.MinSafeTimeAnnotation: "150"}
-	snrc.Spec.SafeTimeToAssumeNodeRebootedSeconds = 160
+	if validationType == "update" {
+		snrc.Spec.SafeTimeToAssumeNodeRebootedSeconds = 160
+	}
 	Context("for valid CR", func() {
 		It("should not be rejected", func() {
 			var err error
@@ -269,5 +276,7 @@ func setFieldValue(snrc *SelfNodeRemediationConfig, fieldName string, value time
 		snrc.Spec.ApiCheckInterval = timeValue
 	case peerUpdateInterval:
 		snrc.Spec.PeerUpdateInterval = timeValue
+	case safeTimeToAssumeNodeRebootedSeconds:
+		snrc.Spec.SafeTimeToAssumeNodeRebootedSeconds = int(value)
 	}
 }
