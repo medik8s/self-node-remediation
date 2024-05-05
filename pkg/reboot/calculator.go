@@ -2,6 +2,7 @@ package reboot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/medik8s/common/pkg/events"
 	commonlabels "github.com/medik8s/common/pkg/labels"
+	pkgerrors "github.com/pkg/errors"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -76,12 +78,14 @@ func NewManagerSafeTimeCalculator(k8sClient client.Client) SafeTimeCalculator {
 }
 
 func (s *safeTimeCalculator) GetTimeToAssumeNodeRebooted() time.Duration {
+	minTime := s.minTimeToAssumeNodeRebooted
 	if !s.isAgent {
-		return s.timeToAssumeNodeRebooted
+		//TODO mshitrit handle error
+		minTime, _ = s.getMinSafeTimeFromConfig()
 	}
 
-	if s.timeToAssumeNodeRebooted < s.minTimeToAssumeNodeRebooted {
-		return s.minTimeToAssumeNodeRebooted
+	if s.timeToAssumeNodeRebooted < minTime {
+		return minTime
 	}
 	return s.timeToAssumeNodeRebooted
 }
@@ -153,6 +157,7 @@ func (s *safeTimeCalculator) manageSafeRebootTimeInConfiguration(minTime time.Du
 
 		if snrConf.Spec.SafeTimeToAssumeNodeRebootedSeconds < minTimeSec {
 			isUpdateRequired = true
+			//TODO mshitrit don't update the spec but create a warning in the status instead
 			snrConf.Spec.SafeTimeToAssumeNodeRebootedSeconds = minTimeSec
 			s.SetTimeToAssumeNodeRebooted(time.Duration(minTimeSec) * time.Second)
 			msg, reason := "Automatic update since value isn't valid anymore", "SafeTimeToAssumeNodeRebootedSecondsModified"
@@ -173,6 +178,39 @@ func (s *safeTimeCalculator) manageSafeRebootTimeInConfiguration(minTime time.Du
 		}
 	}
 	return nil
+}
+
+func (s *safeTimeCalculator) getMinSafeTimeFromConfig() (time.Duration, error) {
+	//TODO mshitrit add some logs
+	confList := &v1alpha1.SelfNodeRemediationConfigList{}
+	if err := s.k8sClient.List(context.Background(), confList); err != nil {
+		s.log.Error(err, "failed to get snr configuration")
+
+		return 0, err
+	}
+
+	var config v1alpha1.SelfNodeRemediationConfig
+	if len(confList.Items) < 1 {
+		return 0, errors.New("SNR config not found")
+	} else {
+		config = confList.Items[0]
+	}
+
+	if config.GetAnnotations() == nil {
+		return 0, errors.New("failed getting MinSafeTimeFromConfig config does not contain annotations")
+	}
+
+	minTimeSecString, isFound := config.GetAnnotations()[utils.MinSafeTimeAnnotation]
+	if !isFound {
+		return 0, fmt.Errorf("failed getting MinSafeTimeFromConfig config does not contain %s annotation", utils.MinSafeTimeAnnotation)
+	}
+
+	minTimeSec, err := strconv.Atoi(minTimeSecString)
+	if err != nil {
+		return 0, pkgerrors.Wrapf(err, "failed getting MinSafeTimeFromConfig")
+	}
+	return time.Duration(minTimeSec) * time.Second, nil
+
 }
 
 func (s *safeTimeCalculator) IsAgent() bool {
