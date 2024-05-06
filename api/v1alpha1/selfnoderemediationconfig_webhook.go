@@ -181,6 +181,11 @@ func (r *SelfNodeRemediationConfig) validateMinRebootTime() error {
 		return fmt.Errorf("failed to verify min value of SafeRebootTimeSec, Status.MinSafeTimeToAssumeNodeRebootedSeconds should not be empty")
 	}
 
+	//allow removing this optional field
+	if r.Spec.SafeTimeToAssumeNodeRebootedSeconds == 0 {
+		return nil
+	}
+
 	if r.Status.MinSafeTimeToAssumeNodeRebootedSeconds > r.Spec.SafeTimeToAssumeNodeRebootedSeconds {
 		return fmt.Errorf("can not set SafeTimeToAssumeNodeRebootedSeconds value below the calculated minimum value of: %d", r.Status.MinSafeTimeToAssumeNodeRebootedSeconds)
 	}

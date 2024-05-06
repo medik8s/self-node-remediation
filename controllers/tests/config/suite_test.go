@@ -197,8 +197,8 @@ type mockCalculator struct {
 	isAgent                      bool
 }
 
-func (m *mockCalculator) GetTimeToAssumeNodeRebooted() time.Duration {
-	return m.mockTimeToAssumeNodeRebooted
+func (m *mockCalculator) GetTimeToAssumeNodeRebooted() (time.Duration, error) {
+	return m.mockTimeToAssumeNodeRebooted, nil
 }
 
 func (m *mockCalculator) SetTimeToAssumeNodeRebooted(timeToAssumeNodeRebooted time.Duration) {

@@ -156,7 +156,7 @@ spec:
                   node will likely lead to data corruption and violation of run-once semantics.
                   In an effort to prevent this, the operator ignores values lower than a minimum calculated from the
                   ApiCheckInterval, ApiServerTimeout, MaxApiErrorThreshold, PeerDialTimeout, and PeerRequestTimeout fields.
-                minimum: 0
+                minimum: 1
                 type: integer
               watchdogFilePath:
                 default: /dev/watchdog

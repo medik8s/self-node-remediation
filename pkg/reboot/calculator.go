@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/medik8s/common/pkg/events"
 	commonlabels "github.com/medik8s/common/pkg/labels"
 
 	v1 "k8s.io/api/core/v1"
@@ -30,7 +31,7 @@ type SafeTimeCalculator interface {
 	// GetTimeToAssumeNodeRebooted returns the safe time to assume node was already rebooted
 	// note that this time must include the time for a unhealthy node without api-server access to reach the conclusion that it's unhealthy
 	// this should be at least worst-case time to reach a conclusion from the other peers * request context timeout + watchdog interval + maxFailuresThreshold * reconcileInterval + padding
-	GetTimeToAssumeNodeRebooted() time.Duration
+	GetTimeToAssumeNodeRebooted() (time.Duration, error)
 	SetTimeToAssumeNodeRebooted(time.Duration)
 	Start(ctx context.Context) error
 	//IsAgent return true in case running on an agent pod (responsible for reboot) or false in case running on a manager pod
@@ -73,17 +74,19 @@ func NewManagerSafeTimeCalculator(k8sClient client.Client) SafeTimeCalculator {
 	}
 }
 
-func (s *safeTimeCalculator) GetTimeToAssumeNodeRebooted() time.Duration {
+func (s *safeTimeCalculator) GetTimeToAssumeNodeRebooted() (time.Duration, error) {
 	minTime := s.minTimeToAssumeNodeRebooted
+	var err error
 	if !s.isAgent {
-		//TODO mshitrit handle error
-		minTime, _ = s.getMinSafeTimeSecFromConfig()
+		if minTime, err = s.getMinSafeTimeSecFromConfig(); err != nil {
+			return 0, err
+		}
 	}
 
 	if s.timeToAssumeNodeRebooted < minTime {
-		return minTime
+		return minTime, nil
 	}
-	return s.timeToAssumeNodeRebooted
+	return s.timeToAssumeNodeRebooted, nil
 }
 
 func (s *safeTimeCalculator) SetTimeToAssumeNodeRebooted(timeToAssumeNodeRebooted time.Duration) {
@@ -121,8 +124,8 @@ func (s *safeTimeCalculator) calcMinTimeAssumeRebooted() error {
 }
 
 // manageSafeRebootTimeInConfiguration does two things:
-//  1. It sets an annotation on the configuration with the most updated value of minTimeToAssumeNodeRebooted in seconds (this value will be used by the webhook to verify user doesn't set an invalid value for SafeTimeToAssumeNodeRebootedSeconds).
-//  2. In case SafeTimeToAssumeNodeRebootedSeconds is too low (either because of the default configuration or because minvalue has changed due to an update of another field) it'll set it to a valid value and issue an event.
+//  1. It sets Status.MinSafeTimeToAssumeNodeRebootedSeconds in case it's changed by latest calculation.
+//  2. It Adds/removes config.Status.SpecNotUsedWarning if necessary.
 func (s *safeTimeCalculator) manageSafeRebootTimeInConfiguration(minTime time.Duration) error {
 	minTimeSec := int(minTime.Seconds())
 	config, err := s.getConfig()
@@ -133,16 +136,15 @@ func (s *safeTimeCalculator) manageSafeRebootTimeInConfiguration(minTime time.Du
 	prevMinRebootTimeSec := config.Status.MinSafeTimeToAssumeNodeRebootedSeconds
 	if prevMinRebootTimeSec != minTimeSec {
 		config.Status.MinSafeTimeToAssumeNodeRebootedSeconds = minTimeSec
-		if config.Spec.SafeTimeToAssumeNodeRebootedSeconds != 0 && minTimeSec > config.Spec.SafeTimeToAssumeNodeRebootedSeconds {
-			config.Status.SpecNotUsedWarning = v1alpha1.SafeTimeToAssumeNodeRebootedSecondsWarning
-		}
+	}
+	//Manage warning
+	config.Status.SpecNotUsedWarning = ""
+	if config.Spec.SafeTimeToAssumeNodeRebootedSeconds > 0 && minTimeSec > config.Spec.SafeTimeToAssumeNodeRebootedSeconds {
+		config.Status.SpecNotUsedWarning = v1alpha1.SafeTimeToAssumeNodeRebootedSecondsWarning
+		s.log.Info("SafeTimeToAssumeNodeRebootedSeconds is overridden by calculated value because it's invalid, calculated value stored in Status.MinSafeTimeToAssumeNodeRebootedSeconds would be used instead")
+		events.WarningEvent(s.recorder, config, "SafeTimeToAssumeNodeRebootedSecondsInvalid", "SafeTimeToAssumeNodeRebootedSeconds is overridden by calculated value")
+	}
 
-		//TODO mshitrit add event maybe logs
-	}
-	//Spec is ok, we can remove the warning
-	if minTimeSec <= config.Spec.SafeTimeToAssumeNodeRebootedSeconds && len(config.Status.SpecNotUsedWarning) > 0 {
-		config.Status.SpecNotUsedWarning = ""
-	}
 	if !reflect.DeepEqual(config, orgConfig) {
 		if err := s.k8sClient.Status().Patch(context.Background(), config, client.MergeFrom(orgConfig)); err != nil {
 			return err
@@ -153,7 +155,6 @@ func (s *safeTimeCalculator) manageSafeRebootTimeInConfiguration(minTime time.Du
 }
 
 func (s *safeTimeCalculator) getMinSafeTimeSecFromConfig() (time.Duration, error) {
-	//TODO mshitrit add some logs
 	config, err := s.getConfig()
 	if err != nil {
 		return 0, err
@@ -164,7 +165,9 @@ func (s *safeTimeCalculator) getMinSafeTimeSecFromConfig() (time.Duration, error
 		return time.Duration(minTimeSec) * time.Second, nil
 	}
 
-	return 0, errors.New("failed getting MinSafeTimeToAssumeNodeRebootedSeconds, value isn't initialized")
+	err = errors.New("failed getting MinSafeTimeToAssumeNodeRebootedSeconds, value isn't initialized")
+	s.log.Error(err, "MinSafeTimeToAssumeNodeRebootedSeconds should not be empty")
+	return 0, err
 }
 
 func (s *safeTimeCalculator) getConfig() (*v1alpha1.SelfNodeRemediationConfig, error) {
@@ -176,7 +179,9 @@ func (s *safeTimeCalculator) getConfig() (*v1alpha1.SelfNodeRemediationConfig, e
 
 	var config v1alpha1.SelfNodeRemediationConfig
 	if len(confList.Items) < 1 {
-		return nil, errors.New("SNR config not found")
+		err := errors.New("SNR config not found")
+		s.log.Error(err, "failed to get snr configuration")
+		return nil, err
 	} else {
 		config = confList.Items[0]
 	}

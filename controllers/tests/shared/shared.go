@@ -42,8 +42,8 @@ func (kcw *K8sClientWrapper) List(ctx context.Context, list client.ObjectList, o
 	return kcw.Client.List(ctx, list, opts...)
 }
 
-func (m *MockCalculator) GetTimeToAssumeNodeRebooted() time.Duration {
-	return m.MockTimeToAssumeNodeRebooted
+func (m *MockCalculator) GetTimeToAssumeNodeRebooted() (time.Duration, error) {
+	return m.MockTimeToAssumeNodeRebooted, nil
 }
 
 func (m *MockCalculator) SetTimeToAssumeNodeRebooted(timeToAssumeNodeRebooted time.Duration) {

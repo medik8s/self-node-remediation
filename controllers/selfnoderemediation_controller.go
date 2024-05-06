@@ -401,7 +401,9 @@ func (r *SelfNodeRemediationReconciler) prepareReboot(node *v1.Node, snr *v1alph
 	}
 
 	if snr.Status.TimeAssumedRebooted.IsZero() {
-		r.updateTimeAssumedRebooted(node, snr)
+		if err := r.updateTimeAssumedRebooted(node, snr); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	preRebootCompleted := string(preRebootCompletedPhase)
@@ -625,12 +627,17 @@ func (r *SelfNodeRemediationReconciler) updateSnrStatus(ctx context.Context, snr
 	return nil
 }
 
-func (r *SelfNodeRemediationReconciler) updateTimeAssumedRebooted(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) {
+func (r *SelfNodeRemediationReconciler) updateTimeAssumedRebooted(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) error {
 	r.logger.Info("updating snr with node backup and updating time to assume node has been rebooted", "node name", node.Name)
 	//we assume the unhealthy node will be rebooted by maxTimeNodeHasRebooted
-	maxTimeNodeHasRebooted := metav1.NewTime(metav1.Now().Add(r.SafeTimeCalculator.GetTimeToAssumeNodeRebooted()))
+	toAssumeNodeRebooted, err := r.SafeTimeCalculator.GetTimeToAssumeNodeRebooted()
+	if err != nil {
+		return err
+	}
+	maxTimeNodeHasRebooted := metav1.NewTime(metav1.Now().Add(toAssumeNodeRebooted))
 	snr.Status.TimeAssumedRebooted = &maxTimeNodeHasRebooted
 	events.NormalEvent(r.Recorder, snr, eventReasonUpdateTimeAssumedRebooted, "Remediation process - about to update required fencing time on snr")
+	return nil
 }
 
 // getNodeFromSnr returns the unhealthy node reported in the given snr

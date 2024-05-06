@@ -47,7 +47,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 			minSafeTimeValue := config.Status.MinSafeTimeToAssumeNodeRebootedSeconds
 			Expect(minSafeTimeValue).To(BeNumerically(">", 0))
 			safeTimeValue := config.Spec.SafeTimeToAssumeNodeRebootedSeconds
-			Expect(safeTimeValue).To(BeNumerically(">=", minSafeTimeValue))
+			Expect(safeTimeValue).To(Equal(0))
 		})
 	})
 
