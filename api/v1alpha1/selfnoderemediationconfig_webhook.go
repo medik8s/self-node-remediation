@@ -177,7 +177,6 @@ func validateToleration(toleration v1.Toleration) error {
 }
 
 func (r *SelfNodeRemediationConfig) validateMinRebootTime() error {
-	//TODO mshitrit remove status warning in case it's not relevant
 	if r.Status.MinSafeTimeToAssumeNodeRebootedSeconds == 0 {
 		return fmt.Errorf("failed to verify min value of SafeRebootTimeSec, Status.MinSafeTimeToAssumeNodeRebootedSeconds should not be empty")
 	}

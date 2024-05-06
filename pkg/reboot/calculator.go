@@ -3,6 +3,7 @@ package reboot
 import (
 	"context"
 	"errors"
+	"reflect"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -133,13 +134,21 @@ func (s *safeTimeCalculator) manageSafeRebootTimeInConfiguration(minTime time.Du
 	if prevMinRebootTimeSec != minTimeSec {
 		config.Status.MinSafeTimeToAssumeNodeRebootedSeconds = minTimeSec
 		if config.Spec.SafeTimeToAssumeNodeRebootedSeconds != 0 && minTimeSec > config.Spec.SafeTimeToAssumeNodeRebootedSeconds {
-			//TODO mshitrit add warning to status
+			config.Status.SpecNotUsedWarning = v1alpha1.SafeTimeToAssumeNodeRebootedSecondsWarning
 		}
+
+		//TODO mshitrit add event maybe logs
+	}
+	//Spec is ok, we can remove the warning
+	if minTimeSec <= config.Spec.SafeTimeToAssumeNodeRebootedSeconds && len(config.Status.SpecNotUsedWarning) > 0 {
+		config.Status.SpecNotUsedWarning = ""
+	}
+	if !reflect.DeepEqual(config, orgConfig) {
 		if err := s.k8sClient.Status().Patch(context.Background(), config, client.MergeFrom(orgConfig)); err != nil {
 			return err
 		}
-		//TODO mshitrit add event maybe logs
 	}
+
 	return nil
 }
 

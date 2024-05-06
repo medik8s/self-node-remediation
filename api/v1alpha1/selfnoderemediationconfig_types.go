@@ -25,9 +25,10 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 const (
-	ConfigCRName                   = "self-node-remediation-config"
-	defaultWatchdogPath            = "/dev/watchdog"
-	defaultIsSoftwareRebootEnabled = true
+	ConfigCRName                               = "self-node-remediation-config"
+	defaultWatchdogPath                        = "/dev/watchdog"
+	defaultIsSoftwareRebootEnabled             = true
+	SafeTimeToAssumeNodeRebootedSecondsWarning = "using the calculated min value instead of SafeTimeToAssumeNodeRebootedSeconds Spec"
 )
 
 // SelfNodeRemediationConfigSpec defines the desired state of SelfNodeRemediationConfig
@@ -132,6 +133,10 @@ type SelfNodeRemediationConfigStatus struct {
 	// +optional
 	// +kubebuilder:validation:Minimum=0
 	MinSafeTimeToAssumeNodeRebootedSeconds int `json:"minSafeTimeToAssumeNodeRebootedSeconds,omitempty"`
+
+	// SpecNotUsedWarning field is used to indicate that SelfNodeRemediationConfigSpec.SafeTimeToAssumeNodeRebootedSeconds is overridden by SelfNodeRemediationConfigStatus.MinSafeTimeToAssumeNodeRebootedSeconds because SelfNodeRemediationConfigStatus.MinSafeTimeToAssumeNodeRebootedSeconds is greater than SelfNodeRemediationConfigSpec.SafeTimeToAssumeNodeRebootedSeconds.
+	// +optional
+	SpecNotUsedWarning string `json:"specNotUsedWarning,omitempty"`
 }
 
 //+kubebuilder:object:root=true
