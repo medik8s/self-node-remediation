@@ -167,6 +167,13 @@ spec:
           status:
             description: SelfNodeRemediationConfigStatus defines the observed state
               of SelfNodeRemediationConfig
+            properties:
+              minSafeTimeToAssumeNodeRebootedSeconds:
+                description: MinSafeTimeToAssumeNodeRebootedSeconds is the minimum
+                  value that can be assigned to SelfNodeRemediationConfigSpec.SafeTimeToAssumeNodeRebootedSeconds,
+                  it is calculated and assigned dynamically.
+                minimum: 0
+                type: integer
             type: object
         type: object
     served: true

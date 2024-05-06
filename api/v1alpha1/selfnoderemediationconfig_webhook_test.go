@@ -10,8 +10,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
-
-	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
 // default CR fields durations
@@ -80,16 +78,16 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 				updatedSnrc = originalSnrc.DeepCopy()
 				updatedSnrc.Spec.SafeTimeToAssumeNodeRebootedSeconds = 200
 			})
-			When("Annotation does not exist", func() {
+			When("MinSafeTimeToAssumeNodeRebootedSeconds does not exist or empty", func() {
 				It("validation should fail", func() {
 					err := updatedSnrc.ValidateUpdate(originalSnrc)
 					Expect(err).To(HaveOccurred())
-					Expect(err.Error()).To(MatchRegexp("annotation should not be empty"))
+					Expect(err.Error()).To(MatchRegexp("Status.MinSafeTimeToAssumeNodeRebootedSeconds should not be empty"))
 				})
 			})
-			When("Annotation value is higher than user assigned value", func() {
+			When("MinSafeTimeToAssumeNodeRebootedSeconds value is higher than user assigned value", func() {
 				BeforeEach(func() {
-					updatedSnrc.Annotations = map[string]string{utils.MinSafeTimeAnnotation: "220"}
+					updatedSnrc.Status.MinSafeTimeToAssumeNodeRebootedSeconds = 220
 				})
 				It("validation should fail", func() {
 					err := updatedSnrc.ValidateUpdate(originalSnrc)
@@ -99,7 +97,7 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 			})
 			When("Annotation value is lower than user assigned value", func() {
 				BeforeEach(func() {
-					updatedSnrc.Annotations = map[string]string{utils.MinSafeTimeAnnotation: "190"}
+					updatedSnrc.Status.MinSafeTimeToAssumeNodeRebootedSeconds = 190
 				})
 				It("validation should pass", func() {
 					Expect(updatedSnrc.ValidateUpdate(originalSnrc)).To(Succeed())
@@ -216,7 +214,7 @@ func testValidCR(validationType string) {
 	snrc.Spec.ApiCheckInterval = &metav1.Duration{Duration: 10*time.Second + 500*time.Millisecond}
 	snrc.Spec.PeerUpdateInterval = &metav1.Duration{Duration: 10 * time.Second}
 	snrc.Spec.CustomDsTolerations = []v1.Toleration{{Key: "validValue", Effect: v1.TaintEffectNoExecute}, {}, {Operator: v1.TolerationOpEqual, TolerationSeconds: pointer.Int64(-5)}, {Value: "SomeValidValue"}}
-	snrc.Annotations = map[string]string{utils.MinSafeTimeAnnotation: "150"}
+	snrc.Status.MinSafeTimeToAssumeNodeRebootedSeconds = 150
 	if validationType == "update" {
 		snrc.Spec.SafeTimeToAssumeNodeRebootedSeconds = 160
 	}

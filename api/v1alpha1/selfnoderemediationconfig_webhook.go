@@ -18,10 +18,7 @@ package v1alpha1
 
 import (
 	"fmt"
-	"strconv"
 	"time"
-
-	pkgerrors "github.com/pkg/errors"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -29,8 +26,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
-
-	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
 // fields names
@@ -182,17 +177,13 @@ func validateToleration(toleration v1.Toleration) error {
 }
 
 func (r *SelfNodeRemediationConfig) validateMinRebootTime() error {
-	annotations := r.GetAnnotations()
-	if annotations == nil {
-		return fmt.Errorf("failed to verify min value of SafeRebootTimeSec, %s annotation should not be empty", utils.MinSafeTimeAnnotation)
-
+	//TODO mshitrit remove status warning in case it's not relevant
+	if r.Status.MinSafeTimeToAssumeNodeRebootedSeconds == 0 {
+		return fmt.Errorf("failed to verify min value of SafeRebootTimeSec, Status.MinSafeTimeToAssumeNodeRebootedSeconds should not be empty")
 	}
-	if minValString, isSet := annotations[utils.MinSafeTimeAnnotation]; isSet {
-		if minVal, err := strconv.Atoi(minValString); err != nil {
-			return pkgerrors.Wrapf(err, "failed to verify min value of SafeRebootTimeSec")
-		} else if r.Spec.SafeTimeToAssumeNodeRebootedSeconds < minVal {
-			return fmt.Errorf("can not set SafeTimeToAssumeNodeRebootedSeconds value below the calculated minimum value of: %s", minValString)
-		}
+
+	if r.Status.MinSafeTimeToAssumeNodeRebootedSeconds > r.Spec.SafeTimeToAssumeNodeRebootedSeconds {
+		return fmt.Errorf("can not set SafeTimeToAssumeNodeRebootedSeconds value below the calculated minimum value of: %d", r.Status.MinSafeTimeToAssumeNodeRebootedSeconds)
 	}
 	return nil
 }

@@ -127,6 +127,11 @@ type SelfNodeRemediationConfigSpec struct {
 type SelfNodeRemediationConfigStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+
+	// MinSafeTimeToAssumeNodeRebootedSeconds is the minimum value that can be assigned to SelfNodeRemediationConfigSpec.SafeTimeToAssumeNodeRebootedSeconds, it is calculated and assigned dynamically.
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	MinSafeTimeToAssumeNodeRebootedSeconds int `json:"minSafeTimeToAssumeNodeRebootedSeconds,omitempty"`
 }
 
 //+kubebuilder:object:root=true

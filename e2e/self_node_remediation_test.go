@@ -39,18 +39,12 @@ const (
 var _ = Describe("Self Node Remediation E2E", func() {
 
 	Describe("Setup", func() {
-		It("Verify min reboot annotation", func() {
+		It("Verify min reboot status value", func() {
 			configs := v1alpha1.SelfNodeRemediationConfigList{}
 			Expect(k8sClient.List(context.Background(), &configs)).To(Succeed())
 			Expect(len(configs.Items)).To(Equal(1))
 			config := configs.Items[0]
-			annotations := config.GetAnnotations()
-			Expect(annotations).ToNot(BeNil())
-			minSafeTimeAnnotation := "minimum-safe-reboot-sec.self-node-remediation.medik8s.io"
-			minSafeTimeValueString, isExist := annotations[minSafeTimeAnnotation]
-			Expect(isExist).To(BeTrue())
-			minSafeTimeValue, err := strconv.Atoi(minSafeTimeValueString)
-			Expect(err).To(Succeed())
+			minSafeTimeValue := config.Status.MinSafeTimeToAssumeNodeRebootedSeconds
 			Expect(minSafeTimeValue).To(BeNumerically(">", 0))
 			safeTimeValue := config.Spec.SafeTimeToAssumeNodeRebootedSeconds
 			Expect(safeTimeValue).To(BeNumerically(">=", minSafeTimeValue))

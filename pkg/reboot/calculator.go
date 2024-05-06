@@ -3,14 +3,10 @@ package reboot
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/medik8s/common/pkg/events"
 	commonlabels "github.com/medik8s/common/pkg/labels"
-	pkgerrors "github.com/pkg/errors"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -20,7 +16,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/pkg/utils"
 	"github.com/medik8s/self-node-remediation/pkg/watchdog"
 )
 
@@ -81,7 +76,7 @@ func (s *safeTimeCalculator) GetTimeToAssumeNodeRebooted() time.Duration {
 	minTime := s.minTimeToAssumeNodeRebooted
 	if !s.isAgent {
 		//TODO mshitrit handle error
-		minTime, _ = s.getMinSafeTimeFromConfig()
+		minTime, _ = s.getMinSafeTimeSecFromConfig()
 	}
 
 	if s.timeToAssumeNodeRebooted < minTime {
@@ -129,88 +124,54 @@ func (s *safeTimeCalculator) calcMinTimeAssumeRebooted() error {
 //  2. In case SafeTimeToAssumeNodeRebootedSeconds is too low (either because of the default configuration or because minvalue has changed due to an update of another field) it'll set it to a valid value and issue an event.
 func (s *safeTimeCalculator) manageSafeRebootTimeInConfiguration(minTime time.Duration) error {
 	minTimeSec := int(minTime.Seconds())
-	//set it on configuration
-	confList := &v1alpha1.SelfNodeRemediationConfigList{}
-	if err := s.k8sClient.List(context.Background(), confList); err != nil {
-		s.log.Error(err, "failed to get snr configuration")
-
+	config, err := s.getConfig()
+	if err != nil {
 		return err
 	}
-
-	for _, snrConf := range confList.Items {
-		var isUpdateRequired bool
-		if snrConf.GetAnnotations() == nil {
-			snrConf.Annotations = make(map[string]string)
+	orgConfig := config.DeepCopy()
+	prevMinRebootTimeSec := config.Status.MinSafeTimeToAssumeNodeRebootedSeconds
+	if prevMinRebootTimeSec != minTimeSec {
+		config.Status.MinSafeTimeToAssumeNodeRebootedSeconds = minTimeSec
+		if config.Spec.SafeTimeToAssumeNodeRebootedSeconds != 0 && minTimeSec > config.Spec.SafeTimeToAssumeNodeRebootedSeconds {
+			//TODO mshitrit add warning to status
 		}
-		prevMinRebootTimeSec, isSet := snrConf.GetAnnotations()[utils.MinSafeTimeAnnotation]
-
-		minTimeSecString := strconv.Itoa(minTimeSec)
-		if !isSet || prevMinRebootTimeSec != minTimeSecString {
-			if !isSet {
-				s.log.Info("snr agent about to modify config adding an annotation", "annotation key", utils.MinSafeTimeAnnotation, "annotation value", minTimeSecString)
-			} else {
-				s.log.Info("snr agent about to modify config updating annotation value", "annotation key", utils.MinSafeTimeAnnotation, "annotation previous value", prevMinRebootTimeSec, "annotation new value", minTimeSecString)
-			}
-			snrConf.GetAnnotations()[utils.MinSafeTimeAnnotation] = minTimeSecString
-			isUpdateRequired = true
+		if err := s.k8sClient.Status().Patch(context.Background(), config, client.MergeFrom(orgConfig)); err != nil {
+			return err
 		}
-
-		if snrConf.Spec.SafeTimeToAssumeNodeRebootedSeconds < minTimeSec {
-			isUpdateRequired = true
-			//TODO mshitrit don't update the spec but create a warning in the status instead
-			snrConf.Spec.SafeTimeToAssumeNodeRebootedSeconds = minTimeSec
-			s.SetTimeToAssumeNodeRebooted(time.Duration(minTimeSec) * time.Second)
-			msg, reason := "Automatic update since value isn't valid anymore", "SafeTimeToAssumeNodeRebootedSecondsModified"
-			if !isSet {
-				msg = "Default value was lower than minimum value"
-			} else if prevMinRebootTimeSec != minTimeSecString {
-				msg = "Minimum value has changed and now is greater than configured value"
-			}
-			s.log.Info(fmt.Sprintf("%s:%s", reason, msg))
-			events.NormalEvent(s.recorder, &snrConf, reason, msg)
-		}
-
-		if isUpdateRequired {
-			if err := s.k8sClient.Update(context.Background(), &snrConf); err != nil {
-				s.log.Error(err, "failed to update SafeTimeToAssumeNodeRebootedSeconds with min value")
-				return err
-			}
-		}
+		//TODO mshitrit add event maybe logs
 	}
 	return nil
 }
 
-func (s *safeTimeCalculator) getMinSafeTimeFromConfig() (time.Duration, error) {
+func (s *safeTimeCalculator) getMinSafeTimeSecFromConfig() (time.Duration, error) {
 	//TODO mshitrit add some logs
+	config, err := s.getConfig()
+	if err != nil {
+		return 0, err
+	}
+
+	minTimeSec := config.Status.MinSafeTimeToAssumeNodeRebootedSeconds
+	if minTimeSec > 0 {
+		return time.Duration(minTimeSec) * time.Second, nil
+	}
+
+	return 0, errors.New("failed getting MinSafeTimeToAssumeNodeRebootedSeconds, value isn't initialized")
+}
+
+func (s *safeTimeCalculator) getConfig() (*v1alpha1.SelfNodeRemediationConfig, error) {
 	confList := &v1alpha1.SelfNodeRemediationConfigList{}
 	if err := s.k8sClient.List(context.Background(), confList); err != nil {
 		s.log.Error(err, "failed to get snr configuration")
-
-		return 0, err
+		return nil, err
 	}
 
 	var config v1alpha1.SelfNodeRemediationConfig
 	if len(confList.Items) < 1 {
-		return 0, errors.New("SNR config not found")
+		return nil, errors.New("SNR config not found")
 	} else {
 		config = confList.Items[0]
 	}
-
-	if config.GetAnnotations() == nil {
-		return 0, errors.New("failed getting MinSafeTimeFromConfig config does not contain annotations")
-	}
-
-	minTimeSecString, isFound := config.GetAnnotations()[utils.MinSafeTimeAnnotation]
-	if !isFound {
-		return 0, fmt.Errorf("failed getting MinSafeTimeFromConfig config does not contain %s annotation", utils.MinSafeTimeAnnotation)
-	}
-
-	minTimeSec, err := strconv.Atoi(minTimeSecString)
-	if err != nil {
-		return 0, pkgerrors.Wrapf(err, "failed getting MinSafeTimeFromConfig")
-	}
-	return time.Duration(minTimeSec) * time.Second, nil
-
+	return &config, nil
 }
 
 func (s *safeTimeCalculator) IsAgent() bool {
