@@ -176,8 +176,9 @@ spec:
                   it is calculated and assigned dynamically.
                 minimum: 0
                 type: integer
-              specNotUsedWarning:
-                description: SpecNotUsedWarning field is used to indicate that SelfNodeRemediationConfigSpec.SafeTimeToAssumeNodeRebootedSeconds
+              specSafeTimeOverriddenWarning:
+                description: SpecSafeTimeOverriddenWarning field is used to indicate
+                  that SelfNodeRemediationConfigSpec.SafeTimeToAssumeNodeRebootedSeconds
                   is overridden by SelfNodeRemediationConfigStatus.MinSafeTimeToAssumeNodeRebootedSeconds
                   because SelfNodeRemediationConfigStatus.MinSafeTimeToAssumeNodeRebootedSeconds
                   is greater than SelfNodeRemediationConfigSpec.SafeTimeToAssumeNodeRebootedSeconds.

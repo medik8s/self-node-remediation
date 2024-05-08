@@ -134,9 +134,9 @@ type SelfNodeRemediationConfigStatus struct {
 	// +kubebuilder:validation:Minimum=0
 	MinSafeTimeToAssumeNodeRebootedSeconds int `json:"minSafeTimeToAssumeNodeRebootedSeconds,omitempty"`
 
-	// SpecNotUsedWarning field is used to indicate that SelfNodeRemediationConfigSpec.SafeTimeToAssumeNodeRebootedSeconds is overridden by SelfNodeRemediationConfigStatus.MinSafeTimeToAssumeNodeRebootedSeconds because SelfNodeRemediationConfigStatus.MinSafeTimeToAssumeNodeRebootedSeconds is greater than SelfNodeRemediationConfigSpec.SafeTimeToAssumeNodeRebootedSeconds.
+	// SpecSafeTimeOverriddenWarning field is used to indicate that SelfNodeRemediationConfigSpec.SafeTimeToAssumeNodeRebootedSeconds is overridden by SelfNodeRemediationConfigStatus.MinSafeTimeToAssumeNodeRebootedSeconds because SelfNodeRemediationConfigStatus.MinSafeTimeToAssumeNodeRebootedSeconds is greater than SelfNodeRemediationConfigSpec.SafeTimeToAssumeNodeRebootedSeconds.
 	// +optional
-	SpecNotUsedWarning string `json:"specNotUsedWarning,omitempty"`
+	SpecSafeTimeOverriddenWarning string `json:"specSafeTimeOverriddenWarning,omitempty"`
 }
 
 //+kubebuilder:object:root=true

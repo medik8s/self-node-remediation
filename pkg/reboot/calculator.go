@@ -125,7 +125,7 @@ func (s *safeTimeCalculator) calcMinTimeAssumeRebooted() error {
 
 // manageSafeRebootTimeInConfiguration does two things:
 //  1. It sets Status.MinSafeTimeToAssumeNodeRebootedSeconds in case it's changed by latest calculation.
-//  2. It Adds/removes config.Status.SpecNotUsedWarning if necessary.
+//  2. It Adds/removes config.Status.SpecSafeTimeOverriddenWarning if necessary.
 func (s *safeTimeCalculator) manageSafeRebootTimeInConfiguration(minTime time.Duration) error {
 	minTimeSec := int(minTime.Seconds())
 	config, err := s.getConfig()
@@ -138,9 +138,9 @@ func (s *safeTimeCalculator) manageSafeRebootTimeInConfiguration(minTime time.Du
 		config.Status.MinSafeTimeToAssumeNodeRebootedSeconds = minTimeSec
 	}
 	//Manage warning
-	config.Status.SpecNotUsedWarning = ""
+	config.Status.SpecSafeTimeOverriddenWarning = ""
 	if config.Spec.SafeTimeToAssumeNodeRebootedSeconds > 0 && minTimeSec > config.Spec.SafeTimeToAssumeNodeRebootedSeconds {
-		config.Status.SpecNotUsedWarning = v1alpha1.SafeTimeToAssumeNodeRebootedSecondsWarning
+		config.Status.SpecSafeTimeOverriddenWarning = v1alpha1.SafeTimeToAssumeNodeRebootedSecondsWarning
 		s.log.Info("SafeTimeToAssumeNodeRebootedSeconds is overridden by calculated value because it's invalid, calculated value stored in Status.MinSafeTimeToAssumeNodeRebootedSeconds would be used instead")
 		events.WarningEvent(s.recorder, config, "SafeTimeToAssumeNodeRebootedSecondsInvalid", "SafeTimeToAssumeNodeRebootedSeconds is overridden by calculated value")
 	}
