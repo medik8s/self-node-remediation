@@ -19,6 +19,8 @@ package v1alpha1
 import (
 	"fmt"
 
+	commonAnnotations "github.com/medik8s/common/pkg/annotations"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -36,6 +38,21 @@ func (r *SelfNodeRemediationTemplate) SetupWebhookWithManager(mgr ctrl.Manager) 
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(r).
 		Complete()
+}
+
+// +kubebuilder:webhook:path=/mutate-self-node-remediation-medik8s-io-v1alpha1-selfnoderemediationtemplate,mutating=true,failurePolicy=fail,sideEffects=None,groups=self-node-remediation.medik8s.io,resources=selfnoderemediationtemplates,verbs=create;update,versions=v1alpha1,name=mselfnoderemediationtemplate.kb.io,admissionReviewVersions=v1
+
+var _ webhook.Defaulter = &SelfNodeRemediationTemplate{}
+
+// Default implements webhook.Defaulter so a webhook will be registered for the type
+func (r *SelfNodeRemediationTemplate) Default() {
+	webhookTemplateLog.Info("default", "name", r.Name)
+	if r.GetAnnotations() == nil {
+		r.Annotations = make(map[string]string)
+	}
+	if _, isSameKindSupported := r.GetAnnotations()[commonAnnotations.MultipleTemplatesSupportedAnnotation]; !isSameKindSupported {
+		r.Annotations[commonAnnotations.MultipleTemplatesSupportedAnnotation] = "true"
+	}
 }
 
 //+kubebuilder:webhook:path=/validate-self-node-remediation-medik8s-io-v1alpha1-selfnoderemediationtemplate,mutating=false,failurePolicy=fail,sideEffects=None,groups=self-node-remediation.medik8s.io,resources=selfnoderemediationtemplates,verbs=create;update,versions=v1alpha1,name=vselfnoderemediationtemplate.kb.io,admissionReviewVersions=v1
