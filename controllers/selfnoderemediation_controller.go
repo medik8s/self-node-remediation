@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	commonAnnotations "github.com/medik8s/common/pkg/annotations"
 	"github.com/medik8s/common/pkg/events"
 	"github.com/medik8s/common/pkg/resources"
 	"github.com/pkg/errors"
@@ -155,16 +156,7 @@ func (r *SelfNodeRemediationReconciler) SetupWithManager(mgr ctrl.Manager) error
 func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (returnResult ctrl.Result, returnErr error) {
 	r.logger = r.Log.WithValues("selfnoderemediation", req.NamespacedName)
 
-	if r.IsAgent() {
-		if req.Name != r.MyNodeName {
-			r.logger.Info("agent pod skipping remediation because node belongs to a different agent", "Agent node name", r.MyNodeName, "Remediated node name", req.Name)
-			return ctrl.Result{}, nil
-		}
-		r.logger.Info("agent pod starting remediation on owned node")
-	}
-
 	snr := &v1alpha1.SelfNodeRemediation{}
-
 	if err := r.Get(ctx, req.NamespacedName, snr); err != nil {
 		if apiErrors.IsNotFound(err) {
 			// SNR is deleted, stop reconciling
@@ -173,6 +165,15 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 		}
 		r.logger.Error(err, "failed to get SNR")
 		return ctrl.Result{}, err
+	}
+
+	if r.IsAgent() {
+		targetNodeName := getNodeName(snr)
+		if targetNodeName != r.MyNodeName {
+			r.logger.Info("agent pod skipping remediation because node belongs to a different agent", "Agent node name", r.MyNodeName, "Node name", targetNodeName)
+			return ctrl.Result{}, nil
+		}
+		r.logger.Info("agent pod starting remediation on owned node")
 	}
 
 	defer func() {
@@ -210,13 +211,13 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	node, err := r.getNodeFromSnr(snr)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
-			r.logger.Info("couldn't find node matching remediation", "node name", snr.Name)
+			r.logger.Info("couldn't find node matching remediation", "remediation name", snr.Name)
 			if updateErr := r.updateConditions(remediationSkippedNodeNotFound, snr); updateErr != nil {
 				return ctrl.Result{}, updateErr
 			}
 			events.GetTargetNodeFailed(r.Recorder, snr)
 		} else {
-			r.logger.Error(err, "failed to get node", "node name", snr.Name)
+			r.logger.Error(err, "failed to get node", "remediation name", snr.Name)
 		}
 		return ctrl.Result{}, r.updateSnrStatusLastError(snr, err)
 	}
@@ -647,10 +648,11 @@ func (r *SelfNodeRemediationReconciler) getNodeFromSnr(snr *v1alpha1.SelfNodeRem
 		}
 	}
 
-	//since we didn't find a machine owner ref, we assume that snr name is the unhealthy node name
+	// since we didn't find a Machine owner ref, we assume that SNR remediation contains the node's name either in the
+	// remediation Name or in its annotation
 	node := &v1.Node{}
 	key := client.ObjectKey{
-		Name:      snr.Name,
+		Name:      getNodeName(snr),
 		Namespace: "",
 	}
 
@@ -930,4 +932,14 @@ func IsOwnedByNHC(snr *v1alpha1.SelfNodeRemediation) bool {
 		}
 	}
 	return false
+}
+
+// getNodeName checks for the node name in SNR CR's annotation. If it does not exist it assumes the node name equals to SNR CR's name and returns it.
+func getNodeName(snr *v1alpha1.SelfNodeRemediation) string {
+	if ann := snr.GetAnnotations(); ann != nil {
+		if nodeName, isNodeNameAnnotationExist := ann[commonAnnotations.NodeNameAnnotation]; isNodeNameAnnotationExist {
+			return nodeName
+		}
+	}
+	return snr.GetName()
 }
