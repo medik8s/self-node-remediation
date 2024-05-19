@@ -38,7 +38,6 @@ import (
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/pkg/apply"
 	"github.com/medik8s/self-node-remediation/pkg/certificates"
-	"github.com/medik8s/self-node-remediation/pkg/reboot"
 	"github.com/medik8s/self-node-remediation/pkg/render"
 )
 
@@ -49,12 +48,11 @@ const (
 // SelfNodeRemediationConfigReconciler reconciles a SelfNodeRemediationConfig object
 type SelfNodeRemediationConfigReconciler struct {
 	client.Client
-	Log                       logr.Logger
-	Scheme                    *runtime.Scheme
-	InstallFileFolder         string
-	DefaultPpcCreator         func(c client.Client) error
-	Namespace                 string
-	ManagerSafeTimeCalculator reboot.SafeTimeCalculator
+	Log               logr.Logger
+	Scheme            *runtime.Scheme
+	InstallFileFolder string
+	DefaultPpcCreator func(c client.Client) error
+	Namespace         string
 }
 
 //+kubebuilder:rbac:groups=self-node-remediation.medik8s.io,resources=selfnoderemediationconfigs,verbs=get;list;watch;create;update;patch;delete
@@ -100,8 +98,6 @@ func (r *SelfNodeRemediationConfigReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, err
 	}
 
-	//sync manager reconciler
-	r.ManagerSafeTimeCalculator.SetTimeToAssumeNodeRebooted(time.Duration(config.Spec.SafeTimeToAssumeNodeRebootedSeconds) * time.Second)
 	return ctrl.Result{}, nil
 }
 

@@ -11,6 +11,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -27,6 +28,9 @@ var _ = Describe("SNR Config Test", func() {
 
 	BeforeEach(func() {
 		ds = &appsv1.DaemonSet{}
+		ds.Name = dsName
+		ds.Namespace = shared.Namespace
+
 		_ = os.Setenv("SELF_NODE_REMEDIATION_IMAGE", dummySelfNodeRemediationImage)
 		config = &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}
 		config.Kind = "SelfNodeRemediationConfig"
@@ -46,10 +50,19 @@ var _ = Describe("SNR Config Test", func() {
 		}
 
 		JustBeforeEach(func() {
+			minSafeTimeToAssumeNodeRebootedSeconds := config.Status.MinSafeTimeToAssumeNodeRebootedSeconds
 			Expect(k8sClient.Create(context.Background(), config)).To(Succeed())
+			if minSafeTimeToAssumeNodeRebootedSeconds > 0 {
+				config.Status.MinSafeTimeToAssumeNodeRebootedSeconds = minSafeTimeToAssumeNodeRebootedSeconds
+				time.Sleep(time.Second)
+				Expect(k8sClient.Status().Update(context.Background(), config)).To(Succeed())
+			}
+
 			DeferCleanup(func() {
 				Expect(k8sClient.Delete(context.Background(), config)).To(Succeed())
-				k8sClient.Delete(context.Background(), ds)
+				if err := k8sClient.Delete(context.Background(), ds); err != nil {
+					Expect(apierrors.IsNotFound(err)).To(BeTrue())
+				}
 			})
 
 		})
@@ -148,19 +161,12 @@ var _ = Describe("SNR Config Test", func() {
 		})
 		When("SafeTimeToAssumeNodeRebootedSeconds is modified in Configuration", func() {
 			BeforeEach(func() {
-				Expect(managerReconciler.SafeTimeCalculator.GetTimeToAssumeNodeRebooted()).ToNot(Equal(time.Minute))
-				config.Spec.SafeTimeToAssumeNodeRebootedSeconds = 60
+				config.Spec.SafeTimeToAssumeNodeRebootedSeconds = 65
+				config.Status.MinSafeTimeToAssumeNodeRebootedSeconds = 50
 			})
-			It("The Manager Reconciler and the DS should be modified with the new value", func() {
+			It("SafeTimeCalculator of the manager gets the correct TimeToAssumeNodeRebooted value from the configuration", func() {
 				Eventually(func(g Gomega) bool {
-					ds = &appsv1.DaemonSet{}
-					g.Expect(k8sClient.Get(context.Background(), key, ds)).To(Succeed())
-					dsContainers := ds.Spec.Template.Spec.Containers
-					g.Expect(len(dsContainers)).To(BeNumerically("==", 1))
-					container := dsContainers[0]
-					envVars := getEnvVarMap(container.Env)
-					g.Expect(envVars["TIME_TO_ASSUME_NODE_REBOOTED"].Value).To(Equal("60"))
-					g.Expect(managerReconciler.SafeTimeCalculator.GetTimeToAssumeNodeRebooted()).To(Equal(time.Minute))
+					g.Expect(managerReconciler.SafeTimeCalculator.GetTimeToAssumeNodeRebooted()).To(Equal(time.Second * 65))
 					return true
 				}, 10*time.Second, 250*time.Millisecond).Should(BeTrue())
 			})

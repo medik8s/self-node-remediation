@@ -187,13 +187,12 @@ func initSelfNodeRemediationManager(mgr manager.Manager, enableHTTP2 bool) {
 	}
 
 	if err := (&controllers.SelfNodeRemediationConfigReconciler{
-		Client:                    mgr.GetClient(),
-		Log:                       ctrl.Log.WithName("controllers").WithName("SelfNodeRemediationConfig"),
-		Scheme:                    mgr.GetScheme(),
-		InstallFileFolder:         "./install",
-		DefaultPpcCreator:         snrconfighelper.NewConfigIfNotExist,
-		Namespace:                 ns,
-		ManagerSafeTimeCalculator: safeRebootCalc,
+		Client:            mgr.GetClient(),
+		Log:               ctrl.Log.WithName("controllers").WithName("SelfNodeRemediationConfig"),
+		Scheme:            mgr.GetScheme(),
+		InstallFileFolder: "./install",
+		DefaultPpcCreator: snrconfighelper.NewConfigIfNotExist,
+		Namespace:         ns,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SelfNodeRemediationConfig")
 		os.Exit(1)

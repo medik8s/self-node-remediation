@@ -39,6 +39,7 @@ import (
 	"github.com/medik8s/self-node-remediation/pkg/apicheck"
 	"github.com/medik8s/self-node-remediation/pkg/certificates"
 	"github.com/medik8s/self-node-remediation/pkg/peers"
+	"github.com/medik8s/self-node-remediation/pkg/reboot"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -95,14 +96,12 @@ var _ = BeforeSuite(func() {
 
 	Expect(k8sClient.Create(context.Background(), nsToCreate)).To(Succeed())
 	Expect(err).ToNot(HaveOccurred())
-	mockManagerCalculator := &mockCalculator{isAgent: false}
 	err = (&controllers.SelfNodeRemediationConfigReconciler{
-		Client:                    k8sManager.GetClient(),
-		Log:                       ctrl.Log.WithName("controllers").WithName("self-node-remediation-config-controller"),
-		InstallFileFolder:         "../../../install/",
-		Scheme:                    scheme.Scheme,
-		Namespace:                 shared.Namespace,
-		ManagerSafeTimeCalculator: mockManagerCalculator,
+		Client:            k8sManager.GetClient(),
+		Log:               ctrl.Log.WithName("controllers").WithName("self-node-remediation-config-controller"),
+		InstallFileFolder: "../../../install/",
+		Scheme:            scheme.Scheme,
+		Namespace:         shared.Namespace,
 	}).SetupWithManager(k8sManager)
 
 	// peers need their own node on start
@@ -132,7 +131,7 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	restoreNodeAfter := 5 * time.Second
-	mockAgentCalculator := &mockCalculator{isAgent: true}
+	mockAgentCalculator := reboot.NewAgentSafeTimeCalculator(k8sClient, nil, nil, 0, 0, 0, 0, 0, 0)
 	// reconciler for unhealthy node
 	err = (&controllers.SelfNodeRemediationReconciler{
 		Client:             k8sClient,
@@ -159,7 +158,7 @@ var _ = BeforeSuite(func() {
 		Log:                ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("manager node"),
 		MyNodeName:         shared.PeerNodeName,
 		RestoreNodeAfter:   restoreNodeAfter,
-		SafeTimeCalculator: mockManagerCalculator,
+		SafeTimeCalculator: reboot.NewManagerSafeTimeCalculator(k8sClient),
 	}
 	err = managerReconciler.SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
@@ -191,25 +190,3 @@ var _ = AfterSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 })
-
-type mockCalculator struct {
-	mockTimeToAssumeNodeRebooted time.Duration
-	isAgent                      bool
-}
-
-func (m *mockCalculator) GetTimeToAssumeNodeRebooted() (time.Duration, error) {
-	return m.mockTimeToAssumeNodeRebooted, nil
-}
-
-func (m *mockCalculator) SetTimeToAssumeNodeRebooted(timeToAssumeNodeRebooted time.Duration) {
-	m.mockTimeToAssumeNodeRebooted = timeToAssumeNodeRebooted
-}
-
-func (m *mockCalculator) IsAgent() bool {
-	return m.isAgent
-}
-
-//goland:noinspection GoUnusedParameter
-func (m *mockCalculator) Start(ctx context.Context) error {
-	return nil
-}

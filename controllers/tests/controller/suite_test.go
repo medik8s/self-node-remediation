@@ -128,12 +128,11 @@ var _ = BeforeSuite(func() {
 	timeToAssumeNodeRebooted += 5 * time.Second
 	mockManagerCalculator := &shared.MockCalculator{MockTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted, IsAgentVar: false}
 	err = (&controllers.SelfNodeRemediationConfigReconciler{
-		Client:                    k8sManager.GetClient(),
-		Log:                       ctrl.Log.WithName("controllers").WithName("self-node-remediation-config-controller"),
-		InstallFileFolder:         "../../../install/",
-		Scheme:                    testScheme,
-		Namespace:                 shared.Namespace,
-		ManagerSafeTimeCalculator: mockManagerCalculator,
+		Client:            k8sManager.GetClient(),
+		Log:               ctrl.Log.WithName("controllers").WithName("self-node-remediation-config-controller"),
+		InstallFileFolder: "../../../install/",
+		Scheme:            testScheme,
+		Namespace:         shared.Namespace,
 	}).SetupWithManager(k8sManager)
 
 	// peers need their own node on start

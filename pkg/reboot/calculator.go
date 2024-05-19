@@ -32,7 +32,6 @@ type SafeTimeCalculator interface {
 	// note that this time must include the time for a unhealthy node without api-server access to reach the conclusion that it's unhealthy
 	// this should be at least worst-case time to reach a conclusion from the other peers * request context timeout + watchdog interval + maxFailuresThreshold * reconcileInterval + padding
 	GetTimeToAssumeNodeRebooted() (time.Duration, error)
-	SetTimeToAssumeNodeRebooted(time.Duration)
 	Start(ctx context.Context) error
 	//IsAgent return true in case running on an agent pod (responsible for reboot) or false in case running on a manager pod
 	IsAgent() bool
@@ -76,21 +75,21 @@ func NewManagerSafeTimeCalculator(k8sClient client.Client) SafeTimeCalculator {
 
 func (s *safeTimeCalculator) GetTimeToAssumeNodeRebooted() (time.Duration, error) {
 	minTime := s.minTimeToAssumeNodeRebooted
-	var err error
 	if !s.isAgent {
-		if minTime, err = s.getMinSafeTimeSecFromConfig(); err != nil {
+		config, err := s.getConfig()
+		if err != nil {
 			return 0, err
 		}
+		if minTime, err = s.getMinSafeTimeSecFromConfig(config); err != nil {
+			return 0, err
+		}
+		s.timeToAssumeNodeRebooted = time.Duration(config.Spec.SafeTimeToAssumeNodeRebootedSeconds) * time.Second
 	}
 
 	if s.timeToAssumeNodeRebooted < minTime {
 		return minTime, nil
 	}
 	return s.timeToAssumeNodeRebooted, nil
-}
-
-func (s *safeTimeCalculator) SetTimeToAssumeNodeRebooted(timeToAssumeNodeRebooted time.Duration) {
-	s.timeToAssumeNodeRebooted = timeToAssumeNodeRebooted
 }
 
 func (s *safeTimeCalculator) Start(_ context.Context) error {
@@ -154,18 +153,13 @@ func (s *safeTimeCalculator) manageSafeRebootTimeInConfiguration(minTime time.Du
 	return nil
 }
 
-func (s *safeTimeCalculator) getMinSafeTimeSecFromConfig() (time.Duration, error) {
-	config, err := s.getConfig()
-	if err != nil {
-		return 0, err
-	}
-
+func (s *safeTimeCalculator) getMinSafeTimeSecFromConfig(config *v1alpha1.SelfNodeRemediationConfig) (time.Duration, error) {
 	minTimeSec := config.Status.MinSafeTimeToAssumeNodeRebootedSeconds
 	if minTimeSec > 0 {
 		return time.Duration(minTimeSec) * time.Second, nil
 	}
 
-	err = errors.New("failed getting MinSafeTimeToAssumeNodeRebootedSeconds, value isn't initialized")
+	err := errors.New("failed getting MinSafeTimeToAssumeNodeRebootedSeconds, value isn't initialized")
 	s.log.Error(err, "MinSafeTimeToAssumeNodeRebootedSeconds should not be empty")
 	return 0, err
 }
