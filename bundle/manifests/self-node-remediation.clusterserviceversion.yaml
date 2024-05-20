@@ -62,6 +62,13 @@ spec:
       - kind: SelfNodeRemediationConfig
         name: selfnoderemediationconfigs
         version: v1alpha1
+      statusDescriptors:
+      - description: 'Represents the observations of a SelfNodeRemediationConfig''s
+          current state. Known .status.conditions.type are: "SafeTimeToAssumeNodeRebootedOverridden"'
+        displayName: conditions
+        path: conditions
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:conditions
       version: v1alpha1
     - description: SelfNodeRemediation is the Schema for the selfnoderemediations
         API

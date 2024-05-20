@@ -11,6 +11,8 @@ import (
 	commonlabels "github.com/medik8s/common/pkg/labels"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/client-go/tools/record"
@@ -136,10 +138,19 @@ func (s *safeTimeCalculator) manageSafeRebootTimeInConfiguration(minTime time.Du
 	if prevMinRebootTimeSec != minTimeSec {
 		config.Status.MinSafeTimeToAssumeNodeRebootedSeconds = minTimeSec
 	}
-	//Manage warning
-	config.Status.SpecSafeTimeOverriddenWarning = ""
+	//Manage condition
+	meta.SetStatusCondition(&config.Status.Conditions, metav1.Condition{
+		Type:   v1alpha1.SafeTimeToAssumeNodeRebootedOverriddenConditionType,
+		Status: metav1.ConditionFalse,
+		Reason: "SafeTimeToAssumeNodeRebootedSeconds is valid or empty",
+	})
 	if config.Spec.SafeTimeToAssumeNodeRebootedSeconds > 0 && minTimeSec > config.Spec.SafeTimeToAssumeNodeRebootedSeconds {
-		config.Status.SpecSafeTimeOverriddenWarning = v1alpha1.SafeTimeToAssumeNodeRebootedSecondsWarning
+		meta.SetStatusCondition(&config.Status.Conditions, metav1.Condition{
+			Type:   v1alpha1.SafeTimeToAssumeNodeRebootedOverriddenConditionType,
+			Status: metav1.ConditionTrue,
+			Reason: "SafeTimeToAssumeNodeRebootedSeconds is overridden by calculated value because it's invalid",
+		})
+
 		s.log.Info("SafeTimeToAssumeNodeRebootedSeconds is overridden by calculated value because it's invalid, calculated value stored in Status.MinSafeTimeToAssumeNodeRebootedSeconds would be used instead")
 		events.WarningEvent(s.recorder, config, "SafeTimeToAssumeNodeRebootedSecondsInvalid", "SafeTimeToAssumeNodeRebootedSeconds is overridden by calculated value")
 	}

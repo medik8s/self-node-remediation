@@ -25,10 +25,12 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 const (
-	ConfigCRName                               = "self-node-remediation-config"
-	defaultWatchdogPath                        = "/dev/watchdog"
-	defaultIsSoftwareRebootEnabled             = true
-	SafeTimeToAssumeNodeRebootedSecondsWarning = "using the calculated min value instead of SafeTimeToAssumeNodeRebootedSeconds Spec"
+	ConfigCRName                   = "self-node-remediation-config"
+	defaultWatchdogPath            = "/dev/watchdog"
+	defaultIsSoftwareRebootEnabled = true
+
+	// SafeTimeToAssumeNodeRebootedOverriddenConditionType is the condition type used to signal whether SNR is overriding  SelfNodeRemediationConfigSpec.SafeTimeToAssumeNodeRebootedSeconds with SelfNodeRemediationConfigStatus.MinSafeTimeToAssumeNodeRebootedSeconds
+	SafeTimeToAssumeNodeRebootedOverriddenConditionType = "SafeTimeToAssumeNodeRebootedOverridden"
 )
 
 // SelfNodeRemediationConfigSpec defines the desired state of SelfNodeRemediationConfig
@@ -133,9 +135,13 @@ type SelfNodeRemediationConfigStatus struct {
 	// +kubebuilder:validation:Minimum=0
 	MinSafeTimeToAssumeNodeRebootedSeconds int `json:"minSafeTimeToAssumeNodeRebootedSeconds,omitempty"`
 
-	// SpecSafeTimeOverriddenWarning field is used to indicate that SelfNodeRemediationConfigSpec.SafeTimeToAssumeNodeRebootedSeconds is overridden by SelfNodeRemediationConfigStatus.MinSafeTimeToAssumeNodeRebootedSeconds because SelfNodeRemediationConfigStatus.MinSafeTimeToAssumeNodeRebootedSeconds is greater than SelfNodeRemediationConfigSpec.SafeTimeToAssumeNodeRebootedSeconds.
+	// +operator-sdk:csv:customresourcedefinitions:type=status,displayName="conditions",xDescriptors="urn:alm:descriptor:com.tectonic.ui:conditions"
+	// Represents the observations of a SelfNodeRemediationConfig's current state.
+	// Known .status.conditions.type are: "SafeTimeToAssumeNodeRebootedOverridden"
+	// +listType=map
+	// +listMapKey=type
 	// +optional
-	SpecSafeTimeOverriddenWarning string `json:"specSafeTimeOverriddenWarning,omitempty"`
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 //+kubebuilder:object:root=true
