@@ -94,11 +94,11 @@ func (s *safeTimeCalculator) GetTimeToAssumeNodeRebooted() (time.Duration, error
 	return s.timeToAssumeNodeRebooted, nil
 }
 
-func (s *safeTimeCalculator) Start(_ context.Context) error {
-	return s.calcMinTimeAssumeRebooted()
+func (s *safeTimeCalculator) Start(ctx context.Context) error {
+	return s.calcMinTimeAssumeRebooted(ctx)
 }
 
-func (s *safeTimeCalculator) calcMinTimeAssumeRebooted() error {
+func (s *safeTimeCalculator) calcMinTimeAssumeRebooted(ctx context.Context) error {
 	if !s.isAgent {
 		return nil
 	}
@@ -117,7 +117,7 @@ func (s *safeTimeCalculator) calcMinTimeAssumeRebooted() error {
 	s.minTimeToAssumeNodeRebooted = minTime
 
 	//update related logic of min time on configuration if necessary
-	if err := s.manageSafeRebootTimeInConfiguration(minTime); err != nil {
+	if err := s.manageSafeRebootTimeInConfiguration(ctx, minTime); err != nil {
 		return err
 	}
 
@@ -127,7 +127,7 @@ func (s *safeTimeCalculator) calcMinTimeAssumeRebooted() error {
 // manageSafeRebootTimeInConfiguration does two things:
 //  1. It sets Status.MinSafeTimeToAssumeNodeRebootedSeconds in case it's changed by latest calculation.
 //  2. It Adds/removes config.Status.SpecSafeTimeOverriddenWarning if necessary.
-func (s *safeTimeCalculator) manageSafeRebootTimeInConfiguration(minTime time.Duration) error {
+func (s *safeTimeCalculator) manageSafeRebootTimeInConfiguration(ctx context.Context, minTime time.Duration) error {
 	minTimeSec := int(minTime.Seconds())
 	config, err := s.getConfig()
 	if err != nil {
@@ -156,7 +156,7 @@ func (s *safeTimeCalculator) manageSafeRebootTimeInConfiguration(minTime time.Du
 	}
 
 	if !reflect.DeepEqual(config, orgConfig) {
-		if err := s.k8sClient.Status().Patch(context.Background(), config, client.MergeFrom(orgConfig)); err != nil {
+		if err := s.k8sClient.Status().Patch(ctx, config, client.MergeFrom(orgConfig)); err != nil {
 			return err
 		}
 	}
