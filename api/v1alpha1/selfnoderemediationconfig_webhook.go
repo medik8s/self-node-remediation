@@ -75,7 +75,6 @@ func (r *SelfNodeRemediationConfig) ValidateCreate() error {
 	return errors.NewAggregate([]error{
 		r.validateTimes(),
 		r.validateCustomTolerations(),
-		r.validateSafeTimeEmpty(),
 	})
 
 }
@@ -188,13 +187,6 @@ func (r *SelfNodeRemediationConfig) validateMinRebootTime() error {
 
 	if r.Status.MinSafeTimeToAssumeNodeRebootedSeconds > r.Spec.SafeTimeToAssumeNodeRebootedSeconds {
 		return fmt.Errorf("can not set SafeTimeToAssumeNodeRebootedSeconds value below the calculated minimum value of: %d", r.Status.MinSafeTimeToAssumeNodeRebootedSeconds)
-	}
-	return nil
-}
-
-func (r *SelfNodeRemediationConfig) validateSafeTimeEmpty() error {
-	if r.Spec.SafeTimeToAssumeNodeRebootedSeconds > 0 {
-		return fmt.Errorf("SafeTimeToAssumeNodeRebootedSeconds can only be set after configuration is created")
 	}
 	return nil
 }

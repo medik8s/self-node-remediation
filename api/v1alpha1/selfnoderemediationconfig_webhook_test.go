@@ -180,11 +180,6 @@ func testMultipleInvalidFields(validationType string) {
 	snrc.Spec.CustomDsTolerations = []v1.Toleration{{Key: "validValue", Operator: "dummyInvalidOperatorValue"}}
 	errorMsg += ", invalid operator for toleration: dummyInvalidOperatorValue"
 
-	if validationType == "create" {
-		setFieldValue(snrc, safeTimeToAssumeNodeRebootedSeconds, 180)
-		errorMsg += ", SafeTimeToAssumeNodeRebootedSeconds can only be set after configuration is created"
-	}
-
 	Context("for CR multiple invalid fields", func() {
 		It("should be rejected", func() {
 			var err error
