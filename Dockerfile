@@ -30,7 +30,7 @@ COPY install/ install/
 # Build
 RUN ./hack/build.sh
 
-FROM registry.access.redhat.com/ubi8/ubi:latest
+FROM registry.access.redhat.com/ubi9/ubi:latest
 
 WORKDIR /
 COPY --from=builder /workspace/install/ install/
