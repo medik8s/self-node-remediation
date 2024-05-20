@@ -69,7 +69,6 @@ type SelfNodeRemediationConfigSpec struct {
 	// +optional
 	// +kubebuilder:default:="15m"
 	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ms|s|m|h)))$|^([1-9][0-9]*m0s)$"
-
 	// +kubebuilder:validation:Type:=string
 	PeerUpdateInterval *metav1.Duration `json:"peerUpdateInterval,omitempty"`
 
