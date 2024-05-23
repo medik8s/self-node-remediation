@@ -138,21 +138,25 @@ func (s *safeTimeCalculator) manageSafeRebootTimeInConfiguration(ctx context.Con
 	if prevMinRebootTimeSec != minTimeSec {
 		config.Status.MinSafeTimeToAssumeNodeRebootedSeconds = minTimeSec
 	}
+
 	//Manage condition
-	meta.SetStatusCondition(&config.Status.Conditions, metav1.Condition{
-		Type:   v1alpha1.SafeTimeToAssumeNodeRebootedOverriddenConditionType,
-		Status: metav1.ConditionFalse,
-		Reason: "SafeTimeToAssumeNodeRebootedSeconds is valid or empty",
-	})
 	if config.Spec.SafeTimeToAssumeNodeRebootedSeconds > 0 && minTimeSec > config.Spec.SafeTimeToAssumeNodeRebootedSeconds {
 		meta.SetStatusCondition(&config.Status.Conditions, metav1.Condition{
-			Type:   v1alpha1.SafeTimeToAssumeNodeRebootedOverriddenConditionType,
-			Status: metav1.ConditionTrue,
-			Reason: "SafeTimeToAssumeNodeRebootedSeconds is overridden by calculated value because it's invalid",
+			Type:    v1alpha1.SafeTimeToAssumeNodeRebootedOverriddenConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "SafeTimeIsInvalid",
+			Message: "Spec.SafeTimeToAssumeNodeRebootedSeconds is overridden because it's invalid, its value is lower than the automatically minimum calculated value at Status.MinSafeTimeToAssumeNodeRebootedSeconds",
 		})
 
 		s.log.Info("SafeTimeToAssumeNodeRebootedSeconds is overridden by calculated value because it's invalid, calculated value stored in Status.MinSafeTimeToAssumeNodeRebootedSeconds would be used instead")
 		events.WarningEvent(s.recorder, config, "SafeTimeToAssumeNodeRebootedSecondsInvalid", "SafeTimeToAssumeNodeRebootedSeconds is overridden by calculated value")
+	} else {
+		meta.SetStatusCondition(&config.Status.Conditions, metav1.Condition{
+			Type:    v1alpha1.SafeTimeToAssumeNodeRebootedOverriddenConditionType,
+			Status:  metav1.ConditionFalse,
+			Reason:  "SafeTimeIsValid",
+			Message: "Spec.SafeTimeToAssumeNodeRebootedSeconds is valid because it isn't lower than the automatically minimum calculated value at Status.MinSafeTimeToAssumeNodeRebootedSeconds",
+		})
 	}
 
 	if !reflect.DeepEqual(config, orgConfig) {
