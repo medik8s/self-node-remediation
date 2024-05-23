@@ -1,6 +1,6 @@
 # Build the manager binary
 FROM quay.io/centos/centos:stream9 AS builder
-RUN yum install git golang jq -y && yum clean all
+RUN yum install git jq -y && yum clean all
 
 WORKDIR /workspace
 # Copy the Go Modules manifests
