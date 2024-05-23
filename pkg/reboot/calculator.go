@@ -33,7 +33,7 @@ type SafeTimeCalculator interface {
 	// GetTimeToAssumeNodeRebooted returns the safe time to assume node was already rebooted
 	// note that this time must include the time for a unhealthy node without api-server access to reach the conclusion that it's unhealthy
 	// this should be at least worst-case time to reach a conclusion from the other peers * request context timeout + watchdog interval + maxFailuresThreshold * reconcileInterval + padding
-	GetTimeToAssumeNodeRebooted() (time.Duration, error)
+	GetTimeToAssumeNodeRebooted(ctx context.Context) (time.Duration, error)
 	Start(ctx context.Context) error
 	//IsAgent return true in case running on an agent pod (responsible for reboot) or false in case running on a manager pod
 	IsAgent() bool
@@ -75,10 +75,10 @@ func NewManagerSafeTimeCalculator(k8sClient client.Client) SafeTimeCalculator {
 	}
 }
 
-func (s *safeTimeCalculator) GetTimeToAssumeNodeRebooted() (time.Duration, error) {
+func (s *safeTimeCalculator) GetTimeToAssumeNodeRebooted(ctx context.Context) (time.Duration, error) {
 	minTime := s.minTimeToAssumeNodeRebooted
 	if !s.isAgent {
-		config, err := s.getConfig()
+		config, err := s.getConfig(ctx)
 		if err != nil {
 			return 0, err
 		}
@@ -129,7 +129,7 @@ func (s *safeTimeCalculator) calcMinTimeAssumeRebooted(ctx context.Context) erro
 //  2. It Adds/removes config.Status.SpecSafeTimeOverriddenWarning if necessary.
 func (s *safeTimeCalculator) manageSafeRebootTimeInConfiguration(ctx context.Context, minTime time.Duration) error {
 	minTimeSec := int(minTime.Seconds())
-	config, err := s.getConfig()
+	config, err := s.getConfig(ctx)
 	if err != nil {
 		return err
 	}
@@ -175,9 +175,9 @@ func (s *safeTimeCalculator) getMinSafeTimeSecFromConfig(config *v1alpha1.SelfNo
 	return 0, err
 }
 
-func (s *safeTimeCalculator) getConfig() (*v1alpha1.SelfNodeRemediationConfig, error) {
+func (s *safeTimeCalculator) getConfig(ctx context.Context) (*v1alpha1.SelfNodeRemediationConfig, error) {
 	confList := &v1alpha1.SelfNodeRemediationConfigList{}
-	if err := s.k8sClient.List(context.Background(), confList); err != nil {
+	if err := s.k8sClient.List(ctx, confList); err != nil {
 		s.log.Error(err, "failed to get snr configuration")
 		return nil, err
 	}

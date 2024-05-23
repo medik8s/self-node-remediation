@@ -166,7 +166,7 @@ var _ = Describe("SNR Config Test", func() {
 			})
 			It("SafeTimeCalculator of the manager gets the correct TimeToAssumeNodeRebooted value from the configuration", func() {
 				Eventually(func(g Gomega) bool {
-					g.Expect(managerReconciler.SafeTimeCalculator.GetTimeToAssumeNodeRebooted()).To(Equal(time.Second * 65))
+					g.Expect(managerReconciler.SafeTimeCalculator.GetTimeToAssumeNodeRebooted(context.TODO())).To(Equal(time.Second * 65))
 					return true
 				}, 10*time.Second, 250*time.Millisecond).Should(BeTrue())
 			})
