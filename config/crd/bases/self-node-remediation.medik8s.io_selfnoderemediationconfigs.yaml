@@ -171,7 +171,7 @@ spec:
             properties:
               conditions:
                 description: |-
-                  Represents the observations of a SelfNodeRemediationConfig's current state.
+                  Conditions Represents the observations of a SelfNodeRemediationConfig's current state.
                   Known .status.conditions.type are: "SafeTimeToAssumeNodeRebootedOverridden"
                 items:
                   description: "Condition contains details for one aspect of the current

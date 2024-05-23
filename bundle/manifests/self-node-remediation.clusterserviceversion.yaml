@@ -63,7 +63,7 @@ spec:
         name: selfnoderemediationconfigs
         version: v1alpha1
       statusDescriptors:
-      - description: 'Represents the observations of a SelfNodeRemediationConfig''s
+      - description: 'Conditions Represents the observations of a SelfNodeRemediationConfig''s
           current state. Known .status.conditions.type are: "SafeTimeToAssumeNodeRebootedOverridden"'
         displayName: conditions
         path: conditions
