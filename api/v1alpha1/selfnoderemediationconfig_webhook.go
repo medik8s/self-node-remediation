@@ -26,6 +26,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
 // fields names
@@ -74,6 +76,7 @@ func (r *SelfNodeRemediationConfig) ValidateCreate() error {
 	return errors.NewAggregate([]error{
 		r.validateTimes(),
 		r.validateCustomTolerations(),
+		r.validateDefault(),
 	})
 
 }
@@ -171,4 +174,11 @@ func validateToleration(toleration v1.Toleration) error {
 		}
 	}
 	return nil
+}
+
+func (r *SelfNodeRemediationConfig) validateDefault() error {
+	if defaultAnnotationVal, isDefaultAnnotationExist := r.Annotations[utils.IsDefaultConfigurationAnnotation]; isDefaultAnnotationExist && defaultAnnotationVal == "true" {
+		return nil
+	}
+	return fmt.Errorf("only single configuration is allowed")
 }
