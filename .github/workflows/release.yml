@@ -60,14 +60,14 @@ jobs:
         run: VERSION=$VERSION PREVIOUS_VERSION=$PREVIOUS_VERSION make container-build-community container-push
 
       - name: Create release with manifests, for tags
-        if: ${{ github.ref_type == 'tag' }}
         # https://github.com/marketplace/actions/github-release-create-update-and-upload-assets
         uses: meeDamian/github-release@2.0
         with:
+          tag: v${{ inputs.version }}
           token: ${{ secrets.GITHUB_TOKEN }}
           draft: true
           body: |
-            # Self Node Remediation ${{ github.ref_name }}
+            # Self Node Remediation v${{ inputs.version }}
             
             ## Notable Changes
             
@@ -76,9 +76,9 @@ jobs:
             ## Release Artifacts
             
             ### Images
-            * Operator: quay.io/medik8s/self-node-remediation-operator:${{ github.ref_name }}
-            * Bundle: quay.io/medik8s/self-node-remediation-operator-bundle:${{ github.ref_name }}
-            * Catalog aka Index: quay.io/medik8s/self-node-remediation-operator-catalog:${{ github.ref_name }}
+            * Operator: quay.io/medik8s/self-node-remediation-operator:v${{ inputs.version }}
+            * Bundle: quay.io/medik8s/self-node-remediation-operator-bundle:v${{ inputs.version }}
+            * Catalog aka Index: quay.io/medik8s/self-node-remediation-operator-catalog:v${{ inputs.version }}
             
             ### Source code and OLM manifests
             Please find the source code and the OLM manifests in the `Assets` section below.
