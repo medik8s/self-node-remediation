@@ -191,6 +191,12 @@ export BUNDLE_RUN_NAMESPACE ?= openshift-workload-availability
 bundle-run: operator-sdk create-ns ## Run bundle image. Default NS is "openshift-workload-availability", redefine BUNDLE_RUN_NAMESPACE to override it.
 	$(OPERATOR_SDK) -n $(BUNDLE_RUN_NAMESPACE) run bundle $(BUNDLE_IMG)
 
+.PHONY: bundle-run-update
+bundle-run-update: operator-sdk ## Update bundle image.
+# An older bundle image CSV should exist in the cluster, and in the same namespace,
+# Default NS is "openshift-workload-availability", redefine OPERATOR_NAMESPACE to override it.
+	$(OPERATOR_SDK) -n $(OPERATOR_NAMESPACE) run bundle-upgrade $(BUNDLE_IMG)
+
 .PHONY: bundle-cleanup
 bundle-cleanup: operator-sdk ## Remove bundle installed via bundle-run
 	$(OPERATOR_SDK) -n $(BUNDLE_RUN_NAMESPACE) cleanup $(OPERATOR_NAME)
