@@ -61,6 +61,16 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 		// test create validation on a valid CR
 		testValidCR("create")
 
+		When("Config is missing the default label", func() {
+			It("create should be rejected", func() {
+				snrc := createDefaultSelfNodeRemediationConfigCR()
+				err := snrc.ValidateCreate()
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("only single SelfNodeRemediationConfig is allowed in the cluster"))
+
+			})
+		})
+
 	})
 
 	Describe("updating SelfNodeRemediationConfig CR", func() {
@@ -187,9 +197,7 @@ func testValidCR(validationType string) {
 			} else {
 				err = snrc.ValidateCreate()
 			}
-			if err != nil {
-				Expect(err).NotTo(HaveOccurred())
-			}
+			Expect(err).NotTo(HaveOccurred())
 
 		})
 	})

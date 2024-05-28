@@ -180,5 +180,5 @@ func (r *SelfNodeRemediationConfig) validateDefault() error {
 	if defaultAnnotationVal, isDefaultAnnotationExist := r.Annotations[utils.IsDefaultConfigurationAnnotation]; isDefaultAnnotationExist && defaultAnnotationVal == "true" {
 		return nil
 	}
-	return fmt.Errorf("only single configuration is allowed")
+	return fmt.Errorf("only single SelfNodeRemediationConfig is allowed in the cluster")
 }
