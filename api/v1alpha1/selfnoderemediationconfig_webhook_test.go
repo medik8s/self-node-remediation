@@ -10,8 +10,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
-
-	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
 // default CR fields durations
@@ -186,7 +184,7 @@ func testValidCR(validationType string) {
 	snrc.Spec.ApiCheckInterval = &metav1.Duration{Duration: 10*time.Second + 500*time.Millisecond}
 	snrc.Spec.PeerUpdateInterval = &metav1.Duration{Duration: 10 * time.Second}
 	snrc.Spec.CustomDsTolerations = []v1.Toleration{{Key: "validValue", Effect: v1.TaintEffectNoExecute}, {}, {Operator: v1.TolerationOpEqual, TolerationSeconds: pointer.Int64(-5)}, {Value: "SomeValidValue"}}
-	snrc.Annotations = map[string]string{utils.IsDefaultConfigurationAnnotation: "true"}
+	snrc.Annotations = map[string]string{"is-singleton-configuration.self-node-remediation.medik8s.io": "true"}
 
 	Context("for valid CR", func() {
 		It("should not be rejected", func() {

@@ -76,7 +76,7 @@ func (r *SelfNodeRemediationConfig) ValidateCreate() error {
 	return errors.NewAggregate([]error{
 		r.validateTimes(),
 		r.validateCustomTolerations(),
-		r.validateDefault(),
+		r.validateSingleton(),
 	})
 
 }
@@ -176,8 +176,8 @@ func validateToleration(toleration v1.Toleration) error {
 	return nil
 }
 
-func (r *SelfNodeRemediationConfig) validateDefault() error {
-	if defaultAnnotationVal, isDefaultAnnotationExist := r.Annotations[utils.IsDefaultConfigurationAnnotation]; isDefaultAnnotationExist && defaultAnnotationVal == "true" {
+func (r *SelfNodeRemediationConfig) validateSingleton() error {
+	if singletonAnnotationVal, isSingletonAnnotationExist := r.Annotations[utils.IsSingletonConfigurationAnnotation]; isSingletonAnnotationExist && singletonAnnotationVal == "true" {
 		return nil
 	}
 	return fmt.Errorf("only single SelfNodeRemediationConfig is allowed in the cluster")

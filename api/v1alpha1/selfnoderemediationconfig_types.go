@@ -163,7 +163,7 @@ func NewDefaultSelfNodeRemediationConfig() SelfNodeRemediationConfig {
 	return SelfNodeRemediationConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        ConfigCRName,
-			Annotations: map[string]string{utils.IsDefaultConfigurationAnnotation: "true"},
+			Annotations: map[string]string{utils.IsSingletonConfigurationAnnotation: "true"},
 		},
 		Spec: SelfNodeRemediationConfigSpec{
 			WatchdogFilePath:                    defaultWatchdogPath,
