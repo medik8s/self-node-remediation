@@ -19,8 +19,6 @@ package v1alpha1
 import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -162,8 +160,7 @@ func init() {
 func NewDefaultSelfNodeRemediationConfig() SelfNodeRemediationConfig {
 	return SelfNodeRemediationConfig{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        ConfigCRName,
-			Annotations: map[string]string{utils.IsSingletonConfigurationAnnotation: "true"},
+			Name: ConfigCRName,
 		},
 		Spec: SelfNodeRemediationConfigSpec{
 			WatchdogFilePath:                    defaultWatchdogPath,

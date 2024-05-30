@@ -177,8 +177,13 @@ func validateToleration(toleration v1.Toleration) error {
 }
 
 func (r *SelfNodeRemediationConfig) validateSingleton() error {
-	if singletonAnnotationVal, isSingletonAnnotationExist := r.Annotations[utils.IsSingletonConfigurationAnnotation]; isSingletonAnnotationExist && singletonAnnotationVal == "true" {
-		return nil
+	if r.Name != ConfigCRName {
+		return fmt.Errorf("only single SelfNodeRemediationConfig is allowed in the cluster with default name: %s", ConfigCRName)
+	} else if ns, err := utils.GetDeploymentNamespace(); err != nil {
+		return fmt.Errorf("failed to verify the deployment namespace SelfNodeRemediationConfig can not be created")
+	} else if ns != r.Namespace {
+		return fmt.Errorf("SelfNodeRemediationConfig is only allowed to be created in the namespace: %s", ns)
 	}
-	return fmt.Errorf("only single SelfNodeRemediationConfig is allowed in the cluster")
+
+	return nil
 }
