@@ -36,6 +36,7 @@ ENVSUBST_VERSION = v1.4.2
 OCP_VERSION = 4.12
 
 OPERATOR_NAME ?= self-node-remediation
+OPERATOR_NAMESPACE ?= openshift-workload-availability
 
 # VERSION defines the project version for the bundle.
 # Update this value when you upgrade the version of your project.
@@ -187,17 +188,22 @@ test: envtest manifests generate fmt vet ## Run tests.
 		go test ./api/... ./controllers/... ./pkg/... -coverprofile cover.out -v ${TEST_OPS}
 
 .PHONY: bundle-run
-export BUNDLE_RUN_NAMESPACE ?= openshift-workload-availability
-bundle-run: operator-sdk create-ns ## Run bundle image. Default NS is "openshift-workload-availability", redefine BUNDLE_RUN_NAMESPACE to override it.
-	$(OPERATOR_SDK) -n $(BUNDLE_RUN_NAMESPACE) run bundle $(BUNDLE_IMG)
+bundle-run: operator-sdk create-ns ## Run bundle image. Default NS is "openshift-workload-availability", redefine OPERATOR_NAMESPACE to override it.
+	$(OPERATOR_SDK) -n $(OPERATOR_NAMESPACE) run bundle $(BUNDLE_IMG)
+
+.PHONY: bundle-run-update
+bundle-run-update: operator-sdk ## Update bundle image.
+# An older bundle image CSV should exist in the cluster, and in the same namespace,
+# Default NS is "openshift-workload-availability", redefine OPERATOR_NAMESPACE to override it.
+	$(OPERATOR_SDK) -n $(OPERATOR_NAMESPACE) run bundle-upgrade $(BUNDLE_IMG)
 
 .PHONY: bundle-cleanup
 bundle-cleanup: operator-sdk ## Remove bundle installed via bundle-run
-	$(OPERATOR_SDK) -n $(BUNDLE_RUN_NAMESPACE) cleanup $(OPERATOR_NAME)
+	$(OPERATOR_SDK) -n $(OPERATOR_NAMESPACE) cleanup $(OPERATOR_NAME)
 
 .PHONY: create-ns
 create-ns: ## Create namespace
-	$(KUBECTL) get ns $(BUNDLE_RUN_NAMESPACE) 2>&1> /dev/null || $(KUBECTL) create ns $(BUNDLE_RUN_NAMESPACE)
+	$(KUBECTL) get ns $(OPERATOR_NAMESPACE) 2>&1> /dev/null || $(KUBECTL) create ns $(OPERATOR_NAMESPACE)
 
 ##@ Build
 
