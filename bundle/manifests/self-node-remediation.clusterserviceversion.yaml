@@ -63,12 +63,12 @@ spec:
         name: selfnoderemediationconfigs
         version: v1alpha1
       statusDescriptors:
-      - description: 'Conditions Represents the observations of a SelfNodeRemediationConfig''s
+      - description: 'Conditions represents the observations of a SelfNodeRemediationConfig''s
           current state. Known .status.conditions.type are: "SafeTimeToAssumeNodeRebootedOverridden"'
-        displayName: conditions
+        displayName: Conditions
         path: conditions
         x-descriptors:
-        - urn:alm:descriptor:com.tectonic.ui:conditions
+        - urn:alm:descriptor:io.kubernetes.conditions
       version: v1alpha1
     - description: SelfNodeRemediation is the Schema for the selfnoderemediations
         API

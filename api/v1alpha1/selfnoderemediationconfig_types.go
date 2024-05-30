@@ -135,9 +135,9 @@ type SelfNodeRemediationConfigStatus struct {
 	// +kubebuilder:validation:Minimum=0
 	MinSafeTimeToAssumeNodeRebootedSeconds int `json:"minSafeTimeToAssumeNodeRebootedSeconds,omitempty"`
 
-	// Conditions Represents the observations of a SelfNodeRemediationConfig's current state.
+	// Conditions represents the observations of a SelfNodeRemediationConfig's current state.
 	// Known .status.conditions.type are: "SafeTimeToAssumeNodeRebootedOverridden"
-	// +operator-sdk:csv:customresourcedefinitions:type=status,displayName="conditions",xDescriptors="urn:alm:descriptor:com.tectonic.ui:conditions"
+	// +operator-sdk:csv:customresourcedefinitions:type=status,xDescriptors="urn:alm:descriptor:io.kubernetes.conditions"
 	// +listType=map
 	// +listMapKey=type
 	// +optional
