@@ -69,6 +69,9 @@ spec:
         path: conditions
         x-descriptors:
         - urn:alm:descriptor:io.kubernetes.conditions
+      - description: LastUpdateTime is the last time the status was updated.
+        displayName: Last Update Time
+        path: lastUpdateTime
       version: v1alpha1
     - description: SelfNodeRemediation is the Schema for the selfnoderemediations
         API

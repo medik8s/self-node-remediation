@@ -244,6 +244,10 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              lastUpdateTime:
+                description: LastUpdateTime is the last time the status was updated.
+                format: date-time
+                type: string
               minSafeTimeToAssumeNodeRebootedSeconds:
                 description: MinSafeTimeToAssumeNodeRebootedSeconds is the minimum
                   value that can be assigned to SelfNodeRemediationConfigSpec.SafeTimeToAssumeNodeRebootedSeconds,

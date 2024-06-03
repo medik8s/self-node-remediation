@@ -29,6 +29,11 @@ const (
 	MaxBatchesAfterFirst      = 10
 )
 
+var (
+	//timeBeforeAssumingRecentUpdate is the time the timeframe in which we assume multiple updates belong to the same configuration change and are applied by different agents
+	timeBeforeAssumingRecentUpdate = time.Second * 15
+)
+
 type SafeTimeCalculator interface {
 	// GetTimeToAssumeNodeRebooted returns the safe time to assume node was already rebooted
 	// note that this time must include the time for a unhealthy node without api-server access to reach the conclusion that it's unhealthy
@@ -133,9 +138,14 @@ func (s *safeTimeCalculator) manageSafeRebootTimeInConfiguration(ctx context.Con
 	if err != nil {
 		return err
 	}
+
 	orgConfig := config.DeepCopy()
 	prevMinRebootTimeSec := config.Status.MinSafeTimeToAssumeNodeRebootedSeconds
-	if prevMinRebootTimeSec != minTimeSec {
+	isUpdatedRecently := config.Status.LastUpdateTime != nil && (*config.Status.LastUpdateTime).Add(timeBeforeAssumingRecentUpdate).After(time.Now())
+	//Use safer value
+	if minTimeSec > prevMinRebootTimeSec ||
+		// we can update even though value may be less safe because the config has changed
+		(!isUpdatedRecently && prevMinRebootTimeSec != minTimeSec) {
 		config.Status.MinSafeTimeToAssumeNodeRebootedSeconds = minTimeSec
 	}
 
@@ -160,6 +170,7 @@ func (s *safeTimeCalculator) manageSafeRebootTimeInConfiguration(ctx context.Con
 	}
 
 	if !reflect.DeepEqual(config, orgConfig) {
+		config.Status.LastUpdateTime = &metav1.Time{Time: time.Now()}
 		if err := s.k8sClient.Status().Patch(ctx, config, client.MergeFrom(orgConfig)); err != nil {
 			return err
 		}
