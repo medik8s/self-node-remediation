@@ -203,7 +203,14 @@ bundle-cleanup: operator-sdk ## Remove bundle installed via bundle-run
 
 .PHONY: create-ns
 create-ns: ## Create namespace
-	$(KUBECTL) get ns $(OPERATOR_NAMESPACE) 2>&1> /dev/null || $(KUBECTL) create ns $(OPERATOR_NAMESPACE)
+	$(KUBECTL) get ns $(OPERATOR_NAMESPACE) 2>&1> /dev/null || \
+		($(KUBECTL) create ns $(OPERATOR_NAMESPACE) && $(MAKE) set-labels-to-namespace)
+
+.PHONY: set-labels-to-namespace
+set-labels-to-namespace: ## Set labels on NS as workaround for OLM pod not running with restricted PSA
+	oc label --overwrite ns $(OPERATOR_NAMESPACE) security.openshift.io/scc.podSecurityLabelSync=false
+	oc label --overwrite ns $(OPERATOR_NAMESPACE) pod-security.kubernetes.io/enforce=privileged
+
 
 ##@ Build
 
