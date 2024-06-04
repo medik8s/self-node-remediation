@@ -85,7 +85,7 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 					snrc := createDefaultSelfNodeRemediationConfigCR()
 					err := snrc.ValidateCreate()
 					Expect(err).To(HaveOccurred())
-					Expect(err.Error()).To(ContainSubstring("only single SelfNodeRemediationConfig is allowed in the cluster"))
+					Expect(err.Error()).To(ContainSubstring("to enforce only one SelfNodeRemediationConfig in the cluster, a name other than"))
 
 				})
 			})
