@@ -207,6 +207,8 @@ var _ = Describe("SNR Config Test", func() {
 			var timeToWaitForDsUpdate = 6 * time.Second
 			var oldDsVersion, currentDsVersion = "0", "1"
 			BeforeEach(func() {
+				//Ds needs to be created before the config,
+				//because otherwise the  config creation will also trigger a DS create which will cause a race condition
 				createDsBeforeConfig = true
 			})
 			JustBeforeEach(func() {
@@ -255,6 +257,7 @@ var _ = Describe("SNR Config Test", func() {
 		config.Name = "config-defaults"
 		config.Namespace = shared.Namespace
 		BeforeEach(func() {
+			//Config and DS aren't created so no need to clean them
 			isSkipCleanup = true
 		})
 
