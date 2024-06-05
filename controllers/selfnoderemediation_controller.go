@@ -649,7 +649,7 @@ func (r *SelfNodeRemediationReconciler) getNodeFromSnr(snr *v1alpha1.SelfNodeRem
 	}
 
 	// since we didn't find a Machine owner ref, we assume that SNR remediation contains the node's name either in the
-	// remediation Name or in its annotation
+	// remediation name or in its annotation
 	node := &v1.Node{}
 	key := client.ObjectKey{
 		Name:      getNodeName(snr),
@@ -936,10 +936,9 @@ func IsOwnedByNHC(snr *v1alpha1.SelfNodeRemediation) bool {
 
 // getNodeName checks for the node name in SNR CR's annotation. If it does not exist it assumes the node name equals to SNR CR's name and returns it.
 func getNodeName(snr *v1alpha1.SelfNodeRemediation) string {
-	if ann := snr.GetAnnotations(); ann != nil {
-		if nodeName, isNodeNameAnnotationExist := ann[commonAnnotations.NodeNameAnnotation]; isNodeNameAnnotationExist {
-			return nodeName
-		}
+	nodeName, isNodeNameAnnotationExist := snr.GetAnnotations()[commonAnnotations.NodeNameAnnotation]
+	if isNodeNameAnnotationExist {
+		return nodeName
 	}
 	return snr.GetName()
 }
