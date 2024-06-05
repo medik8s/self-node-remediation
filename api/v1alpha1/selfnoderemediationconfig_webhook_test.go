@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -47,35 +48,80 @@ var testItems2 = []field{
 	{peerUpdateInterval, 1 * time.Millisecond, minDurPeerUpdateInterval},
 }
 
+type validationType int
+
+const (
+	create validationType = iota
+	update
+)
+
+func (v validationType) getName() string {
+	switch v {
+	case create:
+		return "create"
+	case update:
+		return "update"
+	default:
+		return "unknown"
+	}
+}
+
 var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 
 	Describe("creating SelfNodeRemediationConfig CR", func() {
 		// test create validation on CRs with time field that has value shorter than allowed
-		testSingleInvalidField("create")
+		testSingleInvalidField(create)
 
 		// test create validation on CRs with multiple fields that has value shorter than allowed
-		testMultipleInvalidFields("create")
+		testMultipleInvalidFields(create)
 
 		// test create validation on a valid CR
-		testValidCR("create")
+		testValidCR(create)
+
+		Context("Duplicate config create", func() {
+
+			When("CR name doesn't match default name", func() {
+				It("create should be rejected", func() {
+					snrc := createDefaultSelfNodeRemediationConfigCR()
+					err := snrc.ValidateCreate()
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("to enforce only one SelfNodeRemediationConfig in the cluster, a name other than"))
+
+				})
+			})
+
+			When("CR name namespace does not match deployment namespace", func() {
+				It("create should be rejected", func() {
+					snrc := createDefaultSelfNodeRemediationConfigCR()
+					snrc.Name = ConfigCRName
+					_ = os.Setenv("DEPLOYMENT_NAMESPACE", "mock-deployment-namespace")
+
+					err := snrc.ValidateCreate()
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("SelfNodeRemediationConfig is only allowed to be created in the namespace:"))
+
+				})
+			})
+
+		})
 
 	})
 
 	Describe("updating SelfNodeRemediationConfig CR", func() {
 		// test update validation on CRs with time field that has value shorter than allowed
-		testSingleInvalidField("update")
+		testSingleInvalidField(update)
 
 		// test update validation on CRs with multiple fields that has value shorter than allowed
-		testMultipleInvalidFields("update")
+		testMultipleInvalidFields(update)
 
 		// test update validation on a valid CR
-		testValidCR("update")
+		testValidCR(update)
 
 	})
 
 })
 
-func testSingleInvalidField(validationType string) {
+func testSingleInvalidField(validationType validationType) {
 	for _, item := range testItems {
 		item := item
 
@@ -85,7 +131,7 @@ func testSingleInvalidField(validationType string) {
 				snrc := createSelfNodeRemediationConfigCR(item.name, item.durationValue)
 
 				var err error
-				if validationType == "update" {
+				if validationType == update {
 					snrcOld := createDefaultSelfNodeRemediationConfigCR()
 					err = snrc.ValidateUpdate(snrcOld)
 				} else {
@@ -98,13 +144,13 @@ func testSingleInvalidField(validationType string) {
 		})
 	}
 
-	Context(fmt.Sprintf("%s validation of customized toleration", validationType), func() {
+	Context(fmt.Sprintf("%s validation of customized toleration", validationType.getName()), func() {
 		It("should be rejected - invalid operator value", func() {
 			snrc := createDefaultSelfNodeRemediationConfigCR()
 			snrc.Spec.CustomDsTolerations = []v1.Toleration{{Key: "validValue", Operator: "dummyInvalidOperatorValue"}}
 
 			var err error
-			if validationType == "update" {
+			if validationType == update {
 				snrcOld := createDefaultSelfNodeRemediationConfigCR()
 				err = snrc.ValidateUpdate(snrcOld)
 			} else {
@@ -119,7 +165,7 @@ func testSingleInvalidField(validationType string) {
 			snrc.Spec.CustomDsTolerations = []v1.Toleration{{Value: "someValue", Operator: "Exists"}}
 
 			var err error
-			if validationType == "update" {
+			if validationType == update {
 				snrcOld := createDefaultSelfNodeRemediationConfigCR()
 				err = snrc.ValidateUpdate(snrcOld)
 			} else {
@@ -132,7 +178,7 @@ func testSingleInvalidField(validationType string) {
 	})
 }
 
-func testMultipleInvalidFields(validationType string) {
+func testMultipleInvalidFields(validationType validationType) {
 	var errorMsg string
 	snrc := createDefaultSelfNodeRemediationConfigCR()
 
@@ -148,7 +194,7 @@ func testMultipleInvalidFields(validationType string) {
 	Context("for CR multiple invalid fields", func() {
 		It("should be rejected", func() {
 			var err error
-			if validationType == "update" {
+			if validationType == update {
 				snrcOld := createDefaultSelfNodeRemediationConfigCR()
 				err = snrc.ValidateUpdate(snrcOld)
 			} else {
@@ -161,9 +207,9 @@ func testMultipleInvalidFields(validationType string) {
 	})
 }
 
-func testValidCR(validationType string) {
+func testValidCR(validationType validationType) {
 	snrc := &SelfNodeRemediationConfig{}
-	snrc.Name = "test"
+	snrc.Name = "self-node-remediation-config"
 	snrc.Namespace = "default"
 
 	// valid (but not default) values for time fields
@@ -176,15 +222,21 @@ func testValidCR(validationType string) {
 	snrc.Spec.CustomDsTolerations = []v1.Toleration{{Key: "validValue", Effect: v1.TaintEffectNoExecute}, {}, {Operator: v1.TolerationOpEqual, TolerationSeconds: pointer.Int64(-5)}, {Value: "SomeValidValue"}}
 
 	Context("for valid CR", func() {
+		BeforeEach(func() {
+			//Mock deployment namespace
+			if validationType == create {
+				_ = os.Setenv("DEPLOYMENT_NAMESPACE", snrc.Namespace)
+			}
+		})
+
 		It("should not be rejected", func() {
 			var err error
-			if validationType == "update" {
+			if validationType == update {
 				snrcOld := createDefaultSelfNodeRemediationConfigCR()
 				err = snrc.ValidateUpdate(snrcOld)
 			} else {
 				err = snrc.ValidateCreate()
 			}
-
 			Expect(err).NotTo(HaveOccurred())
 
 		})

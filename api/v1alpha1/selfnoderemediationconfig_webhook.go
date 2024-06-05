@@ -26,6 +26,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
 // fields names
@@ -74,6 +76,7 @@ func (r *SelfNodeRemediationConfig) ValidateCreate() error {
 	return errors.NewAggregate([]error{
 		r.validateTimes(),
 		r.validateCustomTolerations(),
+		r.validateSingleton(),
 	})
 
 }
@@ -170,5 +173,17 @@ func validateToleration(toleration v1.Toleration) error {
 			return err
 		}
 	}
+	return nil
+}
+
+func (r *SelfNodeRemediationConfig) validateSingleton() error {
+	if r.Name != ConfigCRName {
+		return fmt.Errorf("to enforce only one SelfNodeRemediationConfig in the cluster, a name other than %s is not allowed", ConfigCRName)
+	} else if ns, err := utils.GetDeploymentNamespace(); err != nil {
+		return fmt.Errorf("failed to verify the deployment namespace SelfNodeRemediationConfig can not be created")
+	} else if ns != r.Namespace {
+		return fmt.Errorf("SelfNodeRemediationConfig is only allowed to be created in the namespace: %s", ns)
+	}
+
 	return nil
 }
