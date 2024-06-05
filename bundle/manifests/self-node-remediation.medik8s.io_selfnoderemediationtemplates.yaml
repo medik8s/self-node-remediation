@@ -79,6 +79,8 @@ spec:
             description: SelfNodeRemediationTemplateStatus defines the observed state
               of SelfNodeRemediationTemplate
             type: object
+        required:
+        - spec
         type: object
     served: true
     storage: true

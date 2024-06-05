@@ -54,8 +54,8 @@ type SelfNodeRemediationTemplateStatus struct {
 type SelfNodeRemediationTemplate struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-
-	Spec   SelfNodeRemediationTemplateSpec   `json:"spec,omitempty"`
+	// +required
+	Spec   SelfNodeRemediationTemplateSpec   `json:"spec"`
 	Status SelfNodeRemediationTemplateStatus `json:"status,omitempty"`
 }
 
