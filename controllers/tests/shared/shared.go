@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	PeerUpdateInterval = 30 * time.Second
-	ApiCheckInterval   = 1 * time.Second
-	MaxErrorThreshold  = 1
+	PeerUpdateInterval     = 30 * time.Second
+	ApiCheckInterval       = 1 * time.Second
+	MaxErrorThreshold      = 1
+	MinPeersForRemediation = 1
 	// CalculatedRebootDuration is the mock calculator's result
 	CalculatedRebootDuration = 3 * time.Second
 	Namespace                = "self-node-remediation"
@@ -57,7 +58,7 @@ func GenerateTestConfig() *selfnoderemediationv1alpha1.SelfNodeRemediationConfig
 			Name:      selfnoderemediationv1alpha1.ConfigCRName,
 			Namespace: Namespace,
 		},
-		Spec: selfnoderemediationv1alpha1.SelfNodeRemediationConfigSpec{},
+		Spec: selfnoderemediationv1alpha1.SelfNodeRemediationConfigSpec{MinPeersForRemediation: 1},
 	}
 }
 

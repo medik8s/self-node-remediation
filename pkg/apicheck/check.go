@@ -50,6 +50,7 @@ type ApiConnectivityCheckConfig struct {
 	PeerRequestTimeout        time.Duration
 	PeerHealthPort            int
 	MaxTimeForNoPeersResponse time.Duration
+	MinPeersForRemediation    int
 }
 
 func New(config *ApiConnectivityCheckConfig, controlPlaneManager *controlplane.Manager) *ApiConnectivityCheck {
@@ -129,10 +130,29 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 
 	c.config.Log.Info("Error count exceeds threshold, trying to ask other nodes if I'm healthy")
 	peersToAsk := c.config.Peers.GetPeersAddresses(peers.Worker)
-	if peersToAsk == nil || len(peersToAsk) == 0 {
-		c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, nothing we can do, so consider the node being healthy")
+
+	// We check to see if we have at least the number of peers that the user has configured as required.
+	//  If we don't have this many peers (for instance there are zero peers, and the default value is set
+	//  which requires at least one peer), we don't want to remediate. In this case we have some confusion
+	//  and don't want to remediate a node when we shouldn't.  Note: It would be unusual for MinPeersForRemediation
+	//  to be greater than 1 unless the environment has specific requirements.
+	if len(peersToAsk) < c.config.MinPeersForRemediation {
+		c.config.Log.Info("Ignoring api-server error as we have an insufficient number of peers found, "+
+			"so we aren't going to attempt to contact any to check for a SelfNodeRemediation CR"+
+			" - we will consider it as if there was no CR present & as healthy.", "minPeersRequired",
+			c.config.MinPeersForRemediation, "actualNumPeersFound", len(peersToAsk))
+
 		// TODO: maybe we need to check if this happens too much and reboot
 		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseNoPeersWereFound}
+	}
+
+	// If we make it here and there are no peers, we can't proceed because we need at least one peer
+	//  to check.  So it doesn't make sense to continue on - we'll mark as unhealthy and exit fast
+	if len(peersToAsk) == 0 {
+		c.config.Log.Info("Marking node as unhealthy due to being isolated.  We don't have any peers to ask "+
+			"and MinPeersForRemediation must be greater than zero", "minPeersRequired",
+			c.config.MinPeersForRemediation, "actualNumPeersFound", len(peersToAsk))
+		return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecauseNodeIsIsolated}
 	}
 
 	apiErrorsResponsesSum := 0
@@ -146,39 +166,57 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 		if healthyResponses+unhealthyResponses+apiErrorsResponses > 0 {
 			c.timeOfLastPeerResponse = time.Now()
 		}
+		c.config.Log.Info("Aggregate peer health responses", "healthyResponses", healthyResponses,
+			"unhealthyResponses", unhealthyResponses, "apiErrorsResponses", apiErrorsResponses)
 
 		if healthyResponses > 0 {
-			c.config.Log.Info("Peer told me I'm healthy.")
+			c.config.Log.Info("There is at least one peer who thinks this node healthy, so we'll respond "+
+				"with a healthy status", "healthyResponses", healthyResponses, "reason",
+				"peers.HealthyBecauseCRNotFound")
 			c.errorCount = 0
 			return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseCRNotFound}
 		}
 
 		if unhealthyResponses > 0 {
-			c.config.Log.Info("Peer told me I'm unhealthy!")
+			c.config.Log.Info("I got at least one peer who thinks I'm unhealthy, so we'll respond "+
+				"with unhealthy", "unhealthyResponses", unhealthyResponses, "reason",
+				"peers.UnHealthyBecausePeersResponse")
 			return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecausePeersResponse}
 		}
 
 		if apiErrorsResponses > 0 {
-			c.config.Log.Info("Peer can't access the api-server")
+			c.config.Log.Info("If you see this, I didn't get any healthy or unhealthy peer responses, "+
+				"instead they told me they can't access the API server either", "apiErrorsResponses",
+				apiErrorsResponses)
 			apiErrorsResponsesSum += apiErrorsResponses
 			// TODO: consider using [m|n]hc.spec.maxUnhealthy instead of 50%
 			if apiErrorsResponsesSum > nrAllPeers/2 { // already reached more than 50% of the peers and all of them returned api error
 				// assuming this is a control plane failure as others can't access api-server as well
-				c.config.Log.Info("More than 50% of the nodes couldn't access the api-server, assuming this is a control plane failure")
+				c.config.Log.Info("More than 50% of the nodes couldn't access the api-server, assuming "+
+					"this is a control plane failure, so we are going to return healthy in that case",
+					"reason", "HealthyBecauseMostPeersCantAccessAPIServer")
 				return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseMostPeersCantAccessAPIServer}
 			}
 		}
 
 	}
 
+	c.config.Log.Info("We have attempted communication with all known peers, and haven't gotten either: " +
+		"a peer that believes we are healthy, a peer that believes we are unhealthy, or we haven't decided that " +
+		"there is a control plane failure")
+
 	//we asked all peers
 	now := time.Now()
 	// MaxTimeForNoPeersResponse check prevents the node from being considered unhealthy in case of short network outages
 	if now.After(c.timeOfLastPeerResponse.Add(c.config.MaxTimeForNoPeersResponse)) {
-		c.config.Log.Error(fmt.Errorf("failed health check"), "Failed to get health status peers. Assuming unhealthy")
+		c.config.Log.Error(fmt.Errorf("failed health check"), "Failed to get health status peers. "+
+			"Assuming unhealthy", "reason", "UnHealthyBecauseNodeIsIsolated")
 		return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecauseNodeIsIsolated}
 	} else {
-		c.config.Log.Info("Ignoring no peers response error, time is below threshold for no peers response", "time without peers response (seconds)", now.Sub(c.timeOfLastPeerResponse).Seconds(), "threshold (seconds)", c.config.MaxTimeForNoPeersResponse.Seconds())
+		c.config.Log.Info("Ignoring no peers response error, time is below threshold for no peers response",
+			"time without peers response (seconds)", now.Sub(c.timeOfLastPeerResponse).Seconds(),
+			"threshold (seconds)", c.config.MaxTimeForNoPeersResponse.Seconds(),
+			"reason", "HealthyBecauseNoPeersResponseNotReachedTimeout")
 		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseNoPeersResponseNotReachedTimeout}
 	}
 

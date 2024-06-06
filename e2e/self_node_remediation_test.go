@@ -152,7 +152,8 @@ var _ = Describe("Self Node Remediation E2E", func() {
 
 				It("should not remediate", func() {
 					utils.CheckNoReboot(context.Background(), k8sClientSet, nodeUnderTest, oldBootTime, testNamespace)
-					checkSnrLogs(nodeUnderTest, []string{"failed to check api server", "Peer told me I'm healthy."}, testStartTime)
+					checkSnrLogs(nodeUnderTest, []string{"failed to check api server", "There is at least one peer " +
+						"who thinks this node healthy"}, testStartTime)
 				})
 			})
 

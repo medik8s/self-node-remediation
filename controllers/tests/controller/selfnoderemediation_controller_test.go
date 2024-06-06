@@ -66,6 +66,10 @@ var _ = Describe("SNR Controller", func() {
 		k8sClient.ShouldSimulateFailure = false
 		k8sClient.ShouldSimulatePodDeleteFailure = false
 		isAdditionalSetupNeeded = false
+
+		By("Restore default settings for api connectivity check")
+		apiConnectivityCheckConfig.MinPeersForRemediation = shared.MinPeersForRemediation
+
 		deleteRemediations()
 		deleteSelfNodeRemediationPod()
 		//clear node's state, this is important to remove taints, label etc.
@@ -451,6 +455,19 @@ var _ = Describe("SNR Controller", func() {
 				verifyWatchdogNotTriggered()
 			})
 		})
+
+		Context("no peer found and MinPeersForRemediation is configured to 0", func() {
+			BeforeEach(func() {
+				By("Set MinPeersForRemedation to zero which should trigger the watchdog before the test")
+				apiConnectivityCheckConfig.MinPeersForRemediation = 0
+			})
+
+			It("Does not receive peer communication and since configured to need zero peers, initiates a reboot",
+				func() {
+					verifyWatchdogTriggered()
+				})
+		})
+
 	})
 
 	Context("Configuration is missing", func() {
