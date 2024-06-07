@@ -170,19 +170,19 @@ var _ = Describe("SNR Config Test", func() {
 			var timeToWaitForDsUpdate = 6 * time.Second
 			var oldDsVersion, currentDsVersion = "0", "1"
 
-			JustBeforeEach(func() {
-				Eventually(func() error {
+			createInitialDs := func() {
+				EventuallyWithOffset(1, func() error {
 					return k8sClient.Create(context.Background(), ds)
 				}, 2*time.Second, 250*time.Millisecond).Should(Succeed())
-
 				Eventually(func() error {
 					return k8sClient.Get(context.Background(), key, ds)
 				}, 2*time.Second, 250*time.Millisecond).Should(BeNil())
+			}
 
-			})
 			When("ds version has not changed", func() {
 				BeforeEach(func() {
 					ds = generateDs(dsName, shared.Namespace, currentDsVersion)
+					createInitialDs()
 				})
 				It("Daemonset should not recreated", func() {
 					//Wait to make sure DS isn't recreated
@@ -197,6 +197,7 @@ var _ = Describe("SNR Config Test", func() {
 				BeforeEach(func() {
 					//creating an DS with old version
 					ds = generateDs(dsName, shared.Namespace, oldDsVersion)
+					createInitialDs()
 				})
 				It("Daemonset should be recreated", func() {
 					//Wait until DS is recreated
