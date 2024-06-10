@@ -131,14 +131,12 @@ var _ = BeforeSuite(func() {
 	err = k8sManager.Add(apiCheck)
 	Expect(err).ToNot(HaveOccurred())
 
-	restoreNodeAfter := 5 * time.Second
 	mockAgentCalculator := &mockCalculator{isAgent: true}
 	// reconciler for unhealthy node
 	err = (&controllers.SelfNodeRemediationReconciler{
 		Client:             k8sClient,
 		Log:                ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("unhealthy node"),
 		MyNodeName:         shared.UnhealthyNodeName,
-		RestoreNodeAfter:   restoreNodeAfter,
 		SafeTimeCalculator: mockAgentCalculator,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
@@ -148,7 +146,6 @@ var _ = BeforeSuite(func() {
 		Client:             k8sClient,
 		Log:                ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
 		MyNodeName:         shared.PeerNodeName,
-		RestoreNodeAfter:   restoreNodeAfter,
 		SafeTimeCalculator: mockAgentCalculator,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
@@ -158,7 +155,6 @@ var _ = BeforeSuite(func() {
 		Client:             k8sClient,
 		Log:                ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("manager node"),
 		MyNodeName:         shared.PeerNodeName,
-		RestoreNodeAfter:   restoreNodeAfter,
 		SafeTimeCalculator: mockManagerCalculator,
 	}
 	err = managerReconciler.SetupWithManager(k8sManager)

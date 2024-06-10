@@ -162,7 +162,6 @@ var _ = BeforeSuite(func() {
 	err = k8sManager.Add(apiCheck)
 	Expect(err).ToNot(HaveOccurred())
 
-	restoreNodeAfter := 5 * time.Second
 	mockAgentCalculator := &shared.MockCalculator{MockTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted, IsAgentVar: true}
 	fakeRecorder = record.NewFakeRecorder(1000)
 	// reconciler for unhealthy node
@@ -171,7 +170,6 @@ var _ = BeforeSuite(func() {
 		Log:                ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("unhealthy node"),
 		Rebooter:           rebooter,
 		MyNodeName:         shared.UnhealthyNodeName,
-		RestoreNodeAfter:   restoreNodeAfter,
 		SafeTimeCalculator: mockAgentCalculator,
 		Recorder:           fakeRecorder,
 	}).SetupWithManager(k8sManager)
@@ -183,7 +181,6 @@ var _ = BeforeSuite(func() {
 		Log:                ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
 		MyNodeName:         shared.PeerNodeName,
 		Rebooter:           rebooter,
-		RestoreNodeAfter:   restoreNodeAfter,
 		SafeTimeCalculator: mockAgentCalculator,
 		Recorder:           fakeRecorder,
 	}).SetupWithManager(k8sManager)
@@ -195,7 +192,6 @@ var _ = BeforeSuite(func() {
 		Log:                ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("manager node"),
 		MyNodeName:         shared.PeerNodeName,
 		Rebooter:           rebooter,
-		RestoreNodeAfter:   restoreNodeAfter,
 		SafeTimeCalculator: mockManagerCalculator,
 		Recorder:           fakeRecorder,
 	}).SetupWithManager(k8sManager)
