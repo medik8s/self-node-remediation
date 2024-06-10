@@ -18,6 +18,7 @@ package testconfig
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -93,16 +94,17 @@ var _ = BeforeSuite(func() {
 		},
 	}
 
+	_ = os.Setenv("SELF_NODE_REMEDIATION_IMAGE", shared.DsDummyImageName)
+
 	Expect(k8sClient.Create(context.Background(), nsToCreate)).To(Succeed())
 	Expect(err).ToNot(HaveOccurred())
-	mockManagerCalculator := &mockCalculator{isAgent: false}
 	err = (&controllers.SelfNodeRemediationConfigReconciler{
-		Client:                    k8sManager.GetClient(),
-		Log:                       ctrl.Log.WithName("controllers").WithName("self-node-remediation-config-controller"),
-		InstallFileFolder:         "../../../install/",
-		Scheme:                    scheme.Scheme,
-		Namespace:                 shared.Namespace,
-		ManagerSafeTimeCalculator: mockManagerCalculator,
+		Client:                   k8sManager.GetClient(),
+		Log:                      ctrl.Log.WithName("controllers").WithName("self-node-remediation-config-controller"),
+		InstallFileFolder:        "../../../install/",
+		Scheme:                   scheme.Scheme,
+		Namespace:                shared.Namespace,
+		RebootDurationCalculator: shared.MockRebootDurationCalculator{},
 	}).SetupWithManager(k8sManager)
 
 	// peers need their own node on start
@@ -131,31 +133,27 @@ var _ = BeforeSuite(func() {
 	err = k8sManager.Add(apiCheck)
 	Expect(err).ToNot(HaveOccurred())
 
-	mockAgentCalculator := &mockCalculator{isAgent: true}
 	// reconciler for unhealthy node
 	err = (&controllers.SelfNodeRemediationReconciler{
-		Client:             k8sClient,
-		Log:                ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("unhealthy node"),
-		MyNodeName:         shared.UnhealthyNodeName,
-		SafeTimeCalculator: mockAgentCalculator,
+		Client:     k8sClient,
+		Log:        ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("unhealthy node"),
+		MyNodeName: shared.UnhealthyNodeName,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	// reconciler for peer node
 	err = (&controllers.SelfNodeRemediationReconciler{
-		Client:             k8sClient,
-		Log:                ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
-		MyNodeName:         shared.PeerNodeName,
-		SafeTimeCalculator: mockAgentCalculator,
+		Client:     k8sClient,
+		Log:        ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
+		MyNodeName: shared.PeerNodeName,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	// reconciler for manager on peer node
 	managerReconciler = &controllers.SelfNodeRemediationReconciler{
-		Client:             k8sClient,
-		Log:                ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("manager node"),
-		MyNodeName:         shared.PeerNodeName,
-		SafeTimeCalculator: mockManagerCalculator,
+		Client:     k8sClient,
+		Log:        ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("manager node"),
+		MyNodeName: shared.PeerNodeName,
 	}
 	err = managerReconciler.SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
@@ -187,25 +185,3 @@ var _ = AfterSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 
 })
-
-type mockCalculator struct {
-	mockTimeToAssumeNodeRebooted time.Duration
-	isAgent                      bool
-}
-
-func (m *mockCalculator) GetTimeToAssumeNodeRebooted() time.Duration {
-	return m.mockTimeToAssumeNodeRebooted
-}
-
-func (m *mockCalculator) SetTimeToAssumeNodeRebooted(timeToAssumeNodeRebooted time.Duration) {
-	m.mockTimeToAssumeNodeRebooted = timeToAssumeNodeRebooted
-}
-
-func (m *mockCalculator) IsAgent() bool {
-	return m.isAgent
-}
-
-//goland:noinspection GoUnusedParameter
-func (m *mockCalculator) Start(ctx context.Context) error {
-	return nil
-}

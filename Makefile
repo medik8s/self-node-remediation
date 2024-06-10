@@ -182,7 +182,7 @@ ENVTEST = $(shell pwd)/bin/setup-envtest
 # Use TEST_OPS to pass further options to `go test` (e.g. -gingo.v and/or -ginkgo.focus)
 export TEST_OPS ?= ""
 .PHONY: test
-test: envtest manifests generate fmt vet ## Run tests.
+test: envtest generate fix-imports manifests fmt vet ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path --bin-dir $(PROJECT_DIR)/testbin)" \
 		KUBEBUILDER_CONTROLPLANE_STOP_TIMEOUT="60s"\
 		go test ./api/... ./controllers/... ./pkg/... -coverprofile cover.out -v ${TEST_OPS}
@@ -487,4 +487,4 @@ fix-imports: sort-imports ## Sort imports
 	$(SORT_IMPORTS) -w .
 
 .PHONY: full-gen
-full-gen:  tidy vendor generate manifests  bundle fix-imports bundle-reset ## generates all automatically generated content
+full-gen:  tidy vendor generate manifests bundle fix-imports bundle-reset ## generates all automatically generated content

@@ -2,11 +2,10 @@ package reboot
 
 import (
 	"context"
-	"fmt"
 	"time"
 
-	"github.com/go-logr/logr"
 	commonlabels "github.com/medik8s/common/pkg/labels"
+	"github.com/pkg/errors"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -14,7 +13,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/medik8s/self-node-remediation/pkg/watchdog"
+	"github.com/medik8s/self-node-remediation/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
 const (
@@ -23,102 +23,100 @@ const (
 	MaxBatchesAfterFirst      = 10
 )
 
-type SafeTimeCalculator interface {
-	// GetTimeToAssumeNodeRebooted returns the safe time to assume node was already rebooted
-	// note that this time must include the time for a unhealthy node without api-server access to reach the conclusion that it's unhealthy
-	// this should be at least worst-case time to reach a conclusion from the other peers * request context timeout + watchdog interval + maxFailuresThreshold * reconcileInterval + padding
-	GetTimeToAssumeNodeRebooted() time.Duration
-	SetTimeToAssumeNodeRebooted(time.Duration)
-	Start(ctx context.Context) error
-	//IsAgent return true in case running on an agent pod (responsible for reboot) or false in case running on a manager pod
-	IsAgent() bool
+type RebootDurationCalculator interface {
+	// GetRebootDuration returns the safe time to assume node was already rebooted.
+	// Can be either the specified SafeTimeToAssumeNodeRebootedSeconds or the calculated minimum reboot duration.
+	// Note that this time must include the time for a unhealthy node without api-server access to reach the conclusion that it's unhealthy.
+	// This should be at least worst-case time to reach a conclusion from the other peers * request context timeout + watchdog interval + maxFailuresThreshold * reconcileInterval + padding
+	GetRebootDuration(k8sClient client.Client, ctx context.Context, node *v1.Node, operatorNs string) (time.Duration, error)
+	// SetConfig sets the SelfNodeRemediationConfig to be used for calculating the minimum reboot duration
+	SetConfig(config *v1alpha1.SelfNodeRemediationConfig)
 }
 
-type safeTimeCalculator struct {
-	timeToAssumeNodeRebooted, minTimeToAssumeNodeRebooted                   time.Duration
-	wd                                                                      watchdog.Watchdog
-	maxErrorThreshold                                                       int
-	apiCheckInterval, apiServerTimeout, peerDialTimeout, peerRequestTimeout time.Duration
-	log                                                                     logr.Logger
-	k8sClient                                                               client.Client
-	highestCalculatedBatchNumber                                            int
-	isAgent                                                                 bool
+var _ RebootDurationCalculator = &rebootDurationCalculator{}
+
+type rebootDurationCalculator struct {
+	// storing the config here when reconciling it increases resilience in case of issues during remediation
+	snrConfig *v1alpha1.SelfNodeRemediationConfig
 }
 
-func NewAgentSafeTimeCalculator(k8sClient client.Client, wd watchdog.Watchdog, maxErrorThreshold int, apiCheckInterval, apiServerTimeout, peerDialTimeout, peerRequestTimeout, timeToAssumeNodeRebooted time.Duration) SafeTimeCalculator {
-	return &safeTimeCalculator{
-		wd:                       wd,
-		maxErrorThreshold:        maxErrorThreshold,
-		apiCheckInterval:         apiCheckInterval,
-		apiServerTimeout:         apiServerTimeout,
-		peerDialTimeout:          peerDialTimeout,
-		peerRequestTimeout:       peerRequestTimeout,
-		timeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
-		k8sClient:                k8sClient,
-		isAgent:                  true,
-		log:                      ctrl.Log.WithName("safe-time-calculator"),
-	}
+func NewRebootDurationCalculator() RebootDurationCalculator {
+	return &rebootDurationCalculator{}
 }
 
-func NewManagerSafeTimeCalculator(k8sClient client.Client, timeToAssumeNodeRebooted time.Duration) SafeTimeCalculator {
-	return &safeTimeCalculator{
-		timeToAssumeNodeRebooted: timeToAssumeNodeRebooted,
-		k8sClient:                k8sClient,
-		isAgent:                  false,
-		log:                      ctrl.Log.WithName("safe-time-calculator"),
-	}
+func (r *rebootDurationCalculator) SetConfig(config *v1alpha1.SelfNodeRemediationConfig) {
+	r.snrConfig = config
 }
 
-func (s *safeTimeCalculator) GetTimeToAssumeNodeRebooted() time.Duration {
-	if !s.isAgent {
-		return s.timeToAssumeNodeRebooted
+// TODO add unit test!
+func (r *rebootDurationCalculator) GetRebootDuration(k8sClient client.Client, ctx context.Context, node *v1.Node, operatorNs string) (time.Duration, error) {
+
+	log := ctrl.Log.WithName("rebootDurationCalculator")
+
+	var config *v1alpha1.SelfNodeRemediationConfig
+	if r.snrConfig != nil {
+		config = r.snrConfig
+	} else {
+		// just in case we reconcile a SNR CR sooner than the SNRConfig CR
+		var err error
+		if config, err = r.getConfig(k8sClient, ctx, operatorNs); err != nil {
+			return 0, errors.Wrap(err, "failed to get SelfNodeRemediationConfig")
+		}
 	}
 
-	if s.timeToAssumeNodeRebooted < s.minTimeToAssumeNodeRebooted {
-		return s.minTimeToAssumeNodeRebooted
+	watchdogTimeout := utils.GetWatchdogTimeout(node)
+	minimumCalculatedRebootDuration, err := r.calculateMinimumRebootDuration(k8sClient, ctx, config, watchdogTimeout)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to calculate minimum reboot duration")
 	}
-	return s.timeToAssumeNodeRebooted
-}
 
-func (s *safeTimeCalculator) SetTimeToAssumeNodeRebooted(timeToAssumeNodeRebooted time.Duration) {
-	s.timeToAssumeNodeRebooted = timeToAssumeNodeRebooted
-}
-
-func (s *safeTimeCalculator) Start(_ context.Context) error {
-	return s.calcMinTimeAssumeRebooted()
-}
-
-func (s *safeTimeCalculator) calcMinTimeAssumeRebooted() error {
-	if !s.isAgent {
-		return nil
+	specRebootDurationSeconds := config.Spec.SafeTimeToAssumeNodeRebootedSeconds
+	if specRebootDurationSeconds != nil {
+		specRebootDuration := time.Duration(*specRebootDurationSeconds) * time.Second
+		// In case users specified a lower reboot time, ignore it
+		if specRebootDuration < minimumCalculatedRebootDuration {
+			log.V(0).Info("Warning: Ignoring specified SafeTimeToAssumeNodeRebootedSeconds because it's lower than the calculated minimum safe reboot time", "specified time in seconds", specRebootDuration.Seconds(), "calculated minimum time in seconds", minimumCalculatedRebootDuration.Seconds())
+			// TODO event
+			return minimumCalculatedRebootDuration, nil
+		}
+		log.Info("Using specified SafeTimeToAssumeNodeRebootedSeconds because it's greater than the calculated minimum safe reboot time", "specified time in seconds", specRebootDuration.Seconds(), "calculated minimum time in seconds", minimumCalculatedRebootDuration.Seconds())
+		return specRebootDuration, nil
 	}
-	// The reboot time needs be at least the time we know we need for determining a node issue and trigger the reboot!
+	log.Info("No SafeTimeToAssumeNodeRebootedSeconds specified, using calculated minimum safe reboot time", "calculated minimum time in seconds", minimumCalculatedRebootDuration)
+	return minimumCalculatedRebootDuration, nil
+}
+
+func (r *rebootDurationCalculator) calculateMinimumRebootDuration(k8sClient client.Client, ctx context.Context, cfg *v1alpha1.SelfNodeRemediationConfig, watchdogTimeout time.Duration) (time.Duration, error) {
+
+	spec := cfg.Spec
+
+	// The reboot duration needs be at least the time we know we need for determining a node issue and trigger the reboot!
+
 	// 1. time for determine node issue
-	minTime := (s.apiCheckInterval+s.apiServerTimeout)*time.Duration(s.maxErrorThreshold) + MaxTimeForNoPeersResponse
-	// 2. time for asking peers (10% batches + 1st smaller batch)
-	minTime += time.Duration(s.calcNumOfBatches()) * (s.peerDialTimeout + s.peerRequestTimeout)
-	// 3. watchdog timeout
-	if s.wd != nil {
-		minTime += s.wd.GetTimeout()
+	// a) API check duration ...
+	minTime := spec.ApiCheckInterval.Duration + spec.ApiServerTimeout.Duration
+	// b) ... times error threshold ...
+	minTime *= time.Duration(spec.MaxApiErrorThreshold)
+	// c) ... plus peer timeout
+	minTime += MaxTimeForNoPeersResponse
+
+	// 2. plus time for asking peers (10% batches + 1st smaller batch)
+	numBatches, err := r.calcNumOfBatches(k8sClient, ctx)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to calculate number of batches")
 	}
-	// 4. some buffer
+	minTime += time.Duration(numBatches)*spec.PeerDialTimeout.Duration + spec.PeerRequestTimeout.Duration
+
+	// 3. plus watchdog timeout
+	minTime += watchdogTimeout
+
+	// 4. plus some buffer
 	minTime += 15 * time.Second
-	s.log.Info("calculated minTimeToAssumeNodeRebooted is:", "minTimeToAssumeNodeRebooted", minTime)
-	s.minTimeToAssumeNodeRebooted = minTime
 
-	if s.timeToAssumeNodeRebooted < minTime {
-		err := fmt.Errorf("snr agent can't start: the requested value for SafeTimeToAssumeNodeRebootedSeconds is too low")
-		s.log.Error(err, err.Error(), "requested SafeTimeToAssumeNodeRebootedSeconds", s.timeToAssumeNodeRebooted, "minimal calculated value for SafeTimeToAssumeNodeRebootedSeconds", minTime)
-		return err
-	}
-	return nil
+	return minTime, nil
 }
 
-func (s *safeTimeCalculator) IsAgent() bool {
-	return s.isAgent
-}
-
-func (s *safeTimeCalculator) calcNumOfBatches() int {
+func (r *rebootDurationCalculator) calcNumOfBatches(k8sClient client.Client, ctx context.Context) (int, error) {
 
 	reqPeers, _ := labels.NewRequirement(commonlabels.WorkerRole, selection.Exists, []string{})
 	selector := labels.NewSelector()
@@ -127,9 +125,8 @@ func (s *safeTimeCalculator) calcNumOfBatches() int {
 	nodes := &v1.NodeList{}
 	// time for asking peers (10% batches + 1st smaller batch)
 	maxNumberOfBatches := MaxBatchesAfterFirst + 1
-	if err := s.k8sClient.List(context.Background(), nodes, client.MatchingLabelsSelector{Selector: selector}); err != nil {
-		s.log.Error(err, "couldn't fetch worker nodes")
-		return maxNumberOfBatches
+	if err := k8sClient.List(ctx, nodes, client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		return maxNumberOfBatches, errors.Wrap(err, "failed to list worker nodes")
 	}
 	workerNodesCount := len(nodes.Items)
 
@@ -145,10 +142,11 @@ func (s *safeTimeCalculator) calcNumOfBatches() int {
 			numberOfBatches++
 		}
 	}
-	//In order to stay on the safe side taking the largest calculated batch number (capped at 11)
-	if s.highestCalculatedBatchNumber < numberOfBatches {
-		s.highestCalculatedBatchNumber = numberOfBatches
-	}
-	return s.highestCalculatedBatchNumber
+	return numberOfBatches, nil
+}
 
+func (r *rebootDurationCalculator) getConfig(k8sClient client.Client, ctx context.Context, namespace string) (*v1alpha1.SelfNodeRemediationConfig, error) {
+	config := &v1alpha1.SelfNodeRemediationConfig{}
+	err := k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: v1alpha1.ConfigCRName}, config)
+	return config, err
 }

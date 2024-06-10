@@ -71,3 +71,16 @@ func IsSoftwareRebootEnabled() (bool, error) {
 	}
 	return softwareRebootEnabled, nil
 }
+
+func GetWatchdogTimeout(node *v1.Node) time.Duration {
+	if node.Annotations == nil {
+		return 0
+	}
+
+	timeout, err := strconv.Atoi(node.Annotations[WatchdogTimeoutSecondsAnnotation])
+	if err != nil {
+		return 0
+	}
+
+	return time.Duration(timeout) * time.Second
+}

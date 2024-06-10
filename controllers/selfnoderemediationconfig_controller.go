@@ -49,11 +49,11 @@ const (
 // SelfNodeRemediationConfigReconciler reconciles a SelfNodeRemediationConfig object
 type SelfNodeRemediationConfigReconciler struct {
 	client.Client
-	Log                       logr.Logger
-	Scheme                    *runtime.Scheme
-	InstallFileFolder         string
-	Namespace                 string
-	ManagerSafeTimeCalculator reboot.SafeTimeCalculator
+	Log                      logr.Logger
+	Scheme                   *runtime.Scheme
+	InstallFileFolder        string
+	Namespace                string
+	RebootDurationCalculator reboot.RebootDurationCalculator
 }
 
 //+kubebuilder:rbac:groups=self-node-remediation.medik8s.io,resources=selfnoderemediationconfigs,verbs=get;list;watch;create;update;patch;delete
@@ -86,6 +86,8 @@ func (r *SelfNodeRemediationConfigReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, err
 	}
 
+	r.RebootDurationCalculator.SetConfig(config)
+
 	if err := r.syncCerts(config); err != nil {
 		logger.Error(err, "error syncing certs")
 		return ctrl.Result{}, err
@@ -99,8 +101,6 @@ func (r *SelfNodeRemediationConfigReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, err
 	}
 
-	//sync manager reconciler
-	r.ManagerSafeTimeCalculator.SetTimeToAssumeNodeRebooted(time.Duration(config.Spec.SafeTimeToAssumeNodeRebootedSeconds) * time.Second)
 	return ctrl.Result{}, nil
 }
 
@@ -135,13 +135,6 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 	data.Data["MaxApiErrorThreshold"] = snrConfig.Spec.MaxApiErrorThreshold
 	data.Data["EndpointHealthCheckUrl"] = snrConfig.Spec.EndpointHealthCheckUrl
 	data.Data["HostPort"] = snrConfig.Spec.HostPort
-
-	safeTimeToAssumeNodeRebootedSeconds := snrConfig.Spec.SafeTimeToAssumeNodeRebootedSeconds
-	if safeTimeToAssumeNodeRebootedSeconds == 0 {
-		safeTimeToAssumeNodeRebootedSeconds = selfnoderemediationv1alpha1.DefaultSafeToAssumeNodeRebootTimeout
-	}
-	data.Data["TimeToAssumeNodeRebooted"] = fmt.Sprintf("\"%d\"", safeTimeToAssumeNodeRebootedSeconds)
-
 	data.Data["IsSoftwareRebootEnabled"] = fmt.Sprintf("\"%t\"", snrConfig.Spec.IsSoftwareRebootEnabled)
 
 	objs, err := render.Dir(r.InstallFileFolder, &data)

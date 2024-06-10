@@ -49,10 +49,10 @@ type SelfNodeRemediationConfigSpec struct {
 	// This is extremely important as starting replacement Pods while they are still running on the failed
 	// node will likely lead to data corruption and violation of run-once semantics.
 	// In an effort to prevent this, the operator ignores values lower than a minimum calculated from the
-	// ApiCheckInterval, ApiServerTimeout, MaxApiErrorThreshold, PeerDialTimeout, and PeerRequestTimeout fields.
-	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:default=180
-	SafeTimeToAssumeNodeRebootedSeconds int `json:"safeTimeToAssumeNodeRebootedSeconds,omitempty"`
+	// ApiCheckInterval, ApiServerTimeout, MaxApiErrorThreshold, PeerDialTimeout, and PeerRequestTimeout fields,
+	// and the unhealthy node's individual watchdog timeout.
+	// +optional
+	SafeTimeToAssumeNodeRebootedSeconds *int `json:"safeTimeToAssumeNodeRebootedSeconds,omitempty"`
 
 	// The timeout for api-server connectivity check.
 	// Valid time units are "ms", "s", "m", "h".
@@ -172,9 +172,8 @@ func NewDefaultSelfNodeRemediationConfig() SelfNodeRemediationConfig {
 			Name: ConfigCRName,
 		},
 		Spec: SelfNodeRemediationConfigSpec{
-			WatchdogFilePath:                    defaultWatchdogPath,
-			SafeTimeToAssumeNodeRebootedSeconds: DefaultSafeToAssumeNodeRebootTimeout,
-			IsSoftwareRebootEnabled:             defaultIsSoftwareRebootEnabled,
+			WatchdogFilePath:        defaultWatchdogPath,
+			IsSoftwareRebootEnabled: defaultIsSoftwareRebootEnabled,
 		},
 	}
 }

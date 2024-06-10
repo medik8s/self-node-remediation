@@ -18,6 +18,7 @@ package testcontroler
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -120,20 +121,18 @@ var _ = BeforeSuite(func() {
 		},
 	}
 	Expect(k8sClient.Create(context.Background(), nsToCreate)).To(Succeed())
+
+	_ = os.Setenv("SELF_NODE_REMEDIATION_IMAGE", shared.DsDummyImageName)
 	dummyDog = watchdog.NewFake(true)
 	err = k8sManager.Add(dummyDog)
 	Expect(err).ToNot(HaveOccurred())
-	timeToAssumeNodeRebooted := time.Duration(shared.MaxErrorThreshold) * shared.ApiCheckInterval
-	timeToAssumeNodeRebooted += dummyDog.GetTimeout()
-	timeToAssumeNodeRebooted += 5 * time.Second
-	mockManagerCalculator := &shared.MockCalculator{MockTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted, IsAgentVar: false}
 	err = (&controllers.SelfNodeRemediationConfigReconciler{
-		Client:                    k8sManager.GetClient(),
-		Log:                       ctrl.Log.WithName("controllers").WithName("self-node-remediation-config-controller"),
-		InstallFileFolder:         "../../../install/",
-		Scheme:                    testScheme,
-		Namespace:                 shared.Namespace,
-		ManagerSafeTimeCalculator: mockManagerCalculator,
+		Client:                   k8sManager.GetClient(),
+		Log:                      ctrl.Log.WithName("controllers").WithName("self-node-remediation-config-controller"),
+		InstallFileFolder:        "../../../install/",
+		Scheme:                   testScheme,
+		Namespace:                shared.Namespace,
+		RebootDurationCalculator: shared.MockRebootDurationCalculator{},
 	}).SetupWithManager(k8sManager)
 
 	// peers need their own node on start
@@ -162,38 +161,30 @@ var _ = BeforeSuite(func() {
 	err = k8sManager.Add(apiCheck)
 	Expect(err).ToNot(HaveOccurred())
 
-	mockAgentCalculator := &shared.MockCalculator{MockTimeToAssumeNodeRebooted: timeToAssumeNodeRebooted, IsAgentVar: true}
 	fakeRecorder = record.NewFakeRecorder(1000)
 	// reconciler for unhealthy node
 	err = (&controllers.SelfNodeRemediationReconciler{
-		Client:             k8sClient,
-		Log:                ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("unhealthy node"),
-		Rebooter:           rebooter,
-		MyNodeName:         shared.UnhealthyNodeName,
-		SafeTimeCalculator: mockAgentCalculator,
-		Recorder:           fakeRecorder,
-	}).SetupWithManager(k8sManager)
-	Expect(err).ToNot(HaveOccurred())
-
-	// reconciler for peer node
-	err = (&controllers.SelfNodeRemediationReconciler{
-		Client:             k8sClient,
-		Log:                ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
-		MyNodeName:         shared.PeerNodeName,
-		Rebooter:           rebooter,
-		SafeTimeCalculator: mockAgentCalculator,
-		Recorder:           fakeRecorder,
+		Client:                   k8sClient,
+		Log:                      ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("unhealthy node"),
+		Rebooter:                 rebooter,
+		RebootDurationCalculator: shared.MockRebootDurationCalculator{},
+		MyNodeName:               shared.UnhealthyNodeName,
+		MyNamespace:              shared.Namespace,
+		Recorder:                 fakeRecorder,
+		IsAgent:                  true,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	// reconciler for manager running on peer node
 	err = (&controllers.SelfNodeRemediationReconciler{
-		Client:             k8sClient,
-		Log:                ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("manager node"),
-		MyNodeName:         shared.PeerNodeName,
-		Rebooter:           rebooter,
-		SafeTimeCalculator: mockManagerCalculator,
-		Recorder:           fakeRecorder,
+		Client:                   k8sClient,
+		Log:                      ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("manager node"),
+		MyNodeName:               shared.PeerNodeName,
+		MyNamespace:              shared.Namespace,
+		Rebooter:                 nil,
+		RebootDurationCalculator: shared.MockRebootDurationCalculator{},
+		Recorder:                 fakeRecorder,
+		IsAgent:                  false,
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
