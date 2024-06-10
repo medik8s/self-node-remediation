@@ -148,7 +148,14 @@ func (r *SelfNodeRemediationReconciler) SetupWithManager(mgr ctrl.Manager) error
 //+kubebuilder:rbac:groups="",resources=namespaces,verbs=list;get;watch
 
 func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (returnResult ctrl.Result, returnErr error) {
-	r.logger = r.Log.WithValues("selfnoderemediation", req.NamespacedName)
+	if r.IsAgent {
+		return r.ReconcileAgent(ctx, req)
+	}
+	return r.ReconcileManager(ctx, req)
+}
+
+func (r *SelfNodeRemediationReconciler) ReconcileAgent(ctx context.Context, req ctrl.Request) (returnResult ctrl.Result, returnErr error) {
+	r.logger = r.Log.WithValues("pod", "agent", "selfnoderemediation", req.NamespacedName)
 
 	snr := &v1alpha1.SelfNodeRemediation{}
 	if err := r.Get(ctx, req.NamespacedName, snr); err != nil {
@@ -161,13 +168,40 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, err
 	}
 
-	if r.IsAgent {
-		targetNodeName := getNodeName(snr)
-		if targetNodeName != r.MyNodeName {
-			r.logger.Info("agent pod skipping remediation because node belongs to a different agent", "Agent node name", r.MyNodeName, "Node name", targetNodeName)
+	targetNodeName := getNodeName(snr)
+	if targetNodeName != r.MyNodeName {
+		r.logger.Info("agent pod skipping remediation because node belongs to a different agent", "Agent node name", r.MyNodeName, "Remediated node name", req.Name)
+		return ctrl.Result{}, nil
+	}
+
+	// just care for reboot, everything else is done by the manager!
+	phase := r.getPhase(snr)
+	switch phase {
+	case preRebootCompletedPhase:
+		r.logger.Info("node reboot not completed yet, start rebooting")
+		node, err := r.getNodeFromSnr(snr)
+		if err != nil {
+			r.logger.Info("didn't find node, eventing might be incomplete", "node name", snr.Name)
+		}
+		return r.rebootIfNeeded(snr, node)
+	default:
+		r.logger.Info("not ready for reboot", "phase", phase)
+	}
+	return ctrl.Result{}, nil
+}
+
+func (r *SelfNodeRemediationReconciler) ReconcileManager(ctx context.Context, req ctrl.Request) (returnResult ctrl.Result, returnErr error) {
+	r.logger = r.Log.WithValues("pod", "manager", "selfnoderemediation", req.NamespacedName)
+
+	snr := &v1alpha1.SelfNodeRemediation{}
+	if err := r.Get(ctx, req.NamespacedName, snr); err != nil {
+		if apiErrors.IsNotFound(err) {
+			// SNR is deleted, stop reconciling
+			r.logger.Info("SNR already deleted")
 			return ctrl.Result{}, nil
 		}
-		r.logger.Info("agent pod starting remediation on owned node")
+		r.logger.Error(err, "failed to get SNR")
+		return ctrl.Result{}, err
 	}
 
 	defer func() {
@@ -225,9 +259,6 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	//used as an indication not to spam the event
 	if isFinalizerAlreadyAdded := controllerutil.ContainsFinalizer(snr, SNRFinalizer); !isFinalizerAlreadyAdded {
 		eventMessage := "Remediation started by SNR manager"
-		if r.IsAgent {
-			eventMessage = "Remediation started by SNR agent"
-		}
 		events.NormalEvent(r.Recorder, snr, "RemediationStarted", eventMessage)
 	}
 
@@ -263,7 +294,7 @@ func (r *SelfNodeRemediationReconciler) updateConditions(processingTypeReason pr
 		succeededConditionStatus = metav1.ConditionFalse
 	default:
 		err := fmt.Errorf("unkown processingChangeReason:%s", processingTypeReason)
-		r.Log.Error(err, "couldn't update snr processing condition")
+		r.logger.Error(err, "couldn't update snr processing condition")
 		return err
 	}
 
@@ -406,18 +437,13 @@ func (r *SelfNodeRemediationReconciler) prepareReboot(ctx context.Context, node 
 }
 
 func (r *SelfNodeRemediationReconciler) handlePreRebootCompletedPhase(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
-	return r.rebootNode(node, snr)
+	return r.waitForNodeRebooted(node, snr)
 }
 
-func (r *SelfNodeRemediationReconciler) rebootNode(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
-	r.logger.Info("node reboot not completed yet, start rebooting")
-	if r.MyNodeName == node.Name {
-		// we have a problem on this node, reboot!
-		return r.rebootIfNeeded(snr, node)
-	}
-
+func (r *SelfNodeRemediationReconciler) waitForNodeRebooted(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	wasRebooted, timeLeft := r.wasNodeRebooted(snr)
 	if !wasRebooted {
+		r.logger.Info("Node didn't reboot yet, waiting for it to reboot", "node name", node.Name, "time left", timeLeft)
 		return ctrl.Result{RequeueAfter: timeLeft}, nil
 	}
 

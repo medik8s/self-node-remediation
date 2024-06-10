@@ -167,7 +167,7 @@ var _ = BeforeSuite(func() {
 		Client:                   k8sClient,
 		Log:                      ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("unhealthy node"),
 		Rebooter:                 rebooter,
-		RebootDurationCalculator: shared.MockRebootDurationCalculator{},
+		RebootDurationCalculator: nil,
 		MyNodeName:               shared.UnhealthyNodeName,
 		MyNamespace:              shared.Namespace,
 		Recorder:                 fakeRecorder,
