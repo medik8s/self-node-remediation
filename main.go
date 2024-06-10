@@ -191,7 +191,6 @@ func initSelfNodeRemediationManager(mgr manager.Manager, enableHTTP2 bool) {
 		Log:                       ctrl.Log.WithName("controllers").WithName("SelfNodeRemediationConfig"),
 		Scheme:                    mgr.GetScheme(),
 		InstallFileFolder:         "./install",
-		DefaultConfigCreator:      snrconfighelper.NewConfigIfNotExist,
 		Namespace:                 ns,
 		ManagerSafeTimeCalculator: safeRebootCalc,
 	}).SetupWithManager(mgr); err != nil {
