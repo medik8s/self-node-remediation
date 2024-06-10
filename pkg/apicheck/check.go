@@ -77,6 +77,10 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 
 	go wait.UntilWithContext(ctx, func(ctx context.Context) {
 
+		apiLogger.Info("Go Routine Started Logger 1")
+		c.config.Log.Info("Go Routine Started Logger 2")
+		c.Log.Info("Go Routine Started Logger 3")
+
 		readerCtx, cancel := context.WithTimeout(ctx, c.config.ApiServerTimeout)
 		defer cancel()
 
@@ -119,6 +123,11 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 // isConsideredHealthy keeps track of the number of errors reported, and when a certain amount of error occur within a certain
 // time, ask peers if this node is healthy. Returns if the node is considered to be healthy or not.
 func (c *ApiConnectivityCheck) isConsideredHealthy(apiLogger logr.Logger) bool {
+
+	apiLogger.Info("isConsideredHealthy Started Logger 1")
+	c.config.Log.Info("isConsideredHealthy Started Logger 2")
+	c.Log.Info("isConsideredHealthy Started Logger 3")
+
 	workerPeersResponse := c.getWorkerPeersResponse(apiLogger)
 	isWorkerNode := c.controlPlaneManager == nil || !c.controlPlaneManager.IsControlPlane()
 	if isWorkerNode {
@@ -130,6 +139,10 @@ func (c *ApiConnectivityCheck) isConsideredHealthy(apiLogger logr.Logger) bool {
 }
 
 func (c *ApiConnectivityCheck) getWorkerPeersResponse(apiLogger logr.Logger) peers.Response {
+	apiLogger.Info("getWorkerPeersResponse Started Logger 1")
+	c.config.Log.Info("getWorkerPeersResponse Started Logger 2")
+	c.Log.Info("getWorkerPeersResponse Started Logger 3")
+
 	c.errorCount++
 	if c.errorCount < c.config.MaxErrorsThreshold {
 		c.config.Log.Info("Ignoring api-server error, error count below threshold", "current count", c.errorCount, "threshold", c.config.MaxErrorsThreshold)

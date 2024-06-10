@@ -179,6 +179,11 @@ var _ = Describe("Self Node Remediation E2E", func() {
 					checkSnrLogs(node, []string{"ApiConnectivityCheck Start Logger 3"})
 					//if _, isExist := os.LookupEnv(skipLogsEnvVarName); !isExist {
 					// check logs to make sure that the actual peer health check did run
+					checkSnrLogs(node, []string{"Go Routine Started"})
+
+					checkSnrLogs(node, []string{"isConsideredHealthy Started"})
+
+					checkSnrLogs(node, []string{"getWorkerPeersResponse Started"})
 
 					checkSnrLogs(node, []string{"Peer told me I'm healthy."})
 					checkSnrLogs(node, []string{"Peer told me I'm healthy. Logger 1"})
