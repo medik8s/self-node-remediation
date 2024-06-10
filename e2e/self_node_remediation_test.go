@@ -173,9 +173,19 @@ var _ = Describe("Self Node Remediation E2E", func() {
 					checkNoNodeRecreate(node, oldUID)
 					checkNoReboot(node, oldBootTime)
 
+					checkSnrLogs(node, []string{"ApiConnectivityCheck Start"})
+					checkSnrLogs(node, []string{"ApiConnectivityCheck Start Logger 1"})
+					checkSnrLogs(node, []string{"ApiConnectivityCheck Start Logger 2"})
+					checkSnrLogs(node, []string{"ApiConnectivityCheck Start Logger 3"})
 					//if _, isExist := os.LookupEnv(skipLogsEnvVarName); !isExist {
 					// check logs to make sure that the actual peer health check did run
-					checkSnrLogs(node, []string{"failed to check api server", "Peer told me I'm healthy."})
+
+					checkSnrLogs(node, []string{"Peer told me I'm healthy."})
+					checkSnrLogs(node, []string{"Peer told me I'm healthy. Logger 1"})
+					checkSnrLogs(node, []string{"Peer told me I'm healthy. Logger 2"})
+					checkSnrLogs(node, []string{"Peer told me I'm healthy. Logger 3"})
+
+					//checkSnrLogs(node, []string{"failed to check api server", "Peer told me I'm healthy."})
 					//}
 				})
 			})

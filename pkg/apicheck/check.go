@@ -14,6 +14,7 @@ import (
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/rest"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	selfNodeRemediation "github.com/medik8s/self-node-remediation/api"
@@ -32,6 +33,7 @@ type ApiConnectivityCheck struct {
 	clientCreds            credentials.TransportCredentials
 	mutex                  sync.Mutex
 	controlPlaneManager    *controlplane.Manager
+	Log                    logr.Logger
 }
 
 type ApiConnectivityCheckConfig struct {
@@ -51,16 +53,21 @@ type ApiConnectivityCheckConfig struct {
 	MaxTimeForNoPeersResponse time.Duration
 }
 
-func New(config *ApiConnectivityCheckConfig, controlPlaneManager *controlplane.Manager) *ApiConnectivityCheck {
+func New(config *ApiConnectivityCheckConfig, controlPlaneManager *controlplane.Manager, log logr.Logger) *ApiConnectivityCheck {
 	return &ApiConnectivityCheck{
 		config:                 config,
 		mutex:                  sync.Mutex{},
 		controlPlaneManager:    controlPlaneManager,
 		timeOfLastPeerResponse: time.Now(),
+		Log:                    log,
 	}
 }
 
 func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
+	apiLogger := ctrl.Log.WithName("api-connectivity-log")
+	apiLogger.Info("ApiConnectivityCheck Start Logger 1")
+	c.config.Log.Info("ApiConnectivityCheck Start Logger 2")
+	c.Log.Info("ApiConnectivityCheck Start Logger 3")
 
 	cs, err := clientset.NewForConfig(c.config.Cfg)
 	if err != nil {
@@ -86,7 +93,7 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 		}
 		if failure != "" {
 			c.config.Log.Error(fmt.Errorf(failure), "failed to check api server")
-			if isHealthy := c.isConsideredHealthy(); !isHealthy {
+			if isHealthy := c.isConsideredHealthy(apiLogger); !isHealthy {
 				// we have a problem on this node
 				c.config.Log.Error(err, "we are unhealthy, triggering a reboot")
 				if err := c.config.Rebooter.Reboot(); err != nil {
@@ -111,8 +118,8 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 
 // isConsideredHealthy keeps track of the number of errors reported, and when a certain amount of error occur within a certain
 // time, ask peers if this node is healthy. Returns if the node is considered to be healthy or not.
-func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
-	workerPeersResponse := c.getWorkerPeersResponse()
+func (c *ApiConnectivityCheck) isConsideredHealthy(apiLogger logr.Logger) bool {
+	workerPeersResponse := c.getWorkerPeersResponse(apiLogger)
 	isWorkerNode := c.controlPlaneManager == nil || !c.controlPlaneManager.IsControlPlane()
 	if isWorkerNode {
 		return workerPeersResponse.IsHealthy
@@ -122,7 +129,7 @@ func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
 
 }
 
-func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
+func (c *ApiConnectivityCheck) getWorkerPeersResponse(apiLogger logr.Logger) peers.Response {
 	c.errorCount++
 	if c.errorCount < c.config.MaxErrorsThreshold {
 		c.config.Log.Info("Ignoring api-server error, error count below threshold", "current count", c.errorCount, "threshold", c.config.MaxErrorsThreshold)
@@ -164,7 +171,11 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 		}
 
 		if healthyResponses > 0 {
-			c.config.Log.Info("Peer told me I'm healthy.")
+			apiLogger.Info("Peer told me I'm healthy. Logger 1")
+			c.config.Log.Info("Peer told me I'm healthy. Logger 2")
+			c.Log.Info("Peer told me I'm healthy. Logger 3")
+
+			//c.config.Log.Info("Peer told me I'm healthy.")
 			c.errorCount = 0
 			return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseCRNotFound}
 		}

@@ -346,17 +346,18 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		setupLog.Error(err, "failed to add controlPlane remediation manager to setup manager")
 		os.Exit(1)
 	}
-
-	apiChecker := apicheck.New(apiConnectivityCheckConfig, controlPlaneManager)
+	remediationReconcileLog := ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation")
+	apiChecker := apicheck.New(apiConnectivityCheckConfig, controlPlaneManager, remediationReconcileLog)
 	if err = mgr.Add(apiChecker); err != nil {
 		setupLog.Error(err, "failed to add api-check to the manager")
 		os.Exit(1)
 	}
 
 	restoreNodeAfter := 90 * time.Second
+
 	snrReconciler := &controllers.SelfNodeRemediationReconciler{
 		Client:             mgr.GetClient(),
-		Log:                ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
+		Log:                remediationReconcileLog,
 		Scheme:             mgr.GetScheme(),
 		Recorder:           mgr.GetEventRecorderFor("SelfNodeRemediation"),
 		Rebooter:           rebooter,

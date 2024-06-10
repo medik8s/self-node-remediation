@@ -127,7 +127,7 @@ var _ = BeforeSuite(func() {
 		Cfg:                cfg,
 		CertReader:         certReader,
 	}
-	apiCheck := apicheck.New(apiConnectivityCheckConfig, nil)
+	apiCheck := apicheck.New(apiConnectivityCheckConfig, nil, ctrl.Log.WithName("mock-log"))
 	err = k8sManager.Add(apiCheck)
 	Expect(err).ToNot(HaveOccurred())
 
