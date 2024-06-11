@@ -153,7 +153,7 @@ var _ = Describe("SNR Controller", func() {
 		})
 	})
 
-	Context("Unhealthy node with api-server access mod", func() {
+	Context("Unhealthy node with api-server access", func() {
 
 		BeforeEach(func() {
 			isAdditionalSetupNeeded = true
@@ -911,13 +911,4 @@ func isEventOccurred(eventType string, reason string, message string) bool {
 		fakeRecorder.Events <- unMatchedEvent
 	}
 	return isEventMatch
-}
-
-func checkNodeExist(nodeNameSpacedName types.NamespacedName) {
-	node := &v1.Node{}
-	Eventually(func() error {
-		return k8sClient.Client.Get(context.TODO(), nodeNameSpacedName, node)
-	}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
-	Expect(node.Name).To(Equal(nodeNameSpacedName.Name))
-	Expect(node.CreationTimestamp).ToNot(BeZero())
 }
