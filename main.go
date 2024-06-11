@@ -191,7 +191,6 @@ func initSelfNodeRemediationManager(mgr manager.Manager, enableHTTP2 bool) {
 		Log:                       ctrl.Log.WithName("controllers").WithName("SelfNodeRemediationConfig"),
 		Scheme:                    mgr.GetScheme(),
 		InstallFileFolder:         "./install",
-		DefaultPpcCreator:         snrconfighelper.NewConfigIfNotExist,
 		Namespace:                 ns,
 		ManagerSafeTimeCalculator: safeRebootCalc,
 	}).SetupWithManager(mgr); err != nil {
@@ -217,7 +216,6 @@ func initSelfNodeRemediationManager(mgr manager.Manager, enableHTTP2 bool) {
 			"env var name", nodeNameEnvVar)
 	}
 
-	restoreNodeAfter := 90 * time.Second
 	snrReconciler := &controllers.SelfNodeRemediationReconciler{
 		Client:             mgr.GetClient(),
 		Log:                ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
@@ -225,7 +223,6 @@ func initSelfNodeRemediationManager(mgr manager.Manager, enableHTTP2 bool) {
 		Recorder:           mgr.GetEventRecorderFor("SelfNodeRemediation"),
 		Rebooter:           nil,
 		MyNodeName:         myNodeName,
-		RestoreNodeAfter:   restoreNodeAfter,
 		SafeTimeCalculator: safeRebootCalc,
 	}
 
@@ -353,7 +350,6 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
-	restoreNodeAfter := 90 * time.Second
 	snrReconciler := &controllers.SelfNodeRemediationReconciler{
 		Client:             mgr.GetClient(),
 		Log:                ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
@@ -361,7 +357,6 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		Recorder:           mgr.GetEventRecorderFor("SelfNodeRemediation"),
 		Rebooter:           rebooter,
 		MyNodeName:         myNodeName,
-		RestoreNodeAfter:   restoreNodeAfter,
 		SafeTimeCalculator: safeRebootCalc,
 	}
 

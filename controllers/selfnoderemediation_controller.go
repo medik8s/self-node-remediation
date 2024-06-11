@@ -50,7 +50,6 @@ const (
 	nhcTimeOutAnnotation    = "remediation.medik8s.io/nhc-timed-out"
 	excludeRemediationLabel = "remediation.medik8s.io/exclude-from-remediation"
 
-	eventReasonRemediationStopped = "RemediationStopped"
 	eventReasonRemediationSkipped = "RemediationSkipped"
 
 	//remediation
@@ -65,8 +64,6 @@ const (
 	eventReasonRemoveNoExecute           = "RemoveNoExecuteTaint"
 	eventReasonRemoveOutOfService        = "RemoveOutOfService"
 	eventReasonNodeReboot                = "NodeReboot"
-
-	eventTypeNormal = "Normal"
 )
 
 var (
@@ -125,11 +122,6 @@ type SelfNodeRemediationReconciler struct {
 	Recorder   record.EventRecorder
 	Rebooter   reboot.Rebooter
 	MyNodeName string
-	//we need to restore the node only after the cluster realized it can reschedule the affected workloads
-	//as of writing this lines, kubernetes will check for pods with non-existent node once in 20s, and allows
-	//40s of grace period for the node to reappear before it deletes the pods.
-	//see here: https://github.com/kubernetes/kubernetes/blob/7a0638da76cb9843def65708b661d2c6aa58ed5a/pkg/controller/podgc/gc_controller.go#L43-L47
-	RestoreNodeAfter time.Duration
 	reboot.SafeTimeCalculator
 }
 
@@ -597,24 +589,6 @@ func (r *SelfNodeRemediationReconciler) addFinalizer(snr *v1alpha1.SelfNodeRemed
 	return ctrl.Result{Requeue: true}, nil
 }
 
-// returns the lastHeartbeatTime of the first condition, if exists. Otherwise returns the zero value
-func (r *SelfNodeRemediationReconciler) getLastHeartbeatTime(node *v1.Node) time.Time {
-	var lastHeartbeat metav1.Time
-	if node.Status.Conditions != nil && len(node.Status.Conditions) > 0 {
-		lastHeartbeat = node.Status.Conditions[0].LastHeartbeatTime
-	}
-	return lastHeartbeat.Time
-}
-
-func (r *SelfNodeRemediationReconciler) getReadyCond(node *v1.Node) *v1.NodeCondition {
-	for _, cond := range node.Status.Conditions {
-		if cond.Type == v1.NodeReady {
-			return &cond
-		}
-	}
-	return nil
-}
-
 func (r *SelfNodeRemediationReconciler) updateSnrStatus(ctx context.Context, snr *v1alpha1.SelfNodeRemediation) error {
 	if err := r.Client.Status().Update(ctx, snr); err != nil {
 		if !apiErrors.IsConflict(err) {
@@ -716,33 +690,6 @@ func (r *SelfNodeRemediationReconciler) markNodeAsUnschedulable(node *v1.Node) (
 	}
 	events.NormalEvent(r.Recorder, node, eventReasonMarkUnschedulable, "Remediation process - unhealthy node marked as unschedulable")
 	return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
-}
-
-func (r *SelfNodeRemediationReconciler) restoreNode(nodeToRestore *v1.Node) (ctrl.Result, error) {
-	r.logger.Info("restoring node", "node name", nodeToRestore.Name)
-
-	// todo we probably want to have some allowlist/denylist on which things to restore, we already had
-	// a problem when we restored ovn annotations
-	nodeToRestore.ResourceVersion = "" //create won't work with a non-empty value here
-	taints, _ := utils.DeleteTaint(nodeToRestore.Spec.Taints, NodeUnschedulableTaint)
-	nodeToRestore.Spec.Taints = taints
-	nodeToRestore.Spec.Unschedulable = false
-	nodeToRestore.CreationTimestamp = metav1.Now()
-	nodeToRestore.Status = v1.NodeStatus{}
-
-	if err := r.Client.Create(context.TODO(), nodeToRestore); err != nil {
-		if apiErrors.IsAlreadyExists(err) {
-			// node is already created, either by another agent or by the cluster
-			r.logger.Info("failed to create node since it already exist", "node name", nodeToRestore.Name)
-			return ctrl.Result{}, nil
-		}
-		r.logger.Error(err, "failed to create node", "node name", nodeToRestore.Name)
-		return ctrl.Result{}, err
-	}
-
-	r.logger.Info("node restored successfully", "node name", nodeToRestore.Name)
-	// all done, stop reconciling
-	return ctrl.Result{Requeue: true}, nil
 }
 
 func (r *SelfNodeRemediationReconciler) updateSnrStatusLastError(snr *v1alpha1.SelfNodeRemediation, err error) error {

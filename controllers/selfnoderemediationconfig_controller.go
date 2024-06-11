@@ -52,7 +52,6 @@ type SelfNodeRemediationConfigReconciler struct {
 	Log                       logr.Logger
 	Scheme                    *runtime.Scheme
 	InstallFileFolder         string
-	DefaultPpcCreator         func(c client.Client) error
 	Namespace                 string
 	ManagerSafeTimeCalculator reboot.SafeTimeCalculator
 }
