@@ -36,7 +36,6 @@ var _ = Describe("SNR Controller", func() {
 	var remediationStrategy v1alpha1.RemediationStrategyType
 	var nodeRebootCapable = "true"
 	var isAdditionalSetupNeeded = false
-	var createSNRBeforeTest = true
 
 	BeforeEach(func() {
 		nodeRebootCapable = "true"
@@ -53,16 +52,12 @@ var _ = Describe("SNR Controller", func() {
 		}
 
 		updateIsRebootCapable(nodeRebootCapable)
-		if createSNRBeforeTest {
-			createSNR(snr, remediationStrategy)
-		}
 	})
 
 	AfterEach(func() {
 		k8sClient.ShouldSimulateFailure = false
 		k8sClient.ShouldSimulatePodDeleteFailure = false
 		isAdditionalSetupNeeded = false
-		createSNRBeforeTest = true
 		deleteRemediations()
 		deleteSelfNodeRemediationPod()
 		//clear node's state, this is important to remove taints, label etc.
@@ -99,7 +94,7 @@ var _ = Describe("SNR Controller", func() {
 
 		Context("ResourceDeletion strategy", func() {
 			BeforeEach(func() {
-				remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
+				createSNR(snr, v1alpha1.ResourceDeletionRemediationStrategy)
 			})
 
 			It("snr should not have finalizers", func() {
@@ -109,7 +104,7 @@ var _ = Describe("SNR Controller", func() {
 
 		Context("OutOfServiceTaint strategy", func() {
 			BeforeEach(func() {
-				remediationStrategy = v1alpha1.OutOfServiceTaintRemediationStrategy
+				createSNR(snr, v1alpha1.OutOfServiceTaintRemediationStrategy)
 			})
 
 			It("snr should not have finalizers", func() {
@@ -127,7 +122,7 @@ var _ = Describe("SNR Controller", func() {
 			//since we don't have a scheduler in test, we need to do its work and create pp pod for that node
 
 			BeforeEach(func() {
-				remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
+				createSNR(snr, v1alpha1.ResourceDeletionRemediationStrategy)
 			})
 
 			Context("node doesn't have is-reboot-capable annotation", func() {
@@ -162,10 +157,13 @@ var _ = Describe("SNR Controller", func() {
 		Context("Automatic strategy - ResourceDeletion selected", func() {
 
 			BeforeEach(func() {
-				remediationStrategy = v1alpha1.AutomaticRemediationStrategy
 				prevVal := utils.IsOutOfServiceTaintGA
 				utils.IsOutOfServiceTaintGA = false
 				DeferCleanup(func() { utils.IsOutOfServiceTaintGA = prevVal })
+			})
+
+			JustBeforeEach(func() {
+				createSNR(snr, v1alpha1.AutomaticRemediationStrategy)
 			})
 
 			It("Remediation flow", func() {
@@ -285,7 +283,6 @@ var _ = Describe("SNR Controller", func() {
 
 		Context("Automatic strategy - OutOfServiceTaint selected", func() {
 			BeforeEach(func() {
-				createSNRBeforeTest = false
 				remediationStrategy = v1alpha1.AutomaticRemediationStrategy
 				prevVal := utils.IsOutOfServiceTaintGA
 				utils.IsOutOfServiceTaintGA = true
@@ -350,6 +347,10 @@ var _ = Describe("SNR Controller", func() {
 				snr.OwnerReferences = []metav1.OwnerReference{{Name: machineName, Kind: "Machine", APIVersion: "machine.openshift.io/v1beta1", UID: "12345"}}
 			})
 
+			JustBeforeEach(func() {
+				createSNR(snr, v1alpha1.AutomaticRemediationStrategy)
+			})
+
 			When("A machine exist that matches the remediation OwnerRef machine", func() {
 				var machineStatus *machinev1beta1.MachineStatus
 
@@ -368,7 +369,6 @@ var _ = Describe("SNR Controller", func() {
 						savedMachine.Status = *machineStatus
 						Expect(k8sClient.Status().Update(context.Background(), savedMachine)).To(Succeed())
 					}
-
 				})
 				BeforeEach(func() {
 					machine = &machinev1beta1.Machine{
@@ -388,12 +388,13 @@ var _ = Describe("SNR Controller", func() {
 							machineStatus = nil
 						})
 					})
+
 					It("Node is found and set with Unschedulable taint", func() {
 						time.Sleep(time.Second)
 						verifyEvent("Normal", "MarkUnschedulable", "Remediation process - unhealthy node marked as unschedulable")
-
 					})
 				})
+
 				When("the wrong  NodeRef is set in the machine statusThe", func() {
 					BeforeEach(func() {
 						machineStatus = &machinev1beta1.MachineStatus{
@@ -403,6 +404,7 @@ var _ = Describe("SNR Controller", func() {
 							machineStatus = nil
 						})
 					})
+
 					When("NHC isn't set as owner in the remediation", func() {
 						It("Node is not found", func() {
 							time.Sleep(time.Second)
@@ -415,10 +417,10 @@ var _ = Describe("SNR Controller", func() {
 						BeforeEach(func() {
 							snr.OwnerReferences = append(snr.OwnerReferences, metav1.OwnerReference{Name: "nhc", Kind: "NodeHealthCheck", APIVersion: "remediation.medik8s.io/v1alpha1", UID: "12345"})
 						})
+
 						It("Node is found and set with Unschedulable taint", func() {
 							time.Sleep(time.Second)
 							verifyEvent("Normal", "MarkUnschedulable", "Remediation process - unhealthy node marked as unschedulable")
-
 						})
 					})
 				})
