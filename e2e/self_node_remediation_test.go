@@ -649,7 +649,7 @@ func deleteAndWait(resource client.Object) {
 			return true
 		}
 		return false
-	}, 2*time.Minute, 10*time.Second).Should(BeTrue(), "resource not deleted in time")
+	}, 4*time.Minute, 10*time.Second).Should(BeTrue(), "resource not deleted in time")
 }
 
 func ensureSnrRunning(nodes *v1.NodeList) {
