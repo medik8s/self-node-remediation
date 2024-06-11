@@ -32,8 +32,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/pkg/apply"
@@ -106,9 +109,20 @@ func (r *SelfNodeRemediationConfigReconciler) Reconcile(ctx context.Context, req
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *SelfNodeRemediationConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	generationChangePredicate := predicate.GenerationChangedPredicate{}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}).
-		Owns(&v1.DaemonSet{}).
+		Owns(&v1.DaemonSet{}, builder.WithPredicates(
+			// only
+			predicate.Funcs{
+				// skip reconcile for status only changes
+				UpdateFunc: func(ev event.UpdateEvent) bool {
+					return generationChangePredicate.Update(ev)
+				},
+				// we want to recreate the DS in case someone deletes it
+				DeleteFunc: func(_ event.DeleteEvent) bool { return true },
+			}),
+		).
 		Complete(r)
 }
 
