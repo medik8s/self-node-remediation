@@ -36,7 +36,7 @@ type Peers struct {
 	myNodeName                                       string
 	mutex                                            sync.Mutex
 	apiServerTimeout                                 time.Duration
-	workerPeersAddresses, controlPlanePeersAddresses [][]v1.NodeAddress
+	workerPeersAddresses, controlPlanePeersAddresses []string
 }
 
 func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Reader, log logr.Logger, apiServerTimeout time.Duration) *Peers {
@@ -47,8 +47,8 @@ func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Read
 		myNodeName:                 myNodeName,
 		mutex:                      sync.Mutex{},
 		apiServerTimeout:           apiServerTimeout,
-		workerPeersAddresses:       [][]v1.NodeAddress{},
-		controlPlanePeersAddresses: [][]v1.NodeAddress{},
+		workerPeersAddresses:       []string{},
+		controlPlanePeersAddresses: []string{},
 	}
 }
 
@@ -88,18 +88,18 @@ func (p *Peers) Start(ctx context.Context) error {
 }
 
 func (p *Peers) updateWorkerPeers(ctx context.Context) {
-	setterFunc := func(addresses [][]v1.NodeAddress) { p.workerPeersAddresses = addresses }
+	setterFunc := func(addresses []string) { p.workerPeersAddresses = addresses }
 	selectorGetter := func() labels.Selector { return p.workerPeerSelector }
 	p.updatePeers(ctx, selectorGetter, setterFunc)
 }
 
 func (p *Peers) updateControlPlanePeers(ctx context.Context) {
-	setterFunc := func(addresses [][]v1.NodeAddress) { p.controlPlanePeersAddresses = addresses }
+	setterFunc := func(addresses []string) { p.controlPlanePeersAddresses = addresses }
 	selectorGetter := func() labels.Selector { return p.controlPlanePeerSelector }
 	p.updatePeers(ctx, selectorGetter, setterFunc)
 }
 
-func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selector, setAddresses func(addresses [][]v1.NodeAddress)) {
+func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selector, setAddresses func(addresses []string)) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
@@ -111,25 +111,40 @@ func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selec
 	if err := p.List(readerCtx, &nodes, client.MatchingLabelsSelector{Selector: getSelector()}); err != nil {
 		if errors.IsNotFound(err) {
 			// we are the only node at the moment... reset peerList
-			p.workerPeersAddresses = [][]v1.NodeAddress{}
+			p.workerPeersAddresses = []string{}
 		}
 		p.log.Error(err, "failed to update peer list")
 		return
 	}
 
+	pods := v1.PodList{}
+	listOptions := &client.ListOptions{
+		LabelSelector: labels.SelectorFromSet(labels.Set{
+			"app.kubernetes.io/name":      "self-node-remediation",
+			"app.kubernetes.io/component": "agent",
+		}),
+	}
+	if err := p.List(readerCtx, &pods, listOptions); err != nil {
+		p.log.Error(err, "could not get pods")
+	}
+
 	nodesCount := len(nodes.Items)
-	addresses := make([][]v1.NodeAddress, nodesCount)
+	addresses := make([]string, nodesCount)
 	for i, node := range nodes.Items {
-		addresses[i] = node.Status.Addresses
+		for _, pod := range pods.Items {
+			if pod.Spec.NodeName == node.Name {
+				addresses[i] = pod.Status.PodIP
+			}
+		}
 	}
 	setAddresses(addresses)
 }
 
-func (p *Peers) GetPeersAddresses(role Role) [][]v1.NodeAddress {
+func (p *Peers) GetPeersAddresses(role Role) []string {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	var addresses [][]v1.NodeAddress
+	var addresses []string
 	if role == Worker {
 		addresses = p.workerPeersAddresses
 	} else {
@@ -137,11 +152,8 @@ func (p *Peers) GetPeersAddresses(role Role) [][]v1.NodeAddress {
 	}
 	//we don't want the caller to be able to change the addresses
 	//so we create a deep copy and return it
-	addressesCopy := make([][]v1.NodeAddress, len(addresses))
-	for i := range addressesCopy {
-		addressesCopy[i] = make([]v1.NodeAddress, len(addresses[i]))
-		copy(addressesCopy, addresses)
-	}
+	addressesCopy := make([]string, len(addresses))
+	copy(addressesCopy, addresses)
 
 	return addressesCopy
 }

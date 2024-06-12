@@ -10,7 +10,6 @@ import (
 	"github.com/go-logr/logr"
 	"google.golang.org/grpc/credentials"
 
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/rest"
@@ -199,7 +198,7 @@ func (c *ApiConnectivityCheck) canOtherControlPlanesBeReached() bool {
 	return (healthyResponses + unhealthyResponses + apiErrorsResponses) > 0
 }
 
-func (c *ApiConnectivityCheck) popNodes(nodes *[][]v1.NodeAddress, count int) []string {
+func (c *ApiConnectivityCheck) popNodes(nodes *[]string, count int) []string {
 	nrOfNodes := len(*nodes)
 	if nrOfNodes == 0 {
 		return []string{}
@@ -212,12 +211,13 @@ func (c *ApiConnectivityCheck) popNodes(nodes *[][]v1.NodeAddress, count int) []
 	//todo maybe we should pick nodes randomly rather than relying on the order returned from api-server
 	addresses := make([]string, count)
 	for i := 0; i < count; i++ {
-		nodeAddresses := (*nodes)[i]
-		if len(nodeAddresses) == 0 || nodeAddresses[0].Address == "" {
+		// TODO: shall we need to get "count" addresses anyway, replacing empty IP with another Node?
+		address := (*nodes)[i]
+		if address == "" {
 			c.config.Log.Info("ignoring node without IP address")
 			continue
 		}
-		addresses[i] = nodeAddresses[0].Address //todo node might have multiple addresses or none
+		addresses[i] = address
 	}
 
 	*nodes = (*nodes)[count:] //remove popped nodes from the list
