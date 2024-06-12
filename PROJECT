@@ -28,6 +28,7 @@ resources:
   path: github.com/medik8s/self-node-remediation/api/v1alpha1
   version: v1alpha1
   webhooks:
+    defaulting: true
     validation: true
     webhookVersion: v1
 - api:

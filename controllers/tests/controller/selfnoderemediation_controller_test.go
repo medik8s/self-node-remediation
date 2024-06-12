@@ -52,7 +52,6 @@ var _ = Describe("SNR Controller", func() {
 		}
 
 		updateIsRebootCapable(nodeRebootCapable)
-		createSNR(snr, remediationStrategy)
 	})
 
 	AfterEach(func() {
@@ -95,21 +94,21 @@ var _ = Describe("SNR Controller", func() {
 
 		Context("ResourceDeletion strategy", func() {
 			BeforeEach(func() {
-				remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
+				createSNR(snr, v1alpha1.ResourceDeletionRemediationStrategy)
 			})
 
 			It("snr should not have finalizers", func() {
-				testNoFinalizer()
+				testNoFinalizer(snr)
 			})
 		})
 
 		Context("OutOfServiceTaint strategy", func() {
 			BeforeEach(func() {
-				remediationStrategy = v1alpha1.OutOfServiceTaintRemediationStrategy
+				createSNR(snr, v1alpha1.OutOfServiceTaintRemediationStrategy)
 			})
 
 			It("snr should not have finalizers", func() {
-				testNoFinalizer()
+				testNoFinalizer(snr)
 			})
 		})
 	})
@@ -123,7 +122,7 @@ var _ = Describe("SNR Controller", func() {
 			//since we don't have a scheduler in test, we need to do its work and create pp pod for that node
 
 			BeforeEach(func() {
-				remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
+				createSNR(snr, v1alpha1.ResourceDeletionRemediationStrategy)
 			})
 
 			Context("node doesn't have is-reboot-capable annotation", func() {
@@ -133,7 +132,7 @@ var _ = Describe("SNR Controller", func() {
 				})
 
 				It("snr should not have finalizers when is-reboot-capable annotation doesn't exist", func() {
-					testNoFinalizer()
+					testNoFinalizer(snr)
 				})
 			})
 
@@ -143,7 +142,7 @@ var _ = Describe("SNR Controller", func() {
 				})
 
 				It("snr should not have finalizers when is-reboot-capable annotation is false", func() {
-					testNoFinalizer()
+					testNoFinalizer(snr)
 				})
 			})
 		})
@@ -158,10 +157,13 @@ var _ = Describe("SNR Controller", func() {
 		Context("Automatic strategy - ResourceDeletion selected", func() {
 
 			BeforeEach(func() {
-				remediationStrategy = v1alpha1.AutomaticRemediationStrategy
 				prevVal := utils.IsOutOfServiceTaintGA
 				utils.IsOutOfServiceTaintGA = false
 				DeferCleanup(func() { utils.IsOutOfServiceTaintGA = prevVal })
+			})
+
+			JustBeforeEach(func() {
+				createSNR(snr, v1alpha1.AutomaticRemediationStrategy)
 			})
 
 			It("Remediation flow", func() {
@@ -173,9 +175,9 @@ var _ = Describe("SNR Controller", func() {
 
 				addUnschedulableTaint(node)
 
-				verifyTypeConditions(snr.Name, metav1.ConditionTrue, metav1.ConditionUnknown, "RemediationStarted")
+				verifyTypeConditions(snr, metav1.ConditionTrue, metav1.ConditionUnknown, "RemediationStarted")
 
-				verifyTimeHasBeenRebootedExists()
+				verifyTimeHasBeenRebootedExists(snr)
 
 				verifyNoWatchdogFood()
 
@@ -185,7 +187,7 @@ var _ = Describe("SNR Controller", func() {
 
 				verifyEvent("Normal", "DeleteResources", "Remediation process - finished deleting unhealthy node resources")
 
-				verifyFinalizerExists()
+				verifyFinalizerExists(snr)
 
 				verifyEvent("Normal", "AddFinalizer", "Remediation process - successful adding finalizer")
 
@@ -193,7 +195,7 @@ var _ = Describe("SNR Controller", func() {
 
 				verifyEvent("Normal", "AddNoExecute", "Remediation process - NoExecute taint added to the unhealthy node")
 
-				verifyTypeConditions(snr.Name, metav1.ConditionFalse, metav1.ConditionTrue, "RemediationFinishedSuccessfully")
+				verifyTypeConditions(snr, metav1.ConditionFalse, metav1.ConditionTrue, "RemediationFinishedSuccessfully")
 
 				deleteSNR(snr)
 
@@ -209,7 +211,7 @@ var _ = Describe("SNR Controller", func() {
 
 				verifyEvent("Normal", "RemoveFinalizer", "Remediation process - remove finalizer from snr")
 
-				verifySNRDoesNotExists()
+				verifySNRDoesNotExists(snr)
 
 				verifyNoEvent("Normal", "AddOutOfService", "Remediation process - add OutOfService taint to unhealthy node")
 				verifyNoEvent("Normal", "RemoveOutOfService", "Remediation process - remove OutOfService taint from node")
@@ -223,16 +225,16 @@ var _ = Describe("SNR Controller", func() {
 
 				addUnschedulableTaint(node)
 
-				verifyTypeConditions(snr.Name, metav1.ConditionTrue, metav1.ConditionUnknown, "RemediationStarted")
+				verifyTypeConditions(snr, metav1.ConditionTrue, metav1.ConditionUnknown, "RemediationStarted")
 
-				verifyTimeHasBeenRebootedExists()
+				verifyTimeHasBeenRebootedExists(snr)
 
 				verifyNoWatchdogFood()
 
 				// The kube-api calls for VA fail intentionally. In this case, we expect the snr agent to try
 				// to delete node resources again. So LastError is set to the error every time Reconcile()
 				// is triggered. If it becomes another error, it means something unintended happens.
-				verifyLastErrorKeepsApiError()
+				verifyLastErrorKeepsApiError(snr)
 
 				k8sClient.ShouldSimulatePodDeleteFailure = false
 
@@ -242,7 +244,7 @@ var _ = Describe("SNR Controller", func() {
 
 				removeUnschedulableTaint()
 
-				verifySNRDoesNotExists()
+				verifySNRDoesNotExists(snr)
 
 			})
 			When("Node isn't found", func() {
@@ -251,7 +253,7 @@ var _ = Describe("SNR Controller", func() {
 				})
 
 				It("remediation should stop and update conditions", func() {
-					verifyTypeConditions(snr.Name, metav1.ConditionFalse, metav1.ConditionFalse, "RemediationSkippedNodeNotFound")
+					verifyTypeConditions(snr, metav1.ConditionFalse, metav1.ConditionFalse, "RemediationSkippedNodeNotFound")
 					verifyEvent("Warning", "RemediationCannotStart", "Could not get remediation target Node")
 				})
 			})
@@ -287,47 +289,55 @@ var _ = Describe("SNR Controller", func() {
 				DeferCleanup(func() { utils.IsOutOfServiceTaintGA = prevVal })
 			})
 
-			It("Remediation flow", func() {
-				node := verifyNodeIsUnschedulable()
+			DescribeTable("Remediation flow",
+				Entry("Multi same kind remediation enabled", true),
+				Entry("Multi same kind remediation disabled", false),
+				func(isMultiSameKindRemediationEnabled bool) {
+					if isMultiSameKindRemediationEnabled {
+						createSNRSameKindSupported(snr, remediationStrategy)
+					} else {
+						createSNR(snr, remediationStrategy)
+					}
 
-				addUnschedulableTaint(node)
+					node := verifyNodeIsUnschedulable()
 
-				verifyTypeConditions(snr.Name, metav1.ConditionTrue, metav1.ConditionUnknown, "RemediationStarted")
+					addUnschedulableTaint(node)
 
-				// The normal NoExecute taint tries to delete pods, however it can't delete pods
-				// with stateful workloads like volumes and they are stuck in terminating status.
-				createTerminatingPod()
+					verifyTypeConditions(snr, metav1.ConditionTrue, metav1.ConditionUnknown, "RemediationStarted")
 
-				verifyTimeHasBeenRebootedExists()
+					// The normal NoExecute taint tries to delete pods, however it can't delete pods
+					// with stateful workloads like volumes and they are stuck in terminating status.
+					createTerminatingPod()
 
-				verifyNoWatchdogFood()
+					verifyTimeHasBeenRebootedExists(snr)
 
-				verifyFinalizerExists()
+					verifyNoWatchdogFood()
 
-				verifyNoExecuteTaintExist()
+					verifyFinalizerExists(snr)
 
-				verifyEvent("Normal", "AddOutOfService", "Remediation process - add out-of-service taint to unhealthy node")
+					verifyNoExecuteTaintExist()
 
-				// simulate the out-of-service taint by Pod GC Controller
-				deleteTerminatingPod()
+					verifyEvent("Normal", "AddOutOfService", "Remediation process - add out-of-service taint to unhealthy node")
 
-				verifyOutOfServiceTaintRemoved()
+					// simulate the out-of-service taint by Pod GC Controller
+					deleteTerminatingPod()
 
-				verifyEvent("Normal", "RemoveOutOfService", "Remediation process - remove out-of-service taint from node")
+					verifyOutOfServiceTaintRemoved()
 
-				verifyTypeConditions(snr.Name, metav1.ConditionFalse, metav1.ConditionTrue, "RemediationFinishedSuccessfully")
+					verifyEvent("Normal", "RemoveOutOfService", "Remediation process - remove out-of-service taint from node")
 
-				deleteSNR(snr)
+					verifyTypeConditions(snr, metav1.ConditionFalse, metav1.ConditionTrue, "RemediationFinishedSuccessfully")
 
-				verifyNodeIsSchedulable()
+					deleteSNR(snr)
 
-				removeUnschedulableTaint()
+					verifyNodeIsSchedulable()
 
-				verifyNoExecuteTaintRemoved()
+					removeUnschedulableTaint()
 
-				verifySNRDoesNotExists()
+					verifyNoExecuteTaintRemoved()
 
-			})
+					verifySNRDoesNotExists(snr)
+				})
 		})
 
 		Context("Remediation has a Machine Owner Ref", func() {
@@ -335,6 +345,10 @@ var _ = Describe("SNR Controller", func() {
 			var machineName = "test-machine"
 			BeforeEach(func() {
 				snr.OwnerReferences = []metav1.OwnerReference{{Name: machineName, Kind: "Machine", APIVersion: "machine.openshift.io/v1beta1", UID: "12345"}}
+			})
+
+			JustBeforeEach(func() {
+				createSNR(snr, v1alpha1.AutomaticRemediationStrategy)
 			})
 
 			When("A machine exist that matches the remediation OwnerRef machine", func() {
@@ -355,7 +369,6 @@ var _ = Describe("SNR Controller", func() {
 						savedMachine.Status = *machineStatus
 						Expect(k8sClient.Status().Update(context.Background(), savedMachine)).To(Succeed())
 					}
-
 				})
 				BeforeEach(func() {
 					machine = &machinev1beta1.Machine{
@@ -375,12 +388,13 @@ var _ = Describe("SNR Controller", func() {
 							machineStatus = nil
 						})
 					})
+
 					It("Node is found and set with Unschedulable taint", func() {
 						time.Sleep(time.Second)
 						verifyEvent("Normal", "MarkUnschedulable", "Remediation process - unhealthy node marked as unschedulable")
-
 					})
 				})
+
 				When("the wrong  NodeRef is set in the machine statusThe", func() {
 					BeforeEach(func() {
 						machineStatus = &machinev1beta1.MachineStatus{
@@ -390,11 +404,12 @@ var _ = Describe("SNR Controller", func() {
 							machineStatus = nil
 						})
 					})
+
 					When("NHC isn't set as owner in the remediation", func() {
 						It("Node is not found", func() {
 							time.Sleep(time.Second)
 							verifyNoEvent("Normal", "MarkUnschedulable", "Remediation process - unhealthy node marked as unschedulable")
-							verifyTypeConditions(snr.Name, metav1.ConditionFalse, metav1.ConditionFalse, "RemediationSkippedNodeNotFound")
+							verifyTypeConditions(snr, metav1.ConditionFalse, metav1.ConditionFalse, "RemediationSkippedNodeNotFound")
 							verifyEvent("Warning", "RemediationCannotStart", "Could not get remediation target Node")
 						})
 					})
@@ -402,10 +417,10 @@ var _ = Describe("SNR Controller", func() {
 						BeforeEach(func() {
 							snr.OwnerReferences = append(snr.OwnerReferences, metav1.OwnerReference{Name: "nhc", Kind: "NodeHealthCheck", APIVersion: "remediation.medik8s.io/v1alpha1", UID: "12345"})
 						})
+
 						It("Node is found and set with Unschedulable taint", func() {
 							time.Sleep(time.Second)
 							verifyEvent("Normal", "MarkUnschedulable", "Remediation process - unhealthy node marked as unschedulable")
-
 						})
 					})
 				})
@@ -443,11 +458,10 @@ var _ = Describe("SNR Controller", func() {
 	})
 })
 
-func verifyTypeConditions(nodeName string, expectedProcessingConditionStatus, expectedSucceededConditionStatus metav1.ConditionStatus, expectedReason string) {
+func verifyTypeConditions(snr *v1alpha1.SelfNodeRemediation, expectedProcessingConditionStatus, expectedSucceededConditionStatus metav1.ConditionStatus, expectedReason string) {
 	By("Verify that SNR Processing status condition is correct")
-	snr := &v1alpha1.SelfNodeRemediation{}
 	Eventually(func() bool {
-		snrNamespacedName := client.ObjectKey{Name: nodeName, Namespace: snrNamespace}
+		snrNamespacedName := client.ObjectKeyFromObject(snr)
 		if err := k8sClient.Client.Get(context.Background(), snrNamespacedName, snr); err != nil {
 			return false
 		}
@@ -458,14 +472,13 @@ func verifyTypeConditions(nodeName string, expectedProcessingConditionStatus, ex
 		return isActualProcessingMatchExpected &&
 			isActualSucceededMatchExpected && actualProcessingCondition.Reason == expectedReason
 
-	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
+	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue(), "SNR Processing status condition expected %s got %v", expectedReason, snr.Status.Conditions)
 }
 
-func verifyLastErrorKeepsApiError() {
+func verifyLastErrorKeepsApiError(snr *v1alpha1.SelfNodeRemediation) {
 	By("Verify that LastError in SNR status has been kept")
-	snr := &v1alpha1.SelfNodeRemediation{}
 	EventuallyWithOffset(1, func() bool {
-		snrNamespacedName := client.ObjectKey{Name: shared.UnhealthyNodeName, Namespace: snrNamespace}
+		snrNamespacedName := client.ObjectKeyFromObject(snr)
 		if err := k8sClient.Client.Get(context.Background(), snrNamespacedName, snr); err != nil {
 			return false
 		}
@@ -502,14 +515,13 @@ func verifyNoWatchdogFood() {
 	currentLastFoodTime := dummyDog.LastFoodTime()
 	ConsistentlyWithOffset(1, func() time.Time {
 		return dummyDog.LastFoodTime()
-	}, 5*dummyDog.GetTimeout(), 1*time.Second).Should(Equal(currentLastFoodTime))
+	}, 5*dummyDog.GetTimeout(), 1*time.Second).Should(Equal(currentLastFoodTime), "watchdog should not receive food anymore")
 }
 
-func verifyFinalizerExists() {
+func verifyFinalizerExists(snr *v1alpha1.SelfNodeRemediation) {
 	By("Verify that finalizer was added")
-	snr := &v1alpha1.SelfNodeRemediation{}
-	snrNamespacedName := client.ObjectKey{Name: shared.UnhealthyNodeName, Namespace: snrNamespace}
-	ExpectWithOffset(1, k8sClient.Get(context.Background(), snrNamespacedName, snr)).To(Succeed())
+	snrNamespacedName := client.ObjectKeyFromObject(snr)
+	ExpectWithOffset(1, k8sClient.Get(context.Background(), snrNamespacedName, snr)).To(Succeed(), "failed to get snr")
 	ExpectWithOffset(1, controllerutil.ContainsFinalizer(snr, controllers.SNRFinalizer)).Should(BeTrue(), "finalizer should be added")
 }
 
@@ -548,22 +560,20 @@ func isTaintExist(taintToMatch *v1.Taint) (bool, error) {
 	return false, nil
 }
 
-func verifyTimeHasBeenRebootedExists() {
+func verifyTimeHasBeenRebootedExists(snr *v1alpha1.SelfNodeRemediation) {
 	By("Verify that time has been added to SNR status")
-	snr := &v1alpha1.SelfNodeRemediation{}
 	EventuallyWithOffset(1, func() (*metav1.Time, error) {
-		snrNamespacedName := client.ObjectKey{Name: shared.UnhealthyNodeName, Namespace: snrNamespace}
+		snrNamespacedName := client.ObjectKeyFromObject(snr)
 		err := k8sClient.Client.Get(context.Background(), snrNamespacedName, snr)
 		return snr.Status.TimeAssumedRebooted, err
 
 	}, 5*time.Second, 250*time.Millisecond).ShouldNot(BeZero())
 }
 
-func verifySNRDoesNotExists() {
+func verifySNRDoesNotExists(snr *v1alpha1.SelfNodeRemediation) {
 	By("Verify that SNR does not exit")
 	Eventually(func() bool {
-		snr := &v1alpha1.SelfNodeRemediation{}
-		snrNamespacedName := client.ObjectKey{Name: shared.UnhealthyNodeName, Namespace: snrNamespace}
+		snrNamespacedName := client.ObjectKeyFromObject(snr)
 		err := k8sClient.Get(context.Background(), snrNamespacedName, snr)
 		return apierrors.IsNotFound(err)
 	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
@@ -590,7 +600,7 @@ func verifyNodeIsUnschedulable() *v1.Node {
 	Eventually(func() (bool, error) {
 		err := k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)
 		return node.Spec.Unschedulable, err
-	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
+	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue(), "node should be marked as unschedulable")
 	return node
 }
 
@@ -654,6 +664,15 @@ func removeFinalizers(snr *v1alpha1.SelfNodeRemediation) error {
 		return err
 	}
 	return nil
+}
+
+func createSNRSameKindSupported(snr *v1alpha1.SelfNodeRemediation, strategy v1alpha1.RemediationStrategyType) {
+	// Assume that snr.Name contains the node name here (for testing purpose).
+	// We need to add a suffix to make the name unique and add the node name as an annotation
+	targetNodeName := snr.Name
+	snr.Name = fmt.Sprintf("%s-%s", targetNodeName, "pseudo-random-test-suffix")
+	snr.Annotations = map[string]string{"remediation.medik8s.io/node-name": targetNodeName}
+	createSNR(snr, strategy)
 }
 
 func createSNR(snr *v1alpha1.SelfNodeRemediation, strategy v1alpha1.RemediationStrategyType) {
@@ -764,12 +783,8 @@ func deleteIsRebootCapableAnnotation() {
 }
 
 // testNoFinalizer checks that snr doesn't have finalizer
-func testNoFinalizer() {
-	snr := &v1alpha1.SelfNodeRemediation{}
-	snrKey := client.ObjectKey{
-		Namespace: snrNamespace,
-		Name:      shared.UnhealthyNodeName,
-	}
+func testNoFinalizer(snr *v1alpha1.SelfNodeRemediation) {
+	snrKey := client.ObjectKeyFromObject(snr)
 
 	EventuallyWithOffset(1, func() ([]string, error) {
 		err := k8sClient.Client.Get(context.Background(), snrKey, snr)
