@@ -170,7 +170,7 @@ func (r *SelfNodeRemediationReconciler) ReconcileAgent(ctx context.Context, req 
 
 	targetNodeName := getNodeName(snr)
 	if targetNodeName != r.MyNodeName {
-		r.logger.Info("agent pod skipping remediation because node belongs to a different agent", "Agent node name", r.MyNodeName, "Remediated node name", req.Name)
+		r.logger.Info("agent pod skipping remediation because node belongs to a different agent", "Agent node name", r.MyNodeName, "Remediated node name", targetNodeName)
 		return ctrl.Result{}, nil
 	}
 
@@ -181,7 +181,7 @@ func (r *SelfNodeRemediationReconciler) ReconcileAgent(ctx context.Context, req 
 		r.logger.Info("node reboot not completed yet, start rebooting")
 		node, err := r.getNodeFromSnr(snr)
 		if err != nil {
-			r.logger.Info("didn't find node, eventing might be incomplete", "node name", snr.Name)
+			r.logger.Info("didn't find node, eventing might be incomplete", "node name", targetNodeName)
 		}
 		return r.rebootIfNeeded(snr, node)
 	default:
