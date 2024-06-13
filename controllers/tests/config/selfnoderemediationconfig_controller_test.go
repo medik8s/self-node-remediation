@@ -25,8 +25,7 @@ var _ = Describe("SNR Config Test", func() {
 	var config *selfnoderemediationv1alpha1.SelfNodeRemediationConfig
 	var ds *appsv1.DaemonSet
 	dummySelfNodeRemediationImage := "self-node-remediation-image"
-	var createDsBeforeConfig bool
-	key := types.NamespacedName{
+	dsKey := types.NamespacedName{
 		Namespace: shared.Namespace,
 		Name:      dsName,
 	}
@@ -42,7 +41,6 @@ var _ = Describe("SNR Config Test", func() {
 		config.Name = selfnoderemediationv1alpha1.ConfigCRName
 		config.Namespace = shared.Namespace
 		config.Spec.HostPort = 30111
-		createDsBeforeConfig = false
 
 	})
 
@@ -58,7 +56,7 @@ var _ = Describe("SNR Config Test", func() {
 		Eventually(func(g Gomega) bool {
 
 			g.Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(config), tmpConfig)).To(Succeed())
-			g.Expect(k8sClient.Get(context.Background(), key, tmpDs)).To(Succeed())
+			g.Expect(k8sClient.Get(context.Background(), dsKey, tmpDs)).To(Succeed())
 			return true
 		}, 10*time.Second, 250*time.Millisecond).Should(BeTrue())
 
@@ -67,7 +65,7 @@ var _ = Describe("SNR Config Test", func() {
 
 		//verify delete is done
 		Eventually(func(g Gomega) bool {
-			err := k8sClient.Get(context.Background(), key, &appsv1.DaemonSet{})
+			err := k8sClient.Get(context.Background(), dsKey, &appsv1.DaemonSet{})
 			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 			err = k8sClient.Get(context.Background(), client.ObjectKeyFromObject(config), &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{})
 			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
@@ -78,11 +76,6 @@ var _ = Describe("SNR Config Test", func() {
 	Context("DS installation", func() {
 
 		JustBeforeEach(func() {
-			if createDsBeforeConfig {
-				Eventually(func() error {
-					return k8sClient.Create(context.Background(), ds)
-				}, 2*time.Second, 250*time.Millisecond).Should(Succeed())
-			}
 			//Creates config which in turn will create the DS
 			Expect(k8sClient.Create(context.Background(), config)).To(Succeed())
 
@@ -107,7 +100,7 @@ var _ = Describe("SNR Config Test", func() {
 			Eventually(func(g Gomega) bool {
 				_, _, _, err := certReader.GetCerts()
 				g.Expect(err).ShouldNot(HaveOccurred())
-				g.Expect(k8sClient.Get(context.Background(), key, ds)).To(Succeed())
+				g.Expect(k8sClient.Get(context.Background(), dsKey, ds)).To(Succeed())
 				return true
 			}, 15*time.Second, 250*time.Millisecond).Should(BeTrue())
 
@@ -115,7 +108,7 @@ var _ = Describe("SNR Config Test", func() {
 
 		It("Daemonset should be created", func() {
 			Eventually(func() error {
-				return k8sClient.Get(context.Background(), key, ds)
+				return k8sClient.Get(context.Background(), dsKey, ds)
 			}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
 
 			dsContainers := ds.Spec.Template.Spec.Containers
@@ -143,7 +136,7 @@ var _ = Describe("SNR Config Test", func() {
 			It("Daemonset should have customized tolerations", func() {
 				Eventually(func(g Gomega) bool {
 					ds = &appsv1.DaemonSet{}
-					g.Expect(k8sClient.Get(context.Background(), key, ds)).Should(BeNil())
+					g.Expect(k8sClient.Get(context.Background(), dsKey, ds)).Should(BeNil())
 
 					g.Expect(ds.Spec.Template.Spec.Tolerations).ToNot(BeNil())
 					g.Expect(len(ds.Spec.Template.Spec.Tolerations)).To(Equal(4))
@@ -163,7 +156,7 @@ var _ = Describe("SNR Config Test", func() {
 
 				Eventually(func(g Gomega) bool {
 					ds = &appsv1.DaemonSet{}
-					g.Expect(k8sClient.Get(context.Background(), key, ds)).Should(BeNil())
+					g.Expect(k8sClient.Get(context.Background(), dsKey, ds)).Should(BeNil())
 
 					//verify ds has new configuration
 					envVars := getEnvVarMap(ds.Spec.Template.Spec.Containers[0].Env)
@@ -191,7 +184,7 @@ var _ = Describe("SNR Config Test", func() {
 			It("The Manager Reconciler and the DS should be modified with the new value", func() {
 				Eventually(func(g Gomega) bool {
 					ds = &appsv1.DaemonSet{}
-					g.Expect(k8sClient.Get(context.Background(), key, ds)).To(Succeed())
+					g.Expect(k8sClient.Get(context.Background(), dsKey, ds)).To(Succeed())
 					dsContainers := ds.Spec.Template.Spec.Containers
 					g.Expect(len(dsContainers)).To(BeNumerically("==", 1))
 					container := dsContainers[0]
@@ -206,26 +199,33 @@ var _ = Describe("SNR Config Test", func() {
 		Context("DS Recreation on Operator Update", func() {
 			var timeToWaitForDsUpdate = 6 * time.Second
 			var oldDsVersion, currentDsVersion = "0", "1"
-			BeforeEach(func() {
-				//Ds needs to be created before the config,
-				//because otherwise the  config creation will also trigger a DS create which will cause a race condition
-				createDsBeforeConfig = true
-			})
+			createInitialDs := func() {
+				EventuallyWithOffset(1, func() error {
+					return k8sClient.Create(context.Background(), ds)
+				}, 2*time.Second, 250*time.Millisecond).Should(Succeed())
+
+				Eventually(func() error {
+					return k8sClient.Get(context.Background(), dsKey, ds)
+				}, 2*time.Second, 250*time.Millisecond).Should(BeNil())
+			}
 			JustBeforeEach(func() {
 				//Wait for Ds to be created
 				Eventually(func(g Gomega) bool {
-					g.Expect(k8sClient.Get(context.Background(), key, &appsv1.DaemonSet{})).To(Succeed())
+					g.Expect(k8sClient.Get(context.Background(), dsKey, &appsv1.DaemonSet{})).To(Succeed())
 					return true
 				}, 10*time.Second, 250*time.Millisecond).Should(BeTrue())
 			})
 			When("ds version has not changed", func() {
 				BeforeEach(func() {
 					ds = generateDs(dsName, shared.Namespace, currentDsVersion)
+					//Ds needs to be created before the config,
+					//because otherwise the  config creation will also trigger a DS create which will cause a race condition
+					createInitialDs()
 				})
 				It("Daemonset should not recreated", func() {
 					//Wait to make sure DS isn't recreated
 					time.Sleep(timeToWaitForDsUpdate)
-					Expect(k8sClient.Get(context.Background(), key, ds)).To(BeNil())
+					Expect(k8sClient.Get(context.Background(), dsKey, ds)).To(BeNil())
 					Expect(ds.Annotations["original-ds"]).To(Equal("true"))
 				})
 			})
@@ -234,11 +234,14 @@ var _ = Describe("SNR Config Test", func() {
 				BeforeEach(func() {
 					//creating an DS with old version
 					ds = generateDs(dsName, shared.Namespace, oldDsVersion)
+					//Ds needs to be created before the config,
+					//because otherwise the  config creation will also trigger a DS create which will cause a race condition
+					createInitialDs()
 				})
 				It("Daemonset should be recreated", func() {
 					//Wait until DS is recreated
 					Eventually(func() bool {
-						if err := k8sClient.Get(context.Background(), key, ds); err == nil {
+						if err := k8sClient.Get(context.Background(), dsKey, ds); err == nil {
 							return ds.Annotations["snr.medik8s.io/force-deletion-revision"] == currentDsVersion
 						}
 						return false
