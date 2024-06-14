@@ -35,6 +35,10 @@ ENVSUBST_VERSION = v1.4.2
 # OCP Version: for Red Hat bundle community
 OCP_VERSION = 4.12
 
+# update for major version updates to YQ_VERSION! see https://github.com/mikefarah/yq
+YQ_API_VERSION = v4
+YQ_VERSION = v4.44.1
+
 OPERATOR_NAME ?= self-node-remediation
 OPERATOR_NAMESPACE ?= openshift-workload-availability
 
@@ -321,8 +325,22 @@ bundle-community-k8s: bundle add-community-edition-to-display-name ## Generate b
 .PHONY: bundle-community-okd
 bundle-community-okd: bundle add-community-edition-to-display-name ## Generate bundle manifests and metadata customized to Red Hat community release
 	$(MAKE) add-replaces-field
+	$(MAKE) add-ocp-annotations
 	echo -e "\n  # Annotations for OCP\n  com.redhat.openshift.versions: \"v${OCP_VERSION}\"" >> bundle/metadata/annotations.yaml
 	$(MAKE) bundle-update
+
+
+.PHONY: add-ocp-annotations
+add-ocp-annotations: yq ## Add OCP annotations
+	$(YQ) -i '.metadata.annotations."operators.openshift.io/valid-subscription" = "[\"OpenShift Kubernetes Engine\", \"OpenShift Container Platform\", \"OpenShift Platform Plus\"]"' ${CSV}
+	# new infrastructure annotations see https://docs.engineering.redhat.com/display/CFC/Best_Practices#Best_Practices-(New)RequiredInfrastructureAnnotations
+	$(YQ) -i '.metadata.annotations."features.operators.openshift.io/disconnected" = "true"' ${CSV}
+	$(YQ) -i '.metadata.annotations."features.operators.openshift.io/fips-compliant" = "false"' ${CSV}
+	$(YQ) -i '.metadata.annotations."features.operators.openshift.io/proxy-aware" = "false"' ${CSV}
+	$(YQ) -i '.metadata.annotations."features.operators.openshift.io/tls-profiles" = "false"' ${CSV}
+	$(YQ) -i '.metadata.annotations."features.operators.openshift.io/token-auth-aws" = "false"' ${CSV}
+	$(YQ) -i '.metadata.annotations."features.operators.openshift.io/token-auth-azure" = "false"' ${CSV}
+	$(YQ) -i '.metadata.annotations."features.operators.openshift.io/token-auth-gcp" = "false"' ${CSV}
 
 .PHONY: add-community-edition-to-display-name
 add-community-edition-to-display-name: ##Add Community Edition suffix to operator name
@@ -393,6 +411,11 @@ e2e-test:
 	# KUBECONFIG must be set to the cluster, and PP needs to be deployed already
     # count arg makes the test ignoring cached test results
 	go test ./e2e -ginkgo.v -ginkgo.progress -test.v -timeout 60m -count=1 ${TEST_OPS}
+
+YQ = $(shell pwd)/bin/yq
+.PHONY: yq
+yq: ## Download yq locally if necessary.
+	@$(call go-install-tool,$(YQ),github.com/mikefarah/yq/$(YQ_API_VERSION)@$(YQ_VERSION))
 
 .PHONY: operator-sdk
 OPERATOR_SDK_BIN_FOLDER = ./bin/operator-sdk
