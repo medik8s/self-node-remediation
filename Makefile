@@ -304,7 +304,7 @@ endef
 
 DEFAULT_ICON_BASE64 := $(shell base64 --wrap=0 ./config/assets/snr_icon_blue.png)
 export ICON_BASE64 ?= ${DEFAULT_ICON_BASE64}
-export BUNDLE_CSV ?= "./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml"
+export CSV ?= "./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml"
 .PHONY: bundle
 bundle: manifests operator-sdk kustomize envsubst ## Generate bundle manifests and metadata, then validate generated files.
 	$(OPERATOR_SDK) generate kustomize manifests -q
@@ -315,30 +315,43 @@ bundle: manifests operator-sdk kustomize envsubst ## Generate bundle manifests a
 .PHONY: bundle-community-k8s
 bundle-community-k8s: bundle-community ## Generate bundle manifests and metadata customized to k8s community release, then validate generated files.
 	# Note that k8s 1.25+ needs PSA label
-	sed -r -i "s|by default\.|by default.\n    Note that prior to installing SNR on a Kubernetes 1.25+ cluster, a user must manually set a [privileged PSA label](https://kubernetes.io/docs/tasks/configure-pod-container/enforce-standards-namespace-labels/) on SNR's namespace. It gives SNR's agents permissions to reboot the node (in case it needs to be remediated).|;" ${BUNDLE_CSV}
+	sed -r -i "s|by default\.|by default.\n    Note that prior to installing SNR on a Kubernetes 1.25+ cluster, a user must manually set a [privileged PSA label](https://kubernetes.io/docs/tasks/configure-pod-container/enforce-standards-namespace-labels/) on SNR's namespace. It gives SNR's agents permissions to reboot the node (in case it needs to be remediated).|;" ${CSV}
 	$(MAKE) bundle-update
 
 .PHONY: bundle-community-rh
 bundle-community-rh: bundle-community ## Generate bundle manifests and metadata customized to Red Hat community release
+	$(MAKE) add-replaces-field
 	echo -e "\n  # Annotations for OCP\n  com.redhat.openshift.versions: \"v${OCP_VERSION}\"" >> bundle/metadata/annotations.yaml
 	$(MAKE) bundle-update
 
 .PHONY: bundle-community
 bundle-community: bundle ##Add Community Edition suffix to operator name
-	sed -r -i "s|displayName: Self Node Remediation Operator.*|displayName: Self Node Remediation Operator - Community Edition|;" ${BUNDLE_CSV}
+	sed -r -i "s|displayName: Self Node Remediation Operator.*|displayName: Self Node Remediation Operator - Community Edition|;" ${CSV}
+
+
+.PHONY: add-replaces-field
+add-replaces-field: ## Add replaces field to the CSV
+	# add replaces field when building versioned bundle
+	@if [ $(VERSION) != $(DEFAULT_VERSION) ]; then \
+		if [ $(PREVIOUS_VERSION) == $(DEFAULT_VERSION) ]; then \
+			echo "Error: PREVIOUS_VERSION must be set for versioned builds"; \
+			exit 1; \
+		else \
+		  	# preferring sed here, in order to have "replaces" near "version" \
+			sed -r -i "/  version: $(VERSION)/ a\  replaces: $(OPERATOR_NAME).v$(PREVIOUS_VERSION)" ${CSV}; \
+		fi \
+	fi
 
 .PHONY: bundle-update
 bundle-update: verify-previous-version ## Update CSV fields and validate the bundle directory
 	# update container image in the metadata
-	sed -r -i "s|containerImage: .*|containerImage: ${IMG}|;" ${BUNDLE_CSV}
+	sed -r -i "s|containerImage: .*|containerImage: ${IMG}|;" ${CSV}
 	# set creation date
-	sed -r -i "s|createdAt: \".*\"|createdAt: \"`date "+%Y-%m-%d %T" `\"|;" ${BUNDLE_CSV}
+	sed -r -i "s|createdAt: \".*\"|createdAt: \"`date "+%Y-%m-%d %T" `\"|;" ${CSV}
 	# set skipRange
-	sed -r -i "s|olm.skipRange: .*|olm.skipRange: '>=0.4.0 <${VERSION}'|;" ${BUNDLE_CSV}
-	# set  replaces
-	sed -r -i "s|replaces: .*|replaces: self-node-remediation.v${PREVIOUS_VERSION}|;" ${BUNDLE_CSV}
+	sed -r -i "s|olm.skipRange: .*|olm.skipRange: '>=0.4.0 <${VERSION}'|;" ${CSV}
 	# set icon (not version or build date related, but just to not having this huge data permanently in the CSV)
-	sed -r -i "s|base64data:.*|base64data: ${ICON_BASE64}|;" ${BUNDLE_CSV}
+	sed -r -i "s|base64data:.*|base64data: ${ICON_BASE64}|;" ${CSV}
 	$(MAKE) bundle-validate
 
 .PHONY: verify-previous-version
@@ -464,7 +477,7 @@ verify-bundle: manifests bundle bundle-reset verify-no-changes ##Verifies bundle
 bundle-reset:
 	VERSION=0.0.1 $(MAKE) manifests bundle
 	# empty creation date
-	sed -r -i "s|createdAt: .*|createdAt: \"\"|;" ${BUNDLE_CSV}
+	sed -r -i "s|createdAt: .*|createdAt: \"\"|;" ${CSV}
 
 SORT_IMPORTS = $(shell pwd)/bin/sort-imports
 .PHONY: sort-imports

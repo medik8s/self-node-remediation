@@ -463,7 +463,6 @@ spec:
   provider:
     name: Medik8s
     url: https://www.medik8s.io/
-  replaces: self-node-remediation.v0.0.1
   version: 0.0.1
   webhookdefinitions:
   - admissionReviewVersions:
