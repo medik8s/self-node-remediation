@@ -268,7 +268,7 @@ ENVSUBST_BIN_FOLDER = $(shell pwd)/bin/envsubst
 ENVSUBST = $(ENVSUBST_BIN_FOLDER)/$(ENVSUBST_VERSION)/envsubst
 .PHONY: envsubst
 envsubst: ## Download envsubst locally if necessary.
-	$(call go-install-tool,$(ENVSUBST),github.com/a8m/envsubst/cmd/envsubst@${ENVSUBST_VERSION}) ;\
+	@$(call go-install-tool,$(ENVSUBST),github.com/a8m/envsubst/cmd/envsubst@${ENVSUBST_VERSION}) ;\
 
 KUSTOMIZE_BIN_FOLDER = $(shell pwd)/bin/kustomize
 KUSTOMIZE = $(KUSTOMIZE_BIN_FOLDER)/$(KUSTOMIZE_VERSION)/kustomize
@@ -284,12 +284,12 @@ endif
 
 .PHONY: envtest
 envtest: ## Download envtest-setup locally if necessary.
-	$(call go-install-tool,$(ENVTEST_ASSETS_DIR),sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_VERSION)) # no tagged versions :/
+	@$(call go-install-tool,$(ENVTEST_ASSETS_DIR),sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_VERSION)) # no tagged versions :/
 
 # go-install-tool will 'go install' any package $2 and install it to $1.
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 define go-install-tool
-@[ -f $(1) ] || { \
+[ -f $(1) ] || { \
 set -e ;\
 TMP_DIR=$$(mktemp -d) ;\
 cd $$TMP_DIR ;\
@@ -381,12 +381,12 @@ protoc: protoc-gen-go protoc-gen-go-grpc ## Download protoc (protocol buffers to
 .PHONY: protoc-gen-go
 PROTOC_GEN_GO = $(shell pwd)/bin/proto/bin/protoc-gen-go
 protoc-gen-go: ## Download protoc-gen-go locally if necessary.
-	$(call go-install-tool,$(PROTOC_GEN_GO),google.golang.org/protobuf/cmd/protoc-gen-go@v1.26)
+	@$(call go-install-tool,$(PROTOC_GEN_GO),google.golang.org/protobuf/cmd/protoc-gen-go@v1.26)
 
 .PHONY: protoc-gen-go-grpc
 PROTOC_GEN_GO_GRPC = $(shell pwd)/bin/proto/bin/protoc-gen-go-prpc
 protoc-gen-go-grpc: ## Download protoc-gen-go-grpc locally if necessary.
-	$(call go-install-tool,$(PROTOC_GEN_GO_GRPC),google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.1.0)
+	@$(call go-install-tool,$(PROTOC_GEN_GO_GRPC),google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.1.0)
 
 .PHONY: e2e-test
 e2e-test:
@@ -482,7 +482,7 @@ bundle-reset:
 SORT_IMPORTS = $(shell pwd)/bin/sort-imports
 .PHONY: sort-imports
 sort-imports: ## Download sort-imports locally if necessary.
-	$(call go-install-tool,$(SORT_IMPORTS),github.com/slintes/sort-imports@$(SORT_IMPORTS_VERSION))
+	@$(call go-install-tool,$(SORT_IMPORTS),github.com/slintes/sort-imports@$(SORT_IMPORTS_VERSION))
 
 .PHONY: test-imports
 test-imports: sort-imports ## Check for sorted imports
