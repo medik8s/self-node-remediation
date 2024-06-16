@@ -52,12 +52,17 @@ var _ = Describe("SNR Config Test", func() {
 
 		tmpConfig := &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}
 		tmpDs := &appsv1.DaemonSet{}
-		//verify ds and config exist
+		//verify config exist
 		Eventually(func(g Gomega) {
-
 			g.Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(config), tmpConfig)).To(Succeed())
-			g.Expect(k8sClient.Get(context.Background(), dsKey, tmpDs)).To(Succeed())
 		}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+
+		//ds may take quite a while to create (for example with a 5 sec timeout this test usually fails locally)
+		timeToWaitForDSToCreate := 25 * time.Second
+		//verify ds exist
+		Eventually(func(g Gomega) {
+			g.Expect(k8sClient.Get(context.Background(), dsKey, tmpDs)).To(Succeed())
+		}, timeToWaitForDSToCreate, 250*time.Millisecond).Should(Succeed())
 
 		Expect(k8sClient.Delete(context.TODO(), tmpConfig)).To(Succeed())
 		Expect(k8sClient.Delete(context.TODO(), tmpDs)).To(Succeed())
