@@ -246,22 +246,21 @@ var _ = Describe("SNR Config Test", func() {
 	})
 
 	Context("SNRC defaults", func() {
-		config := &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}
-		config.Kind = "SelfNodeRemediationConfig"
-		config.APIVersion = "self-node-remediation.medik8s.io/v1alpha1"
-		config.Name = "config-defaults"
-		config.Namespace = shared.Namespace
+		defaultConfig := &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}
 		BeforeEach(func() {
-			//Config and DS aren't created so no need to clean them
-			isSkipCleanup = true
+			defaultConfig.Kind = "SelfNodeRemediationConfig"
+			defaultConfig.APIVersion = "self-node-remediation.medik8s.io/v1alpha1"
+			//Setting the same name and namespace so it'll be picked up by the AfterEach cleanup
+			defaultConfig.Name = selfnoderemediationv1alpha1.ConfigCRName
+			defaultConfig.Namespace = shared.Namespace
 		})
 
 		It("Config CR should be created with default values", func() {
 			Expect(k8sClient).To(Not(BeNil()))
-			Expect(k8sClient.Create(context.Background(), config)).To(Succeed())
+			Expect(k8sClient.Create(context.Background(), defaultConfig)).To(Succeed())
 
 			createdConfig := &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}
-			configKey := client.ObjectKeyFromObject(config)
+			configKey := client.ObjectKeyFromObject(defaultConfig)
 
 			Eventually(func() error {
 				return k8sClient.Get(context.Background(), configKey, createdConfig)
