@@ -202,12 +202,6 @@ var _ = Describe("SNR Config Test", func() {
 					return k8sClient.Get(context.Background(), dsKey, ds)
 				}, 2*time.Second, 250*time.Millisecond).Should(BeNil())
 			}
-			JustBeforeEach(func() {
-				//Wait for Ds to be created
-				Eventually(func(g Gomega) {
-					g.Expect(k8sClient.Get(context.Background(), dsKey, &appsv1.DaemonSet{})).To(Succeed())
-				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
-			})
 			When("ds version has not changed", func() {
 				BeforeEach(func() {
 					ds = generateDs(dsName, shared.Namespace, currentDsVersion)
