@@ -83,7 +83,7 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 			When("CR name doesn't match default name", func() {
 				It("create should be rejected", func() {
 					snrc := createDefaultSelfNodeRemediationConfigCR()
-					err := snrc.ValidateCreate()
+					_, err := snrc.ValidateCreate()
 					Expect(err).To(HaveOccurred())
 					Expect(err.Error()).To(ContainSubstring("to enforce only one SelfNodeRemediationConfig in the cluster, a name other than"))
 
@@ -96,7 +96,7 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 					snrc.Name = ConfigCRName
 					_ = os.Setenv("DEPLOYMENT_NAMESPACE", "mock-deployment-namespace")
 
-					err := snrc.ValidateCreate()
+					_, err := snrc.ValidateCreate()
 					Expect(err).To(HaveOccurred())
 					Expect(err.Error()).To(ContainSubstring("SelfNodeRemediationConfig is only allowed to be created in the namespace:"))
 
@@ -119,6 +119,34 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 
 	})
 
+	Describe("deleting SelfNodeRemediationConfig CR", func() {
+		var conf *SelfNodeRemediationConfig
+		BeforeEach(func() {
+			conf = createDefaultSelfNodeRemediationConfigCR()
+		})
+
+		When("SelfNodeRemediationConfig CR is default", func() {
+			BeforeEach(func() {
+				conf.Name = "self-node-remediation-config"
+				//Mock deployment namespace
+				_ = os.Setenv("DEPLOYMENT_NAMESPACE", conf.Namespace)
+			})
+			It("should have warning", func() {
+				war, err := conf.ValidateDelete()
+				Expect(err).To(Succeed())
+				Expect(war[0]).To(ContainSubstring("The default configuration is deleted, Self Node Remediation is now disabled"))
+			})
+		})
+
+		When("SelfNodeRemediationConfig CR is non default", func() {
+			It("should not be rejected", func() {
+				_, err := conf.ValidateDelete()
+				Expect(err).NotTo(HaveOccurred())
+			})
+		})
+
+	})
+
 })
 
 func testSingleInvalidField(validationType validationType) {
@@ -133,9 +161,9 @@ func testSingleInvalidField(validationType validationType) {
 				var err error
 				if validationType == update {
 					snrcOld := createDefaultSelfNodeRemediationConfigCR()
-					err = snrc.ValidateUpdate(snrcOld)
+					_, err = snrc.ValidateUpdate(snrcOld)
 				} else {
-					err = snrc.ValidateCreate()
+					_, err = snrc.ValidateCreate()
 				}
 
 				Expect(err).To(HaveOccurred())
@@ -152,9 +180,9 @@ func testSingleInvalidField(validationType validationType) {
 			var err error
 			if validationType == update {
 				snrcOld := createDefaultSelfNodeRemediationConfigCR()
-				err = snrc.ValidateUpdate(snrcOld)
+				_, err = snrc.ValidateUpdate(snrcOld)
 			} else {
-				err = snrc.ValidateCreate()
+				_, err = snrc.ValidateCreate()
 			}
 
 			Expect(err).To(HaveOccurred())
@@ -167,9 +195,9 @@ func testSingleInvalidField(validationType validationType) {
 			var err error
 			if validationType == update {
 				snrcOld := createDefaultSelfNodeRemediationConfigCR()
-				err = snrc.ValidateUpdate(snrcOld)
+				_, err = snrc.ValidateUpdate(snrcOld)
 			} else {
-				err = snrc.ValidateCreate()
+				_, err = snrc.ValidateCreate()
 			}
 
 			Expect(err).To(HaveOccurred())
@@ -196,9 +224,9 @@ func testMultipleInvalidFields(validationType validationType) {
 			var err error
 			if validationType == update {
 				snrcOld := createDefaultSelfNodeRemediationConfigCR()
-				err = snrc.ValidateUpdate(snrcOld)
+				_, err = snrc.ValidateUpdate(snrcOld)
 			} else {
-				err = snrc.ValidateCreate()
+				_, err = snrc.ValidateCreate()
 			}
 
 			Expect(err).To(HaveOccurred())
@@ -233,9 +261,9 @@ func testValidCR(validationType validationType) {
 			var err error
 			if validationType == update {
 				snrcOld := createDefaultSelfNodeRemediationConfigCR()
-				err = snrc.ValidateUpdate(snrcOld)
+				_, err = snrc.ValidateUpdate(snrcOld)
 			} else {
-				err = snrc.ValidateCreate()
+				_, err = snrc.ValidateCreate()
 			}
 			Expect(err).NotTo(HaveOccurred())
 

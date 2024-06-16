@@ -26,6 +26,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
@@ -65,15 +66,15 @@ func (r *SelfNodeRemediationConfig) SetupWebhookWithManager(mgr ctrl.Manager) er
 		Complete()
 }
 
-//+kubebuilder:webhook:path=/validate-self-node-remediation-medik8s-io-v1alpha1-selfnoderemediationconfig,mutating=false,failurePolicy=fail,sideEffects=None,groups=self-node-remediation.medik8s.io,resources=selfnoderemediationconfigs,verbs=create;update,versions=v1alpha1,name=vselfnoderemediationconfig.kb.io,admissionReviewVersions={v1}
+//+kubebuilder:webhook:path=/validate-self-node-remediation-medik8s-io-v1alpha1-selfnoderemediationconfig,mutating=false,failurePolicy=fail,sideEffects=None,groups=self-node-remediation.medik8s.io,resources=selfnoderemediationconfigs,verbs=create;update;delete,versions=v1alpha1,name=vselfnoderemediationconfig.kb.io,admissionReviewVersions={v1}
 
 var _ webhook.Validator = &SelfNodeRemediationConfig{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
-func (r *SelfNodeRemediationConfig) ValidateCreate() error {
+func (r *SelfNodeRemediationConfig) ValidateCreate() (warning admission.Warnings, err error) {
 	selfNodeRemediationConfigLog.Info("validate create", "name", r.Name)
 
-	return errors.NewAggregate([]error{
+	return admission.Warnings{}, errors.NewAggregate([]error{
 		r.validateTimes(),
 		r.validateCustomTolerations(),
 		r.validateSingleton(),
@@ -82,20 +83,27 @@ func (r *SelfNodeRemediationConfig) ValidateCreate() error {
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
-func (r *SelfNodeRemediationConfig) ValidateUpdate(_ runtime.Object) error {
+func (r *SelfNodeRemediationConfig) ValidateUpdate(_ runtime.Object) (warning admission.Warnings, err error) {
 	selfNodeRemediationConfigLog.Info("validate update", "name", r.Name)
 
-	return errors.NewAggregate([]error{
+	return admission.Warnings{}, errors.NewAggregate([]error{
 		r.validateTimes(),
 		r.validateCustomTolerations(),
 	})
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
-func (r *SelfNodeRemediationConfig) ValidateDelete() error {
+func (r *SelfNodeRemediationConfig) ValidateDelete() (warning admission.Warnings, err error) {
 	selfNodeRemediationConfigLog.Info("validate delete", "name", r.Name)
-
-	return nil
+	if r.Name == ConfigCRName {
+		if deploymentNs, err := utils.GetDeploymentNamespace(); err != nil {
+			selfNodeRemediationConfigLog.Error(err, "validate configuration delete failed", "config name", r.Name)
+			return admission.Warnings{}, err
+		} else if deploymentNs == r.Namespace {
+			return admission.Warnings{"The default configuration is deleted, Self Node Remediation is now disabled"}, nil
+		}
+	}
+	return admission.Warnings{}, nil
 }
 
 // validateTimes validates that each time field in the SelfNodeRemediationConfig CR doesn't go below the minimum time

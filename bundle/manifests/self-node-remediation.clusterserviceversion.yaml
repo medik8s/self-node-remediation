@@ -520,6 +520,7 @@ spec:
       operations:
       - CREATE
       - UPDATE
+      - DELETE
       resources:
       - selfnoderemediationconfigs
     sideEffects: None

@@ -168,6 +168,13 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 		r.logger.Info("agent pod starting remediation on owned node")
 	}
 
+	if isConfigurationExist, err := r.isConfigurationExist(ctx); err != nil {
+		return ctrl.Result{}, err
+	} else if !isConfigurationExist {
+		r.logger.Info("snr is disabled because configuration does not exist, waiting for configuration creation ")
+		return ctrl.Result{RequeueAfter: time.Second * 30}, nil
+	}
+
 	defer func() {
 		if updateErr := r.updateSnrStatus(ctx, snr); updateErr != nil {
 			if apiErrors.IsConflict(updateErr) {
@@ -242,6 +249,27 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	return result, r.updateSnrStatusLastError(snr, err)
+}
+
+func (r *SelfNodeRemediationReconciler) isConfigurationExist(ctx context.Context) (bool, error) {
+	if ns, err := utils.GetDeploymentNamespace(); err != nil {
+		r.logger.Error(err, "Failed getting snr namespace")
+		return true, err
+	} else {
+		snrConfig := &v1alpha1.SelfNodeRemediationConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      v1alpha1.ConfigCRName,
+				Namespace: ns,
+			},
+		}
+		err := r.Get(ctx, client.ObjectKeyFromObject(snrConfig), snrConfig)
+		if (err != nil && apiErrors.IsNotFound(err)) || snrConfig.DeletionTimestamp != nil {
+			return false, nil
+		} else if err != nil {
+			r.logger.Error(err, "failed to get SNR configuration")
+		}
+	}
+	return true, nil
 }
 
 func (r *SelfNodeRemediationReconciler) updateConditions(processingTypeReason processingChangeReason, snr *v1alpha1.SelfNodeRemediation) error {
