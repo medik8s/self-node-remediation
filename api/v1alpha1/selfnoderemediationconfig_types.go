@@ -17,8 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"time"
-
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -27,10 +25,8 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 const (
-	ConfigCRName        = "self-node-remediation-config"
-	defaultWatchdogPath = "/dev/watchdog"
-	// FallbackRebootDuration is used by the manager in case it fails to calculate the minimum safe reboot time
-	FallbackRebootDuration         = 300 * time.Second
+	ConfigCRName                   = "self-node-remediation-config"
+	defaultWatchdogPath            = "/dev/watchdog"
 	defaultIsSoftwareRebootEnabled = true
 )
 

@@ -56,7 +56,7 @@ type SelfNodeRemediationConfigReconciler struct {
 	Scheme                   *runtime.Scheme
 	InstallFileFolder        string
 	Namespace                string
-	RebootDurationCalculator reboot.RebootDurationCalculator
+	RebootDurationCalculator reboot.Calculator
 }
 
 //+kubebuilder:rbac:groups=self-node-remediation.medik8s.io,resources=selfnoderemediationconfigs,verbs=get;list;watch;create;update;patch;delete

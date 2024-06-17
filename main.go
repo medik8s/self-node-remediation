@@ -180,7 +180,10 @@ func initSelfNodeRemediationManager(mgr manager.Manager, enableHTTP2 bool) {
 		os.Exit(1)
 	}
 
-	calculator := reboot.NewRebootDurationCalculator()
+	calculator := reboot.NewCalculator(
+		mgr.GetClient(),
+		ctrl.Log.WithName("rebootDurationCalculator"),
+	)
 
 	if err := (&controllers.SelfNodeRemediationConfigReconciler{
 		Client:                   mgr.GetClient(),

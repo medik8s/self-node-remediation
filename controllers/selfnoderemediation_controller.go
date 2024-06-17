@@ -122,7 +122,7 @@ type SelfNodeRemediationReconciler struct {
 	Scheme                   *runtime.Scheme
 	Recorder                 record.EventRecorder
 	Rebooter                 reboot.Rebooter
-	RebootDurationCalculator reboot.RebootDurationCalculator
+	RebootDurationCalculator reboot.Calculator
 	MyNodeName               string
 	MyNamespace              string
 	IsAgent                  bool
@@ -426,8 +426,8 @@ func (r *SelfNodeRemediationReconciler) prepareReboot(ctx context.Context, node 
 		return r.markNodeAsUnschedulable(node)
 	}
 
-	if snr.Status.TimeAssumedRebooted.IsZero() {
-		r.setTimeAssumedRebooted(ctx, node, snr)
+	if err := r.setTimeAssumedRebooted(ctx, node, snr); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	preRebootCompleted := string(preRebootCompletedPhase)
@@ -628,21 +628,23 @@ func (r *SelfNodeRemediationReconciler) updateSnrStatus(ctx context.Context, snr
 	return nil
 }
 
-func (r *SelfNodeRemediationReconciler) setTimeAssumedRebooted(ctx context.Context, node *v1.Node, snr *v1alpha1.SelfNodeRemediation) {
+func (r *SelfNodeRemediationReconciler) setTimeAssumedRebooted(ctx context.Context, node *v1.Node, snr *v1alpha1.SelfNodeRemediation) error {
 	if snr.Status.TimeAssumedRebooted != nil {
 		// timeAssumedRebooted already set, nothing to do
-		return
+		return nil
 	}
 	// get reboot duration
-	rebootDuration, err := r.RebootDurationCalculator.GetRebootDuration(r.Client, ctx, node, r.MyNamespace)
+	rebootDuration, err := r.RebootDurationCalculator.GetRebootDuration(r.Client, ctx, node)
 	if err != nil {
-		rebootDuration = v1alpha1.FallbackRebootDuration
+		r.logger.Error(err, "failed to get assumed reboot duration")
+		return err
 	}
 	// calculate rebooted time
 	timeAssumedRebooted := metav1.NewTime(metav1.Now().Add(rebootDuration))
 	snr.Status.TimeAssumedRebooted = &timeAssumedRebooted
 	r.logger.Info("setting SNR's time to assume node has been rebooted", "node name", node.Name, "time", timeAssumedRebooted)
 	events.NormalEvent(r.Recorder, snr, eventReasonUpdateTimeAssumedRebooted, "Remediation process - about to update required fencing time on snr")
+	return nil
 }
 
 // getNodeFromSnr returns the unhealthy node reported in the given snr

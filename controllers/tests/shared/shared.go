@@ -58,11 +58,11 @@ func GenerateTestConfig() *selfnoderemediationv1alpha1.SelfNodeRemediationConfig
 	}
 }
 
-var _ reboot.RebootDurationCalculator = &MockRebootDurationCalculator{}
+var _ reboot.Calculator = &MockRebootDurationCalculator{}
 
 type MockRebootDurationCalculator struct{}
 
-func (m MockRebootDurationCalculator) GetRebootDuration(_ client.Client, _ context.Context, _ *corev1.Node, _ string) (time.Duration, error) {
+func (m MockRebootDurationCalculator) GetRebootDuration(_ client.Client, _ context.Context, _ *corev1.Node) (time.Duration, error) {
 	return CalculatedRebootDuration, nil
 }
 

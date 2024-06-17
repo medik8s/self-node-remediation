@@ -4,13 +4,13 @@ import (
 	"context"
 	"time"
 
+	"github.com/go-logr/logr"
 	commonlabels "github.com/medik8s/common/pkg/labels"
 	"github.com/pkg/errors"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
@@ -23,56 +23,52 @@ const (
 	MaxBatchesAfterFirst      = 10
 )
 
-type RebootDurationCalculator interface {
+type Calculator interface {
 	// GetRebootDuration returns the safe time to assume node was already rebooted.
 	// Can be either the specified SafeTimeToAssumeNodeRebootedSeconds or the calculated minimum reboot duration.
 	// Note that this time must include the time for a unhealthy node without api-server access to reach the conclusion that it's unhealthy.
 	// This should be at least worst-case time to reach a conclusion from the other peers * request context timeout + watchdog interval + maxFailuresThreshold * reconcileInterval + padding
-	GetRebootDuration(k8sClient client.Client, ctx context.Context, node *v1.Node, operatorNs string) (time.Duration, error)
+	GetRebootDuration(k8sClient client.Client, ctx context.Context, node *v1.Node) (time.Duration, error)
 	// SetConfig sets the SelfNodeRemediationConfig to be used for calculating the minimum reboot duration
 	SetConfig(config *v1alpha1.SelfNodeRemediationConfig)
 }
 
-var _ RebootDurationCalculator = &rebootDurationCalculator{}
+var _ Calculator = &calculator{}
 
-type rebootDurationCalculator struct {
+type calculator struct {
+	k8sClient client.Client
+	log       logr.Logger
 	// storing the config here when reconciling it increases resilience in case of issues during remediation
 	snrConfig *v1alpha1.SelfNodeRemediationConfig
 }
 
-func NewRebootDurationCalculator() RebootDurationCalculator {
-	return &rebootDurationCalculator{}
+func NewCalculator(k8sClient client.Client, log logr.Logger) Calculator {
+	return &calculator{
+		k8sClient: k8sClient,
+		log:       log,
+	}
 }
 
-func (r *rebootDurationCalculator) SetConfig(config *v1alpha1.SelfNodeRemediationConfig) {
+func (r *calculator) SetConfig(config *v1alpha1.SelfNodeRemediationConfig) {
 	r.snrConfig = config
 }
 
 // TODO add unit test!
-func (r *rebootDurationCalculator) GetRebootDuration(k8sClient client.Client, ctx context.Context, node *v1.Node, operatorNs string) (time.Duration, error) {
+func (r *calculator) GetRebootDuration(k8sClient client.Client, ctx context.Context, node *v1.Node) (time.Duration, error) {
 
-	log := ctrl.Log.WithName("rebootDurationCalculator")
-
-	var config *v1alpha1.SelfNodeRemediationConfig
-	if r.snrConfig != nil {
-		config = r.snrConfig
-	} else {
-		// just in case we reconcile a SNR CR sooner than the SNRConfig CR
-		var err error
-		if config, err = r.getConfig(k8sClient, ctx, operatorNs); err != nil {
-			return 0, errors.Wrap(err, "failed to get SelfNodeRemediationConfig")
-		}
+	if r.snrConfig == nil {
+		return 0, errors.New("SelfNodeRemediationConfig not set yet, can't calculate minimum reboot duration")
 	}
 
 	watchdogTimeout := utils.GetWatchdogTimeout(node)
-	minimumCalculatedRebootDuration, err := r.calculateMinimumRebootDuration(k8sClient, ctx, config, watchdogTimeout)
+	minimumCalculatedRebootDuration, err := r.calculateMinimumRebootDuration(k8sClient, ctx, watchdogTimeout)
 	if err != nil {
 		return 0, errors.Wrap(err, "failed to calculate minimum reboot duration")
 	}
 
-	specRebootDurationSeconds := config.Spec.SafeTimeToAssumeNodeRebootedSeconds
+	specRebootDurationSeconds := r.snrConfig.Spec.SafeTimeToAssumeNodeRebootedSeconds
 	if specRebootDurationSeconds == nil {
-		log.Info("No SafeTimeToAssumeNodeRebootedSeconds specified, using calculated minimum safe reboot time",
+		r.log.Info("No SafeTimeToAssumeNodeRebootedSeconds specified, using calculated minimum safe reboot time",
 			"calculated minimum time in seconds", minimumCalculatedRebootDuration)
 		return minimumCalculatedRebootDuration, nil
 	}
@@ -80,19 +76,19 @@ func (r *rebootDurationCalculator) GetRebootDuration(k8sClient client.Client, ct
 	specRebootDuration := time.Duration(*specRebootDurationSeconds) * time.Second
 	// In case users specified a lower reboot time, ignore it
 	if specRebootDuration < minimumCalculatedRebootDuration {
-		log.V(0).Info("Warning: Ignoring specified SafeTimeToAssumeNodeRebootedSeconds because it's lower than the calculated minimum safe reboot time",
+		r.log.V(0).Info("Warning: Ignoring specified SafeTimeToAssumeNodeRebootedSeconds because it's lower than the calculated minimum safe reboot time",
 			"specified time in seconds", specRebootDuration.Seconds(), "calculated minimum time in seconds", minimumCalculatedRebootDuration.Seconds())
 		// TODO event
 		return minimumCalculatedRebootDuration, nil
 	}
-	log.Info("Using specified SafeTimeToAssumeNodeRebootedSeconds because it's greater than the calculated minimum safe reboot time",
+	r.log.Info("Using specified SafeTimeToAssumeNodeRebootedSeconds because it's greater than the calculated minimum safe reboot time",
 		"specified time in seconds", specRebootDuration.Seconds(), "calculated minimum time in seconds", minimumCalculatedRebootDuration.Seconds())
 	return specRebootDuration, nil
 }
 
-func (r *rebootDurationCalculator) calculateMinimumRebootDuration(k8sClient client.Client, ctx context.Context, cfg *v1alpha1.SelfNodeRemediationConfig, watchdogTimeout time.Duration) (time.Duration, error) {
+func (r *calculator) calculateMinimumRebootDuration(k8sClient client.Client, ctx context.Context, watchdogTimeout time.Duration) (time.Duration, error) {
 
-	spec := cfg.Spec
+	spec := r.snrConfig.Spec
 
 	// The minimum reboot duration consists of the duration to identify a node issue, and to trigger the reboot
 
@@ -120,7 +116,7 @@ func (r *rebootDurationCalculator) calculateMinimumRebootDuration(k8sClient clie
 	return minTime, nil
 }
 
-func (r *rebootDurationCalculator) calcNumOfBatches(k8sClient client.Client, ctx context.Context) (int, error) {
+func (r *calculator) calcNumOfBatches(k8sClient client.Client, ctx context.Context) (int, error) {
 
 	reqPeers, _ := labels.NewRequirement(commonlabels.WorkerRole, selection.Exists, []string{})
 	selector := labels.NewSelector()
@@ -149,7 +145,7 @@ func (r *rebootDurationCalculator) calcNumOfBatches(k8sClient client.Client, ctx
 	return numberOfBatches, nil
 }
 
-func (r *rebootDurationCalculator) getConfig(k8sClient client.Client, ctx context.Context, namespace string) (*v1alpha1.SelfNodeRemediationConfig, error) {
+func (r *calculator) getConfig(k8sClient client.Client, ctx context.Context, namespace string) (*v1alpha1.SelfNodeRemediationConfig, error) {
 	config := &v1alpha1.SelfNodeRemediationConfig{}
 	err := k8sClient.Get(ctx, client.ObjectKey{Namespace: namespace, Name: v1alpha1.ConfigCRName}, config)
 	return config, err
