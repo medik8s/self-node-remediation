@@ -72,15 +72,15 @@ func IsSoftwareRebootEnabled() (bool, error) {
 	return softwareRebootEnabled, nil
 }
 
-func GetWatchdogTimeout(node *v1.Node) time.Duration {
+func GetWatchdogTimeout(node *v1.Node) (time.Duration, error) {
 	if node.Annotations == nil {
-		return 0
+		return 0, errors.New("node has no annotations")
 	}
 
 	timeout, err := strconv.Atoi(node.Annotations[WatchdogTimeoutSecondsAnnotation])
 	if err != nil {
-		return 0
+		return 0, errors.Wrapf(err, "failed to convert watchdog timeout to int. value is: %s", node.Annotations[WatchdogTimeoutSecondsAnnotation])
 	}
 
-	return time.Duration(timeout) * time.Second
+	return time.Duration(timeout) * time.Second, nil
 }

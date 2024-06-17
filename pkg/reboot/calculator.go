@@ -60,7 +60,13 @@ func (r *calculator) GetRebootDuration(k8sClient client.Client, ctx context.Cont
 		return 0, errors.New("SelfNodeRemediationConfig not set yet, can't calculate minimum reboot duration")
 	}
 
-	watchdogTimeout := utils.GetWatchdogTimeout(node)
+	watchdogTimeout, err := utils.GetWatchdogTimeout(node)
+	if err != nil {
+		// 60s is the maximum default watchdog timeout according to https://docs.kernel.org/watchdog/watchdog-parameters.html
+		defaultWatchdogTimeout := 60 * time.Second
+		r.log.Error(err, "failed to get watchdog timeout from node annotations, will use the default timeout", "node", node.Name, "default timeout in seconds", defaultWatchdogTimeout.Seconds())
+		watchdogTimeout = defaultWatchdogTimeout
+	}
 	minimumCalculatedRebootDuration, err := r.calculateMinimumRebootDuration(k8sClient, ctx, watchdogTimeout)
 	if err != nil {
 		return 0, errors.Wrap(err, "failed to calculate minimum reboot duration")
