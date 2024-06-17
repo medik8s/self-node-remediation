@@ -36,12 +36,8 @@ var _ = Describe("SNR Config Test", func() {
 		config = &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}
 		config.Kind = "SelfNodeRemediationConfig"
 		config.APIVersion = "self-node-remediation.medik8s.io/v1alpha1"
-		config.Spec.WatchdogFilePath = "/dev/foo"
-		config.Spec.SafeTimeToAssumeNodeRebootedSeconds = 123
 		config.Name = selfnoderemediationv1alpha1.ConfigCRName
 		config.Namespace = shared.Namespace
-		config.Spec.HostPort = 30111
-
 	})
 
 	AfterEach(func() {
@@ -77,6 +73,11 @@ var _ = Describe("SNR Config Test", func() {
 	})
 
 	Context("DS installation", func() {
+		BeforeEach(func() {
+			config.Spec.WatchdogFilePath = "/dev/foo"
+			config.Spec.SafeTimeToAssumeNodeRebootedSeconds = 123
+			config.Spec.HostPort = 30111
+		})
 
 		JustBeforeEach(func() {
 			//Creates config which in turn will create the DS
@@ -246,21 +247,13 @@ var _ = Describe("SNR Config Test", func() {
 	})
 
 	Context("SNRC defaults", func() {
-		defaultConfig := &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}
-		BeforeEach(func() {
-			defaultConfig.Kind = "SelfNodeRemediationConfig"
-			defaultConfig.APIVersion = "self-node-remediation.medik8s.io/v1alpha1"
-			//Setting the same name and namespace so it'll be picked up by the AfterEach cleanup
-			defaultConfig.Name = selfnoderemediationv1alpha1.ConfigCRName
-			defaultConfig.Namespace = shared.Namespace
+		JustBeforeEach(func() {
+			Expect(k8sClient.Create(context.Background(), config)).To(Succeed())
 		})
 
 		It("Config CR should be created with default values", func() {
-			Expect(k8sClient).To(Not(BeNil()))
-			Expect(k8sClient.Create(context.Background(), defaultConfig)).To(Succeed())
-
 			createdConfig := &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}
-			configKey := client.ObjectKeyFromObject(defaultConfig)
+			configKey := client.ObjectKeyFromObject(config)
 
 			Eventually(func() error {
 				return k8sClient.Get(context.Background(), configKey, createdConfig)
