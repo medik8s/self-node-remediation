@@ -71,26 +71,30 @@ func (r *rebootDurationCalculator) GetRebootDuration(k8sClient client.Client, ct
 	}
 
 	specRebootDurationSeconds := config.Spec.SafeTimeToAssumeNodeRebootedSeconds
-	if specRebootDurationSeconds != nil {
-		specRebootDuration := time.Duration(*specRebootDurationSeconds) * time.Second
-		// In case users specified a lower reboot time, ignore it
-		if specRebootDuration < minimumCalculatedRebootDuration {
-			log.V(0).Info("Warning: Ignoring specified SafeTimeToAssumeNodeRebootedSeconds because it's lower than the calculated minimum safe reboot time", "specified time in seconds", specRebootDuration.Seconds(), "calculated minimum time in seconds", minimumCalculatedRebootDuration.Seconds())
-			// TODO event
-			return minimumCalculatedRebootDuration, nil
-		}
-		log.Info("Using specified SafeTimeToAssumeNodeRebootedSeconds because it's greater than the calculated minimum safe reboot time", "specified time in seconds", specRebootDuration.Seconds(), "calculated minimum time in seconds", minimumCalculatedRebootDuration.Seconds())
-		return specRebootDuration, nil
+	if specRebootDurationSeconds == nil {
+		log.Info("No SafeTimeToAssumeNodeRebootedSeconds specified, using calculated minimum safe reboot time",
+			"calculated minimum time in seconds", minimumCalculatedRebootDuration)
+		return minimumCalculatedRebootDuration, nil
 	}
-	log.Info("No SafeTimeToAssumeNodeRebootedSeconds specified, using calculated minimum safe reboot time", "calculated minimum time in seconds", minimumCalculatedRebootDuration)
-	return minimumCalculatedRebootDuration, nil
+
+	specRebootDuration := time.Duration(*specRebootDurationSeconds) * time.Second
+	// In case users specified a lower reboot time, ignore it
+	if specRebootDuration < minimumCalculatedRebootDuration {
+		log.V(0).Info("Warning: Ignoring specified SafeTimeToAssumeNodeRebootedSeconds because it's lower than the calculated minimum safe reboot time",
+			"specified time in seconds", specRebootDuration.Seconds(), "calculated minimum time in seconds", minimumCalculatedRebootDuration.Seconds())
+		// TODO event
+		return minimumCalculatedRebootDuration, nil
+	}
+	log.Info("Using specified SafeTimeToAssumeNodeRebootedSeconds because it's greater than the calculated minimum safe reboot time",
+		"specified time in seconds", specRebootDuration.Seconds(), "calculated minimum time in seconds", minimumCalculatedRebootDuration.Seconds())
+	return specRebootDuration, nil
 }
 
 func (r *rebootDurationCalculator) calculateMinimumRebootDuration(k8sClient client.Client, ctx context.Context, cfg *v1alpha1.SelfNodeRemediationConfig, watchdogTimeout time.Duration) (time.Duration, error) {
 
 	spec := cfg.Spec
 
-	// The reboot duration needs be at least the time we know we need for determining a node issue and trigger the reboot!
+	// The minimum reboot duration consists of the duration to identify a node issue, and to trigger the reboot
 
 	// 1. time for determine node issue
 	// a) API check duration ...
