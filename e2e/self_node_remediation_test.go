@@ -79,12 +79,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 		})
 
 		JustAfterEach(func() {
-			By("printing self node remediation log of healthy node")
-			healthyNode := &workers.Items[1]
-			pod := findSnrPod(healthyNode)
-			logs, err := utils.GetLogs(k8sClientSet, pod)
-			Expect(err).ToNot(HaveOccurred())
-			logger.Info("logs of healthy self-node-remediation pod", "logs", logs)
+			printSNRLogsFromNode(&workers.Items[1])
 		})
 
 		Describe("With API connectivity", func() {
@@ -320,12 +315,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 		})
 
 		JustAfterEach(func() {
-			By("printing self node remediation log of healthy node")
-			healthyNode := &controlPlaneNodes.Items[1]
-			pod := findSnrPod(healthyNode)
-			logs, err := utils.GetLogs(k8sClientSet, pod)
-			Expect(err).ToNot(HaveOccurred())
-			logger.Info("logs of healthy self-node-remediation pod", "logs", logs)
+			printSNRLogsFromNode(&controlPlaneNodes.Items[1])
 		})
 
 		Describe("With API connectivity", func() {
@@ -593,6 +583,7 @@ func restartSnrPods(nodes *v1.NodeList) {
 func restartSnrPod(node *v1.Node) {
 	By("restarting snr pod for resetting logs")
 	pod := findSnrPod(node)
+	ExpectWithOffset(1, pod).ToNot(BeNil())
 
 	//no need to restart the pod
 	for _, cond := range pod.Status.Conditions {
@@ -601,7 +592,6 @@ func restartSnrPod(node *v1.Node) {
 		}
 	}
 
-	ExpectWithOffset(1, pod).ToNot(BeNil())
 	oldPodUID := pod.GetUID()
 
 	deleteAndWait(pod)
@@ -665,4 +655,16 @@ func ensureSnrRunning(nodes *v1.NodeList) {
 		}()
 	}
 	wg.Wait()
+}
+
+func printSNRLogsFromNode(node *v1.Node) {
+	By("printing self node remediation log of healthy node")
+	pod := findSnrPod(node)
+	logs, err := utils.GetLogs(k8sClientSet, pod)
+	Expect(err).ToNot(HaveOccurred())
+	logger.Info("BEGIN logs of healthy self-node-remediation pod", "name", pod.GetName())
+	for _, line := range strings.Split(logs, "\n") {
+		logger.Info(line)
+	}
+	logger.Info("END logs of healthy self-node-remediation pod", "name", pod.GetName())
 }
