@@ -127,21 +127,21 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 	}
 
 	c.config.Log.Info("Error count exceeds threshold, trying to ask other nodes if I'm healthy")
-	nodesToAsk := c.config.Peers.GetPeersAddresses(peers.Worker)
-	if nodesToAsk == nil || len(nodesToAsk) == 0 {
+	peersToAsk := c.config.Peers.GetPeersAddresses(peers.Worker)
+	if peersToAsk == nil || len(peersToAsk) == 0 {
 		c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, nothing we can do, so consider the node being healthy")
-		//todo maybe we need to check if this happens too much and reboot
+		// TODO: maybe we need to check if this happens too much and reboot
 		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseNoPeersWereFound}
 	}
 
 	apiErrorsResponsesSum := 0
-	nrAllNodes := len(nodesToAsk)
-	// nodesToAsk is being reduced in every iteration, iterate until no nodes left to ask
-	for i := 0; len(nodesToAsk) > 0; i++ {
+	nrAllPeers := len(peersToAsk)
+	// peersToAsk is being reduced at every iteration, iterate until no peers left to ask
+	for i := 0; len(peersToAsk) > 0; i++ {
 
-		batchSize := utils.GetNextBatchSize(nrAllNodes, len(nodesToAsk))
-		chosenNodesAddresses := c.popNodes(&nodesToAsk, batchSize)
-		healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenNodesAddresses)
+		batchSize := utils.GetNextBatchSize(nrAllPeers, len(peersToAsk))
+		chosenPeersIPs := c.popPeerIPs(&peersToAsk, batchSize)
+		healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenPeersIPs)
 		if healthyResponses+unhealthyResponses+apiErrorsResponses > 0 {
 			c.timeOfLastPeerResponse = time.Now()
 		}
@@ -160,9 +160,9 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 		if apiErrorsResponses > 0 {
 			c.config.Log.Info("Peer can't access the api-server")
 			apiErrorsResponsesSum += apiErrorsResponses
-			//todo consider using [m|n]hc.spec.maxUnhealthy instead of 50%
-			if apiErrorsResponsesSum > nrAllNodes/2 { //already reached more than 50% of the nodes and all of them returned api error
-				//assuming this is a control plane failure as others can't access api-server as well
+			// TODO: consider using [m|n]hc.spec.maxUnhealthy instead of 50%
+			if apiErrorsResponsesSum > nrAllPeers/2 { // already reached more than 50% of the peers and all of them returned api error
+				// assuming this is a control plane failure as others can't access api-server as well
 				c.config.Log.Info("More than 50% of the nodes couldn't access the api-server, assuming this is a control plane failure")
 				return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseMostPeersCantAccessAPIServer}
 			}
@@ -184,45 +184,45 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 }
 
 func (c *ApiConnectivityCheck) canOtherControlPlanesBeReached() bool {
-	nodesToAsk := c.config.Peers.GetPeersAddresses(peers.ControlPlane)
-	numOfControlPlanePeers := len(nodesToAsk)
+	peersToAsk := c.config.Peers.GetPeersAddresses(peers.ControlPlane)
+	numOfControlPlanePeers := len(peersToAsk)
 	if numOfControlPlanePeers == 0 {
 		c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, other control planes can't be reached")
 		return false
 	}
 
-	chosenNodesAddresses := c.popNodes(&nodesToAsk, numOfControlPlanePeers)
-	healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenNodesAddresses)
+	chosenPeersIPs := c.popPeerIPs(&peersToAsk, numOfControlPlanePeers)
+	healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenPeersIPs)
 
 	// Any response is an indication of communication with a peer
 	return (healthyResponses + unhealthyResponses + apiErrorsResponses) > 0
 }
 
-func (c *ApiConnectivityCheck) popNodes(nodes *[]string, count int) []string {
-	nrOfNodes := len(*nodes)
-	if nrOfNodes == 0 {
+func (c *ApiConnectivityCheck) popPeerIPs(peersIPs *[]string, count int) []string {
+	nrOfPeers := len(*peersIPs)
+	if nrOfPeers == 0 {
 		return []string{}
 	}
 
-	if count > nrOfNodes {
-		count = nrOfNodes
+	if count > nrOfPeers {
+		count = nrOfPeers
 	}
 
-	//todo maybe we should pick nodes randomly rather than relying on the order returned from api-server
-	addresses := make([]string, count)
+	// TODO: maybe we should pick nodes randomly rather than relying on the order returned from api-server
+	selectedIPs := make([]string, count)
 	for i := 0; i < count; i++ {
-		// TODO: shall we need to get "count" addresses anyway, replacing empty IP with another Node?
-		address := (*nodes)[i]
-		if address == "" {
-			c.config.Log.Info("ignoring node without IP address")
+		ip := (*peersIPs)[i]
+		if ip == "" {
+			// This should not happen, but keeping it for good measure.
+			c.config.Log.Info("ignoring peers without IP address")
 			continue
 		}
-		addresses[i] = address
+		selectedIPs[i] = ip
 	}
 
-	*nodes = (*nodes)[count:] //remove popped nodes from the list
+	*peersIPs = (*peersIPs)[count:] //remove popped nodes from the list
 
-	return addresses
+	return selectedIPs
 }
 
 func (c *ApiConnectivityCheck) getHealthStatusFromPeers(addresses []string) (int, int, int, int) {
