@@ -158,12 +158,12 @@ func (r *SelfNodeRemediationReconciler) ReconcileAgent(ctx context.Context, req 
 	r.logger = r.Log.WithValues("pod", "agent", "selfnoderemediation", req.NamespacedName)
 
 	snr := &v1alpha1.SelfNodeRemediation{}
-	if err := r.Get(ctx, req.NamespacedName, snr); err != nil {
-		if apiErrors.IsNotFound(err) {
-			// SNR is deleted, stop reconciling
-			r.logger.Info("SNR already deleted")
-			return ctrl.Result{}, nil
-		}
+	err := r.Get(ctx, req.NamespacedName, snr)
+	if apiErrors.IsNotFound(err) || err == nil && snr.GetDeletionTimestamp() != nil {
+		// SNR is deleted, stop reconciling
+		r.logger.Info("SNR already deleted")
+		return ctrl.Result{}, nil
+	} else if err != nil {
 		r.logger.Error(err, "failed to get SNR")
 		return ctrl.Result{}, err
 	}
