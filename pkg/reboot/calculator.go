@@ -2,6 +2,7 @@ package reboot
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -19,8 +20,6 @@ import (
 
 const (
 	MaxTimeForNoPeersResponse = 30 * time.Second
-	MinNodesNumberInBatch     = 3
-	MaxBatchesAfterFirst      = 10
 )
 
 type Calculator interface {
@@ -39,7 +38,8 @@ type calculator struct {
 	k8sClient client.Client
 	log       logr.Logger
 	// storing the config here when reconciling it increases resilience in case of issues during remediation
-	snrConfig *v1alpha1.SelfNodeRemediationConfig
+	snrConfig     *v1alpha1.SelfNodeRemediationConfig
+	snrConfigLock sync.RWMutex
 }
 
 func NewCalculator(k8sClient client.Client, log logr.Logger) Calculator {
@@ -50,12 +50,16 @@ func NewCalculator(k8sClient client.Client, log logr.Logger) Calculator {
 }
 
 func (r *calculator) SetConfig(config *v1alpha1.SelfNodeRemediationConfig) {
+	r.snrConfigLock.Lock()
+	defer r.snrConfigLock.Unlock()
 	r.snrConfig = config
 }
 
 // TODO add unit test!
 func (r *calculator) GetRebootDuration(ctx context.Context, node *v1.Node) (time.Duration, error) {
 
+	r.snrConfigLock.Lock()
+	defer r.snrConfigLock.Unlock()
 	if r.snrConfig == nil {
 		return 0, errors.New("SelfNodeRemediationConfig not set yet, can't calculate minimum reboot duration")
 	}
@@ -96,57 +100,55 @@ func (r *calculator) calculateMinimumRebootDuration(ctx context.Context, watchdo
 
 	spec := r.snrConfig.Spec
 
-	// The minimum reboot duration consists of the duration to identify a node issue, and to trigger the reboot
+	// The minimum reboot duration consists of the duration
+	// 1) to detect API connectivity issue
+	// 2) to confirm issue with peers
+	// 3) to trigger the reboot
 
-	// 1. time for determine node issue
-	// a) API check duration ...
-	minTime := spec.ApiCheckInterval.Duration + spec.ApiServerTimeout.Duration
+	// 1. detect API connectivity issue
+	// a) max API check duration ...
+	apiCheckDuration := spec.ApiCheckInterval.Duration + spec.ApiServerTimeout.Duration
 	// b) ... times error threshold ...
-	minTime *= time.Duration(spec.MaxApiErrorThreshold)
-	// c) ... plus peer timeout
-	minTime += MaxTimeForNoPeersResponse
+	apiCheckDuration *= time.Duration(spec.MaxApiErrorThreshold)
 
-	// 2. plus time for asking peers (10% batches + 1st smaller batch)
+	// 2. confirm issue with peers
+	// a) nr of peer request batches (10% batches + 1st smaller batch) ...
 	numBatches, err := r.calcNumOfBatches(r.k8sClient, ctx)
 	if err != nil {
 		return 0, errors.Wrap(err, "failed to calculate number of batches")
 	}
-	minTime += time.Duration(numBatches)*spec.PeerDialTimeout.Duration + spec.PeerRequestTimeout.Duration
+	peerRequestsDuration := time.Duration(numBatches)
+	// b) ... times max peer request duration
+	peerRequestsDuration *= spec.PeerDialTimeout.Duration + spec.PeerRequestTimeout.Duration
+	// c) in order to prevent false positives in case of temporary network issues,
+	//    we don't consider nodes being unhealthy before MaxTimeForNoPeersResponse.
+	//    So that's the minimum time we need for the peers check.
+	if peerRequestsDuration < MaxTimeForNoPeersResponse {
+		peerRequestsDuration = MaxTimeForNoPeersResponse
+	}
 
-	// 3. plus watchdog timeout
-	minTime += watchdogTimeout
+	// 3. trigger the reboot
+	// a) watchdog timeout ...
+	rebootDuration := watchdogTimeout
+	// b) ... plus some buffer for actually rebooting
+	rebootDuration += 15 * time.Second
 
-	// 4. plus some buffer
-	minTime += 15 * time.Second
-
-	return minTime, nil
+	return apiCheckDuration + peerRequestsDuration + rebootDuration, nil
 }
 
 func (r *calculator) calcNumOfBatches(k8sClient client.Client, ctx context.Context) (int, error) {
 
+	// get all worker nodes
 	reqPeers, _ := labels.NewRequirement(commonlabels.WorkerRole, selection.Exists, []string{})
 	selector := labels.NewSelector()
 	selector = selector.Add(*reqPeers)
 
 	nodes := &v1.NodeList{}
-	// time for asking peers (10% batches + 1st smaller batch)
-	maxNumberOfBatches := MaxBatchesAfterFirst + 1
 	if err := k8sClient.List(ctx, nodes, client.MatchingLabelsSelector{Selector: selector}); err != nil {
-		return maxNumberOfBatches, errors.Wrap(err, "failed to list worker nodes")
+		return 0, errors.Wrap(err, "failed to list worker nodes")
 	}
-	workerNodesCount := len(nodes.Items)
 
-	var numberOfBatches int
-	switch {
-	//high number of workers: we need max batches (for example 53 nodes will be done in 11 batches -> 1 * 3 + 10 * 5 )
-	case workerNodesCount > maxNumberOfBatches*MinNodesNumberInBatch:
-		numberOfBatches = maxNumberOfBatches
-	//there are few enough nodes to use the min batch (for example 20 nodes will be done in 7 batches -> 1 * 3 +  6 * 3 )
-	default:
-		numberOfBatches = workerNodesCount / MinNodesNumberInBatch
-		if workerNodesCount%MinNodesNumberInBatch != 0 {
-			numberOfBatches++
-		}
-	}
-	return numberOfBatches, nil
+	workerNodesCount := len(nodes.Items)
+	batchCount := utils.GetNrOfBatches(workerNodesCount)
+	return batchCount, nil
 }
