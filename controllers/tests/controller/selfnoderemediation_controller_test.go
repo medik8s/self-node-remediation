@@ -618,11 +618,11 @@ func verifySelfNodeRemediationPodExist() {
 }
 func deleteRemediations() {
 
-	Eventually(func(g Gomega) bool {
+	Eventually(func(g Gomega) {
 		snrs := &v1alpha1.SelfNodeRemediationList{}
 		g.Expect(k8sClient.List(context.Background(), snrs)).To(Succeed())
 		if len(snrs.Items) == 0 {
-			return true
+			return
 		}
 
 		for _, snr := range snrs.Items {
@@ -636,8 +636,7 @@ func deleteRemediations() {
 		g.Expect(k8sClient.List(context.Background(), expectedEmptySnrs)).To(Succeed())
 		g.Expect(len(expectedEmptySnrs.Items)).To(Equal(0))
 
-		return true
-	}, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
+	}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
 }
 
 func deleteSNR(snr *v1alpha1.SelfNodeRemediation) {
