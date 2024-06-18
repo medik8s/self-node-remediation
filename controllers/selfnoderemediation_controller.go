@@ -634,7 +634,7 @@ func (r *SelfNodeRemediationReconciler) setTimeAssumedRebooted(ctx context.Conte
 		return nil
 	}
 	// get reboot duration
-	rebootDuration, err := r.RebootDurationCalculator.GetRebootDuration(r.Client, ctx, node)
+	rebootDuration, err := r.RebootDurationCalculator.GetRebootDuration(ctx, node)
 	if err != nil {
 		r.logger.Error(err, "failed to get assumed reboot duration")
 		return err

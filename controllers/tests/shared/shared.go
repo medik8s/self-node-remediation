@@ -62,7 +62,7 @@ var _ reboot.Calculator = &MockRebootDurationCalculator{}
 
 type MockRebootDurationCalculator struct{}
 
-func (m MockRebootDurationCalculator) GetRebootDuration(_ client.Client, _ context.Context, _ *corev1.Node) (time.Duration, error) {
+func (m MockRebootDurationCalculator) GetRebootDuration(_ context.Context, _ *corev1.Node) (time.Duration, error) {
 	return CalculatedRebootDuration, nil
 }
 
