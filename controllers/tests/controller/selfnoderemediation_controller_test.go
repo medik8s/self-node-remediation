@@ -419,7 +419,7 @@ var _ = Describe("SNR Controller", func() {
 							verifyEvent("Warning", "RemediationCannotStart", "Could not get remediation target Node")
 						})
 					})
-					When("NHC isn set as owner in the remediation", func() {
+					When("NHC is set as owner in the remediation", func() {
 						BeforeEach(func() {
 							snr.OwnerReferences = append(snr.OwnerReferences, metav1.OwnerReference{Name: "nhc", Kind: "NodeHealthCheck", APIVersion: "remediation.medik8s.io/v1alpha1", UID: "12345"})
 						})
@@ -625,7 +625,7 @@ func removeUnschedulableTaint() {
 func verifyNodeIsUnschedulable() *v1.Node {
 	By("Verify that node was marked as unschedulable")
 	node := &v1.Node{}
-	Eventually(func() (bool, error) {
+	EventuallyWithOffset(1, func() (bool, error) {
 		err := k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)
 		return node.Spec.Unschedulable, err
 	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue(), "node should be marked as unschedulable")

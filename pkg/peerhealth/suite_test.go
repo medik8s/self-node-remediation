@@ -32,6 +32,7 @@ const nodeName = "somenode"
 
 var cfg *rest.Config
 var k8sClient client.Client
+var reader client.Reader
 var testEnv *envtest.Environment
 var snrReconciler *controllers.SelfNodeRemediationReconciler
 var cancelFunc context.CancelFunc
@@ -71,6 +72,9 @@ var _ = BeforeSuite(func() {
 
 	k8sClient = k8sManager.GetClient()
 	Expect(k8sClient).ToNot(BeNil())
+
+	reader = k8sManager.GetAPIReader()
+	Expect(reader).ToNot(BeNil())
 
 	// we need a reconciler for getting last SNR namespace
 	snrReconciler = &controllers.SelfNodeRemediationReconciler{

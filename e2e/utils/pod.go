@@ -9,13 +9,16 @@ import (
 	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // GetLogs returns logs of the specified pod
-func GetLogs(c *kubernetes.Clientset, pod *corev1.Pod) (string, error) {
-	logStream, err := c.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{}).Stream(context.Background())
+func GetLogs(c *kubernetes.Clientset, pod *corev1.Pod, since *metav1.Time) (string, error) {
+	logStream, err := c.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{
+		SinceTime: since,
+	}).Stream(context.Background())
 	if err != nil {
 		return "", err
 	}
@@ -38,5 +41,5 @@ func WaitForPodReady(c client.Client, pod *corev1.Pod) {
 			}
 		}
 		return corev1.ConditionUnknown
-	}, 20*time.Minute, 10*time.Second).Should(Equal(corev1.ConditionTrue), "pod did not get ready in time")
+	}, 10*time.Minute, 10*time.Second).Should(Equal(corev1.ConditionTrue), "pod did not get ready in time")
 }
