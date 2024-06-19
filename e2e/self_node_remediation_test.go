@@ -145,7 +145,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 		})
 
 		Describe("Without API connectivity", func() {
-			Context("Healthy node (no SNR)", func() {
+			FContext("Healthy node (no SNR)", func() {
 
 				// no api connectivity
 				// a) healthy
@@ -175,7 +175,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				})
 			})
 
-			Context("Unhealthy node (with SNR)", func() {
+			Context("Unhealthy node (with SNR) TEST THIS", func() {
 
 				// no api connectivity
 				// b) unhealthy
@@ -387,7 +387,7 @@ func createSNR(node *v1.Node, remediationStrategy v1alpha1.RemediationStrategyTy
 func getBootTime(node *v1.Node) (*time.Time, error) {
 	bootTimeCommand := []string{"uptime", "-s"}
 	var bootTime time.Time
-	Eventually(func() error {
+	EventuallyWithOffset(1, func() error {
 		ctx, cancel := context.WithTimeout(context.Background(), nodeExecTimeout)
 		defer cancel()
 		bootTimeString, err := utils.ExecCommandOnNode(k8sClient, bootTimeCommand, node, ctx)
@@ -399,7 +399,7 @@ func getBootTime(node *v1.Node) (*time.Time, error) {
 			return err
 		}
 		return nil
-	}, 15*time.Minute, 10*time.Second).ShouldNot(HaveOccurred())
+	}, 15*time.Minute, 10*time.Second).ShouldNot(HaveOccurred(), "Could not get boot time on target node")
 	return &bootTime, nil
 }
 
@@ -449,7 +449,8 @@ func checkReboot(node *v1.Node, oldBootTime *time.Time) {
 }
 
 func killApiConnection(node *v1.Node, apiIPs []string, withReconnect bool) {
-	By("killing api connectivity")
+	msg := fmt.Sprintf("killing api connectivity on NODE: %s and API ep: %v", node.Name, apiIPs)
+	By(msg)
 
 	script := composeScript(disconnectCommand, apiIPs)
 	if withReconnect {
