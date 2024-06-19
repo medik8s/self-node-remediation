@@ -131,7 +131,7 @@ func (r *calculator) calculateMinimumRebootDuration(ctx context.Context, watchdo
 	// a) watchdog timeout ...
 	rebootDuration := watchdogTimeout
 	// b) ... plus some buffer for actually rebooting
-	rebootDuration += 15 * time.Second
+	rebootDuration += 30 * time.Second
 
 	return apiCheckDuration + peerRequestsDuration + rebootDuration, nil
 }

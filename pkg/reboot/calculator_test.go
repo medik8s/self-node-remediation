@@ -82,8 +82,8 @@ var _ = Describe("Calculator tests", func() {
 			// 3 * (15 + 5) (API server)
 			// + 30 (MaxTimeForNoPeersResponse)
 			// + 10 (Watchdog)
-			// + 15
-			expectedRebootDurationSeconds = 115
+			// + 30
+			expectedRebootDurationSeconds = 130
 		})
 		It("GetRebootTime should return correct value", func() {
 			Eventually(func() (time.Duration, error) {
@@ -108,8 +108,8 @@ var _ = Describe("Calculator tests", func() {
 			// 4 * (25 + 7) = 128 (API server)
 			// + 7 * (11 + 13) = 168 (Peers)
 			// + 25 (Watchdog)
-			// + 15
-			expectedRebootDurationSeconds = 336
+			// + 30
+			expectedRebootDurationSeconds = 351
 		})
 		It("GetRebootTime should return correct value", func() {
 			Eventually(func() (time.Duration, error) {
