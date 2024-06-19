@@ -68,7 +68,7 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 		return err
 	}
 	restClient := cs.RESTClient()
-
+	var lastPeersCheck time.Time
 	go wait.UntilWithContext(ctx, func(ctx context.Context) {
 
 		readerCtx, cancel := context.WithTimeout(ctx, c.config.ApiServerTimeout)
@@ -87,6 +87,7 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 		}
 		if failure != "" {
 			c.config.Log.Error(fmt.Errorf(failure), "failed to check api server")
+			lastPeersCheck = time.Now()
 			if isHealthy := c.isConsideredHealthy(); !isHealthy {
 				// we have a problem on this node
 				c.config.Log.Error(err, "we are unhealthy, triggering a reboot")
@@ -97,6 +98,8 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 				c.config.Log.Error(err, "peers did not confirm that we are unhealthy, ignoring error")
 			}
 			return
+		} else {
+			c.config.Log.Info("apicheck ok", "last peers check", lastPeersCheck)
 		}
 
 		// reset error count after a successful API call
@@ -113,6 +116,7 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 // isConsideredHealthy keeps track of the number of errors reported, and when a certain amount of error occur within a certain
 // time, ask peers if this node is healthy. Returns if the node is considered to be healthy or not.
 func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
+	c.config.Log.Info("isConsideredHealthy")
 	workerPeersResponse := c.getWorkerPeersResponse()
 	isWorkerNode := c.controlPlaneManager == nil || !c.controlPlaneManager.IsControlPlane()
 	if isWorkerNode {
@@ -125,6 +129,7 @@ func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
 
 func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 	c.errorCount++
+	c.config.Log.Info("getWorkerPeersResponse")
 	if c.errorCount < c.config.MaxErrorsThreshold {
 		c.config.Log.Info("Ignoring api-server error, error count below threshold", "current count", c.errorCount, "threshold", c.config.MaxErrorsThreshold)
 		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseErrorsThresholdNotReached}
