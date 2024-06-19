@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	commonAnnotations "github.com/medik8s/common/pkg/annotations"
 	"github.com/medik8s/common/pkg/events"
 	"github.com/medik8s/common/pkg/resources"
 	"github.com/pkg/errors"
@@ -38,8 +37,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-
-	"github.com/openshift/api/machine/v1beta1"
 
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/pkg/reboot"
@@ -172,8 +169,12 @@ func (r *SelfNodeRemediationReconciler) ReconcileAgent(ctx context.Context, req 
 		return ctrl.Result{}, err
 	}
 
-	targetNodeName := getNodeName(snr)
-	if targetNodeName != r.MyNodeName {
+	snrMatches, targetNodeName, err := IsSNRMatching(ctx, r.Client, snr, r.MyNodeName, "", r.logger)
+	if err != nil {
+		r.logger.Error(err, "failed to check if SNR matches our node")
+		return ctrl.Result{}, err
+	}
+	if !snrMatches {
 		r.logger.Info("agent pod skipping remediation because node belongs to a different agent", "Agent node name", r.MyNodeName, "Remediated node name", targetNodeName)
 		return ctrl.Result{}, nil
 	}
@@ -183,7 +184,7 @@ func (r *SelfNodeRemediationReconciler) ReconcileAgent(ctx context.Context, req 
 	switch phase {
 	case preRebootCompletedPhase:
 		r.logger.Info("node reboot not completed yet, start rebooting")
-		node, err := r.getNodeFromSnr(snr)
+		node, err := r.getNodeFromSnr(ctx, snr)
 		if err != nil {
 			r.logger.Info("didn't find node, eventing might be incomplete", "node name", targetNodeName)
 		}
@@ -254,7 +255,7 @@ func (r *SelfNodeRemediationReconciler) ReconcileManager(ctx context.Context, re
 	result := ctrl.Result{}
 	var err error
 
-	node, err := r.getNodeFromSnr(snr)
+	node, err := r.getNodeFromSnr(ctx, snr)
 	if err != nil {
 		if apiErrors.IsNotFound(err) {
 			r.logger.Info("couldn't find node matching remediation", "remediation name", snr.Name)
@@ -688,65 +689,20 @@ func (r *SelfNodeRemediationReconciler) setTimeAssumedRebooted(ctx context.Conte
 }
 
 // getNodeFromSnr returns the unhealthy node reported in the given snr
-func (r *SelfNodeRemediationReconciler) getNodeFromSnr(snr *v1alpha1.SelfNodeRemediation) (*v1.Node, error) {
-	// SNR could be created by either machine based controller (e.g. MHC) or
-	// by a node based controller (e.g. NHC).
-	// In case snr is created with machine owner reference if NHC isn't it's owner it means
-	// it was created by a machine based controller (e.g. MHC).
-	if !IsOwnedByNHC(snr) {
-		for _, ownerRef := range snr.OwnerReferences {
-			if ownerRef.Kind == "Machine" {
-				return r.getNodeFromMachine(ownerRef, snr.Namespace)
-			}
-		}
+func (r *SelfNodeRemediationReconciler) getNodeFromSnr(ctx context.Context, snr *v1alpha1.SelfNodeRemediation) (*v1.Node, error) {
+	nodeName, err := GetNodeName(ctx, r.Client, snr, r.logger)
+	if err != nil {
+		return nil, err
 	}
 
-	// since we didn't find a Machine owner ref, we assume that SNR remediation contains the node's name either in the
-	// remediation name or in its annotation
 	node := &v1.Node{}
 	key := client.ObjectKey{
-		Name:      getNodeName(snr),
+		Name:      nodeName,
 		Namespace: "",
 	}
-
-	if err := r.Get(context.TODO(), key, node); err != nil {
+	if err := r.Get(ctx, key, node); err != nil {
 		return nil, err
 	}
-
-	return node, nil
-}
-
-func (r *SelfNodeRemediationReconciler) getNodeFromMachine(ref metav1.OwnerReference, ns string) (*v1.Node, error) {
-	machine := &v1beta1.Machine{}
-	machineKey := client.ObjectKey{
-		Name:      ref.Name,
-		Namespace: ns,
-	}
-
-	if err := r.Client.Get(context.Background(), machineKey, machine); err != nil {
-		r.logger.Error(err, "failed to get machine from SelfNodeRemediation CR owner ref",
-			"machine name", machineKey.Name, "namespace", machineKey.Namespace)
-		return nil, err
-	}
-
-	if machine.Status.NodeRef == nil {
-		err := errors.New("nodeRef is nil")
-		r.logger.Error(err, "failed to retrieve node from the unhealthy machine")
-		return nil, err
-	}
-
-	node := &v1.Node{}
-	key := client.ObjectKey{
-		Name:      machine.Status.NodeRef.Name,
-		Namespace: machine.Status.NodeRef.Namespace,
-	}
-
-	if err := r.Get(context.Background(), key, node); err != nil {
-		r.logger.Error(err, "failed to retrieve node from the unhealthy machine",
-			"node name", node.Name, "machine name", machine.Name)
-		return nil, err
-	}
-
 	return node, nil
 }
 
@@ -949,22 +905,4 @@ func (r *SelfNodeRemediationReconciler) getRuntimeStrategy(snr *v1alpha1.SelfNod
 
 	return remediationStrategy
 
-}
-
-func IsOwnedByNHC(snr *v1alpha1.SelfNodeRemediation) bool {
-	for _, ownerRef := range snr.OwnerReferences {
-		if ownerRef.Kind == "NodeHealthCheck" {
-			return true
-		}
-	}
-	return false
-}
-
-// getNodeName checks for the node name in SNR CR's annotation. If it does not exist it assumes the node name equals to SNR CR's name and returns it.
-func getNodeName(snr *v1alpha1.SelfNodeRemediation) string {
-	nodeName, isNodeNameAnnotationExist := snr.GetAnnotations()[commonAnnotations.NodeNameAnnotation]
-	if isNodeNameAnnotationExist {
-		return nodeName
-	}
-	return snr.GetName()
 }
