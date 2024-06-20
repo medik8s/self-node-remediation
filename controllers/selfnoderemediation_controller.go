@@ -263,7 +263,7 @@ func (r *SelfNodeRemediationReconciler) isConfigurationExist(ctx context.Context
 			},
 		}
 		err := r.Get(ctx, client.ObjectKeyFromObject(snrConfig), snrConfig)
-		if (err != nil && apiErrors.IsNotFound(err)) || snrConfig.DeletionTimestamp != nil {
+		if apiErrors.IsNotFound(err) || err == nil && snrConfig.DeletionTimestamp != nil {
 			return false, nil
 		} else if err != nil {
 			r.logger.Error(err, "failed to get SNR configuration")
