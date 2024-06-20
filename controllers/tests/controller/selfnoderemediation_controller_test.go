@@ -465,9 +465,9 @@ func verifyTypeConditions(snr *v1alpha1.SelfNodeRemediation, expectedProcessingC
 		if err := k8sClient.Client.Get(context.Background(), snrNamespacedName, snr); err != nil {
 			return false
 		}
-		actualProcessingCondition := meta.FindStatusCondition(snr.Status.Conditions, v1alpha1.ProcessingConditionType)
+		actualProcessingCondition := meta.FindStatusCondition(snr.Status.Conditions, string(v1alpha1.ProcessingConditionType))
 		isActualProcessingMatchExpected := actualProcessingCondition != nil && actualProcessingCondition.Status == expectedProcessingConditionStatus
-		isActualSucceededMatchExpected := meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, v1alpha1.SucceededConditionType, expectedSucceededConditionStatus)
+		isActualSucceededMatchExpected := meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, string(v1alpha1.SucceededConditionType), expectedSucceededConditionStatus)
 
 		return isActualProcessingMatchExpected &&
 			isActualSucceededMatchExpected && actualProcessingCondition.Reason == expectedReason

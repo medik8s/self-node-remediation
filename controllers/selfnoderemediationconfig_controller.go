@@ -28,6 +28,7 @@ import (
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -99,6 +100,9 @@ func (r *SelfNodeRemediationConfigReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, err
 	}
 
+	if err := r.setCRsEnabledStatus(ctx); err != nil {
+		return ctrl.Result{}, err
+	}
 	//sync manager reconciler
 	r.ManagerSafeTimeCalculator.SetTimeToAssumeNodeRebooted(time.Duration(config.Spec.SafeTimeToAssumeNodeRebootedSeconds) * time.Second)
 	return ctrl.Result{}, nil
@@ -294,4 +298,25 @@ func (r *SelfNodeRemediationConfigReconciler) removeOldDsOnOperatorUpdate(ctx co
 	r.Log.Info("snr update old daemonset deleted")
 	return nil
 
+}
+
+func (r *SelfNodeRemediationConfigReconciler) setCRsEnabledStatus(ctx context.Context) error {
+	crs := selfnoderemediationv1alpha1.SelfNodeRemediationList{}
+	if err := r.List(ctx, &crs); err != nil {
+		r.Log.Error(err, "Failed to list self node remediation CRs")
+		return err
+	}
+
+	for _, cr := range crs.Items {
+		//is disabled
+		if meta.IsStatusConditionTrue(cr.Status.Conditions, string(selfnoderemediationv1alpha1.DisabledConditionType)) {
+			//enable
+			meta.RemoveStatusCondition(&cr.Status.Conditions, string(selfnoderemediationv1alpha1.DisabledConditionType))
+			if err := r.Status().Update(ctx, &cr); err != nil {
+				r.Log.Error(err, "Failed to update self node remediation CR status")
+				return err
+			}
+		}
+	}
+	return nil
 }

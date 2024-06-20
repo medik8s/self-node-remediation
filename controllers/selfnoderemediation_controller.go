@@ -86,13 +86,17 @@ var (
 	}
 )
 
-type processingChangeReason string
+type conditionReason string
 
 const (
-	remediationStarted              processingChangeReason = "RemediationStarted"
-	remediationTimeoutByNHC         processingChangeReason = "RemediationTimeoutByNHC"
-	remediationFinishedSuccessfully processingChangeReason = "RemediationFinishedSuccessfully"
-	remediationSkippedNodeNotFound  processingChangeReason = "RemediationSkippedNodeNotFound"
+	//Reasons related to ProcessingConditionType
+	remediationStarted              conditionReason = "RemediationStarted"
+	remediationTimeoutByNHC         conditionReason = "RemediationTimeoutByNHC"
+	remediationFinishedSuccessfully conditionReason = "RemediationFinishedSuccessfully"
+	remediationSkippedNodeNotFound  conditionReason = "RemediationSkippedNodeNotFound"
+
+	//Other Reasons
+	snrDisabledNoConfig conditionReason = "SNRDisabledConfigurationNotFound"
 )
 
 type remediationPhase string
@@ -168,13 +172,6 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 		r.logger.Info("agent pod starting remediation on owned node")
 	}
 
-	if isConfigurationExist, err := r.isConfigurationExist(ctx); err != nil {
-		return ctrl.Result{}, err
-	} else if !isConfigurationExist {
-		r.logger.Info("snr is disabled because configuration does not exist, waiting for configuration creation ")
-		return ctrl.Result{RequeueAfter: time.Second * 30}, nil
-	}
-
 	defer func() {
 		if updateErr := r.updateSnrStatus(ctx, snr); updateErr != nil {
 			if apiErrors.IsConflict(updateErr) {
@@ -191,6 +188,19 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 			}
 		}
 	}()
+
+	if isConfigurationExist, err := r.isConfigurationExist(ctx); err != nil {
+		return ctrl.Result{}, err
+	} else if !isConfigurationExist {
+		r.logger.Info("snr is disabled because configuration does not exist, waiting for configuration creation ")
+		meta.SetStatusCondition(&snr.Status.Conditions, metav1.Condition{
+			Type:   string(v1alpha1.DisabledConditionType),
+			Status: metav1.ConditionTrue,
+			Reason: string(snrDisabledNoConfig),
+		})
+
+		return ctrl.Result{}, nil
+	}
 
 	if r.isStoppedByNHC(snr) {
 		r.logger.Info("NHC added the timed-out annotation, remediation will be stopped")
@@ -272,7 +282,7 @@ func (r *SelfNodeRemediationReconciler) isConfigurationExist(ctx context.Context
 	return true, nil
 }
 
-func (r *SelfNodeRemediationReconciler) updateConditions(processingTypeReason processingChangeReason, snr *v1alpha1.SelfNodeRemediation) error {
+func (r *SelfNodeRemediationReconciler) updateConditions(processingTypeReason conditionReason, snr *v1alpha1.SelfNodeRemediation) error {
 	var processingConditionStatus, succeededConditionStatus metav1.ConditionStatus
 	switch processingTypeReason {
 	case remediationStarted:
@@ -288,25 +298,25 @@ func (r *SelfNodeRemediationReconciler) updateConditions(processingTypeReason pr
 		processingConditionStatus = metav1.ConditionFalse
 		succeededConditionStatus = metav1.ConditionFalse
 	default:
-		err := fmt.Errorf("unkown processingChangeReason:%s", processingTypeReason)
+		err := fmt.Errorf("unkown condition reason:%s", processingTypeReason)
 		r.Log.Error(err, "couldn't update snr processing condition")
 		return err
 	}
 
-	if meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, v1alpha1.ProcessingConditionType, processingConditionStatus) &&
-		meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, v1alpha1.SucceededConditionType, succeededConditionStatus) {
+	if meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, string(v1alpha1.ProcessingConditionType), processingConditionStatus) &&
+		meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, string(v1alpha1.SucceededConditionType), succeededConditionStatus) {
 		return nil
 	}
 
 	meta.SetStatusCondition(&snr.Status.Conditions, metav1.Condition{
-		Type:   v1alpha1.ProcessingConditionType,
+		Type:   string(v1alpha1.ProcessingConditionType),
 		Status: processingConditionStatus,
 		Reason: string(processingTypeReason),
 	})
 
 	//Reason is mandatory, and reason for processing matches succeeded
 	meta.SetStatusCondition(&snr.Status.Conditions, metav1.Condition{
-		Type:   v1alpha1.SucceededConditionType,
+		Type:   string(v1alpha1.SucceededConditionType),
 		Status: succeededConditionStatus,
 		Reason: string(processingTypeReason),
 	})
