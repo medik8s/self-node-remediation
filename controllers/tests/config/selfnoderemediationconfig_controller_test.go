@@ -12,6 +12,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -310,6 +311,38 @@ var _ = Describe("SNR Config Test", func() {
 		})
 	})
 
+	Context("Config is created for when SNR CR alreay exists", func() {
+		var snr *selfnoderemediationv1alpha1.SelfNodeRemediation
+
+		BeforeEach(func() {
+			snr = &selfnoderemediationv1alpha1.SelfNodeRemediation{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      shared.UnhealthyNodeName,
+					Namespace: shared.Namespace,
+				},
+			}
+			createSNR(snr)
+			//cleanup snr
+			DeferCleanup(func() {
+				Expect(k8sClient.Delete(context.Background(), snr)).To(Succeed())
+				Eventually(func(g Gomega) bool {
+					err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snr), &selfnoderemediationv1alpha1.SelfNodeRemediation{})
+					return apierrors.IsNotFound(err)
+				}, 10*time.Second, 250*time.Millisecond).Should(BeTrue())
+			})
+			//simulating manager
+			setSNRStatusDisabled(snr)
+		})
+
+		JustBeforeEach(func() {
+			Expect(k8sClient.Create(context.Background(), config)).To(Succeed())
+		})
+		It("SNR disabled Condition status should be removed", func() {
+			verifySNRStatusRemoved(snr, "Disabled")
+
+		})
+	})
+
 })
 
 func findToleration(expectedToleration corev1.Toleration, tolerations []corev1.Toleration) corev1.Toleration {
@@ -370,4 +403,34 @@ func generateDs(name, namespace, version string) *appsv1.DaemonSet {
 			},
 		},
 	}
+}
+
+func verifySNRStatusRemoved(snr *selfnoderemediationv1alpha1.SelfNodeRemediation, statusType string) {
+	Eventually(func(g Gomega) {
+		tmpSNR := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
+		g.Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snr), tmpSNR)).To(Succeed())
+		g.Expect(meta.FindStatusCondition(tmpSNR.Status.Conditions, statusType)).To(BeNil())
+	}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+}
+
+func createSNR(snr *selfnoderemediationv1alpha1.SelfNodeRemediation) {
+	Expect(k8sClient.Create(context.Background(), snr)).To(Succeed())
+	Eventually(func(g Gomega) {
+		g.Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snr), &selfnoderemediationv1alpha1.SelfNodeRemediation{})).To(Succeed())
+	}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+
+}
+
+func setSNRStatusDisabled(snr *selfnoderemediationv1alpha1.SelfNodeRemediation) {
+	snrTmp := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
+	Eventually(func(g Gomega) {
+		g.Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snr), snrTmp)).To(Succeed())
+		snrTmp.Status.Conditions = []metav1.Condition{metav1.Condition{
+			Type:               "Disabled",
+			Status:             metav1.ConditionTrue,
+			Reason:             "SNRDisabledConfigurationNotFound",
+			LastTransitionTime: metav1.Time{Time: time.Now()},
+		}}
+		g.Expect(k8sClient.Status().Update(context.Background(), snrTmp)).To(Succeed())
+	}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 }

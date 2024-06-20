@@ -59,6 +59,7 @@ var (
 	cancelFunc              context.CancelFunc
 	k8sClient               *shared.K8sClientWrapper
 	fakeRecorder            *record.FakeRecorder
+	snrConfig               *selfnoderemediationv1alpha1.SelfNodeRemediationConfig
 )
 
 var unhealthyNodeNamespacedName = client.ObjectKey{
@@ -125,7 +126,7 @@ var _ = BeforeSuite(func() {
 	//mock deployment ns
 	_ = os.Setenv("DEPLOYMENT_NAMESPACE", nsToCreate.Name)
 
-	snrConfig := &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{
+	snrConfig = &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      selfnoderemediationv1alpha1.ConfigCRName,
 			Namespace: nsToCreate.Name,

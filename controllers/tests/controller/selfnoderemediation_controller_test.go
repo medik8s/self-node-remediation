@@ -456,6 +456,31 @@ var _ = Describe("SNR Controller", func() {
 			}, 10*shared.PeerUpdateInterval, timeout).Should(BeTrue())
 		})
 	})
+
+	Context("Configuration is missing", func() {
+		BeforeEach(func() {
+			deleteConfig()
+			//Restore the config
+			DeferCleanup(func() {
+				configToRestore := &v1alpha1.SelfNodeRemediationConfig{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      snrConfig.Name,
+						Namespace: snrConfig.Namespace,
+					},
+				}
+				Expect(k8sClient.Create(context.Background(), configToRestore)).To(Succeed())
+				Eventually(func(g Gomega) {
+					g.Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snrConfig), &v1alpha1.SelfNodeRemediationConfig{})).To(Succeed())
+				}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
+			})
+		})
+		JustBeforeEach(func() {
+			createSNR(snr, v1alpha1.AutomaticRemediationStrategy)
+		})
+		It("verify remediation updated snr status", func() {
+			verifySNRStatusExist(snr, "Disabled", metav1.ConditionTrue)
+		})
+	})
 })
 
 func verifyTypeConditions(snr *v1alpha1.SelfNodeRemediation, expectedProcessingConditionStatus, expectedSucceededConditionStatus metav1.ConditionStatus, expectedReason string) {
@@ -912,4 +937,28 @@ func isEventOccurred(eventType string, reason string, message string) bool {
 		fakeRecorder.Events <- unMatchedEvent
 	}
 	return isEventMatch
+}
+
+func deleteConfig() {
+	snrConfigTmp := &v1alpha1.SelfNodeRemediationConfig{}
+	// make sure config is already created
+	Eventually(func(g Gomega) {
+		g.Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snrConfig), snrConfigTmp)).To(Succeed())
+	}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
+
+	//delete config and verify it's deleted
+	Expect(k8sClient.Delete(context.Background(), snrConfigTmp)).To(Succeed())
+	Eventually(func(g Gomega) {
+		err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snrConfig), snrConfigTmp)
+		g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+	}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
+
+}
+
+func verifySNRStatusExist(snr *v1alpha1.SelfNodeRemediation, statusType string, conditionStatus metav1.ConditionStatus) {
+	Eventually(func(g Gomega) {
+		tmpSNR := &v1alpha1.SelfNodeRemediation{}
+		g.Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snr), tmpSNR)).To(Succeed())
+		g.Expect(meta.IsStatusConditionPresentAndEqual(tmpSNR.Status.Conditions, statusType, conditionStatus)).To(BeTrue())
+	}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 }
