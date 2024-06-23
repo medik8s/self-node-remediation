@@ -194,9 +194,10 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	} else if !isConfigurationExist {
 		r.logger.Info("snr is disabled because configuration does not exist, waiting for configuration creation ")
 		meta.SetStatusCondition(&snr.Status.Conditions, metav1.Condition{
-			Type:   string(v1alpha1.DisabledConditionType),
-			Status: metav1.ConditionTrue,
-			Reason: string(snrDisabledNoConfig),
+			Type:    string(v1alpha1.DisabledConditionType),
+			Status:  metav1.ConditionTrue,
+			Reason:  string(snrDisabledNoConfig),
+			Message: "snr is disabled because configuration does not exist",
 		})
 
 		return ctrl.Result{}, nil
