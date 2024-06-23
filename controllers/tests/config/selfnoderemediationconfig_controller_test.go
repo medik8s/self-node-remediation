@@ -332,6 +332,8 @@ var _ = Describe("SNR Config Test", func() {
 			})
 			//simulating manager
 			setSNRStatusDisabled(snr)
+			//Verify status is presisted before continuing
+			shared.VerifySNRStatusExist(k8sClient, snr, "Disabled", metav1.ConditionTrue)
 		})
 
 		JustBeforeEach(func() {

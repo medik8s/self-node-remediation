@@ -478,7 +478,7 @@ var _ = Describe("SNR Controller", func() {
 			createSNR(snr, v1alpha1.AutomaticRemediationStrategy)
 		})
 		It("verify remediation updated snr status", func() {
-			verifySNRStatusExist(snr, "Disabled", metav1.ConditionTrue)
+			shared.VerifySNRStatusExist(k8sClient, snr, "Disabled", metav1.ConditionTrue)
 		})
 	})
 })
@@ -953,12 +953,4 @@ func deleteConfig() {
 		g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 	}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
 
-}
-
-func verifySNRStatusExist(snr *v1alpha1.SelfNodeRemediation, statusType string, conditionStatus metav1.ConditionStatus) {
-	Eventually(func(g Gomega) {
-		tmpSNR := &v1alpha1.SelfNodeRemediation{}
-		g.Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snr), tmpSNR)).To(Succeed())
-		g.Expect(meta.IsStatusConditionPresentAndEqual(tmpSNR.Status.Conditions, statusType, conditionStatus)).To(BeTrue())
-	}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 }
