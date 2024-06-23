@@ -265,7 +265,7 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 func (r *SelfNodeRemediationReconciler) isConfigurationExist(ctx context.Context) (bool, error) {
 	if ns, err := utils.GetDeploymentNamespace(); err != nil {
 		r.logger.Error(err, "Failed getting snr namespace")
-		return true, err
+		return false, err
 	} else {
 		snrConfig := &v1alpha1.SelfNodeRemediationConfig{
 			ObjectMeta: metav1.ObjectMeta{
@@ -278,6 +278,7 @@ func (r *SelfNodeRemediationReconciler) isConfigurationExist(ctx context.Context
 			return false, nil
 		} else if err != nil {
 			r.logger.Error(err, "failed to get SNR configuration")
+			return false, err
 		}
 	}
 	return true, nil
@@ -299,7 +300,7 @@ func (r *SelfNodeRemediationReconciler) updateConditions(processingTypeReason co
 		processingConditionStatus = metav1.ConditionFalse
 		succeededConditionStatus = metav1.ConditionFalse
 	default:
-		err := fmt.Errorf("unkown condition reason:%s", processingTypeReason)
+		err := fmt.Errorf("unknown condition reason:%s", processingTypeReason)
 		r.Log.Error(err, "couldn't update snr processing condition")
 		return err
 	}
