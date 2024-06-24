@@ -10,6 +10,7 @@ import (
 	"github.com/go-logr/logr"
 	"google.golang.org/grpc/credentials"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/rest"
@@ -198,10 +199,10 @@ func (c *ApiConnectivityCheck) canOtherControlPlanesBeReached() bool {
 	return (healthyResponses + unhealthyResponses + apiErrorsResponses) > 0
 }
 
-func (c *ApiConnectivityCheck) popPeerIPs(peersIPs *[]string, count int) []string {
+func (c *ApiConnectivityCheck) popPeerIPs(peersIPs *[]corev1.PodIP, count int) []corev1.PodIP {
 	nrOfPeers := len(*peersIPs)
 	if nrOfPeers == 0 {
-		return []string{}
+		return []corev1.PodIP{}
 	}
 
 	if count > nrOfPeers {
@@ -209,10 +210,10 @@ func (c *ApiConnectivityCheck) popPeerIPs(peersIPs *[]string, count int) []strin
 	}
 
 	// TODO: maybe we should pick nodes randomly rather than relying on the order returned from api-server
-	selectedIPs := make([]string, count)
+	selectedIPs := make([]corev1.PodIP, count)
 	for i := 0; i < count; i++ {
 		ip := (*peersIPs)[i]
-		if ip == "" {
+		if ip.IP == "" {
 			// This should not happen, but keeping it for good measure.
 			c.config.Log.Info("ignoring peers without IP address")
 			continue
@@ -225,7 +226,7 @@ func (c *ApiConnectivityCheck) popPeerIPs(peersIPs *[]string, count int) []strin
 	return selectedIPs
 }
 
-func (c *ApiConnectivityCheck) getHealthStatusFromPeers(addresses []string) (int, int, int, int) {
+func (c *ApiConnectivityCheck) getHealthStatusFromPeers(addresses []corev1.PodIP) (int, int, int, int) {
 	nrAddresses := len(addresses)
 	responsesChan := make(chan selfNodeRemediation.HealthCheckResponseCode, nrAddresses)
 
@@ -237,9 +238,9 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeers(addresses []string) (int
 }
 
 // getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer into the given channel
-func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, results chan<- selfNodeRemediation.HealthCheckResponseCode) {
+func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp corev1.PodIP, results chan<- selfNodeRemediation.HealthCheckResponseCode) {
 
-	logger := c.config.Log.WithValues("IP", endpointIp)
+	logger := c.config.Log.WithValues("IP", endpointIp.IP)
 	logger.Info("getting health status from peer")
 
 	if err := c.initClientCreds(); err != nil {
@@ -249,7 +250,7 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, result
 	}
 
 	// TODO does this work with IPv6?
-	phClient, err := peerhealth.NewClient(fmt.Sprintf("%v:%v", endpointIp, c.config.PeerHealthPort), c.config.PeerDialTimeout, c.config.Log.WithName("peerhealth client"), c.clientCreds)
+	phClient, err := peerhealth.NewClient(fmt.Sprintf("%v:%v", endpointIp.IP, c.config.PeerHealthPort), c.config.PeerDialTimeout, c.config.Log.WithName("peerhealth client"), c.clientCreds)
 	if err != nil {
 		logger.Error(err, "failed to init grpc client")
 		results <- selfNodeRemediation.RequestFailed
