@@ -112,6 +112,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 // IsHealthy checks if the given node is healthy
 func (s Server) IsHealthy(ctx context.Context, request *HealthRequest) (*HealthResponse, error) {
+	s.log.Info("IsHealthy", "node", request.GetNodeName())
 
 	nodeName := request.GetNodeName()
 	if nodeName == "" {
@@ -132,12 +133,16 @@ func (s Server) IsHealthy(ctx context.Context, request *HealthRequest) (*HealthR
 	for _, snr := range snrs.Items {
 		isOwnedByNHC := controllers.IsOwnedByNHC(&snr)
 		if isOwnedByNHC && snr.Name == nodeName {
+			s.log.Info("IsHealthy OWNED by NHC unhealthy", "snr name", snr.Name, "node", nodeName)
 			return toResponse(selfNodeRemediationApis.Unhealthy)
 
 		} else if !isOwnedByNHC && snr.Name == request.MachineName {
+			s.log.Info("IsHealthy NOT OWNED by NHC unhealthy", "snr name", snr.Name, "machine", request.MachineName)
 			return toResponse(selfNodeRemediationApis.Unhealthy)
 		}
+		s.log.Info("IsHealthy continue", "snr name", snr.Name)
 	}
+	s.log.Info("IsHealthy IS indeed healthy", "node", nodeName, "machine", request.MachineName)
 	return toResponse(selfNodeRemediationApis.Healthy)
 }
 
