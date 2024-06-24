@@ -25,10 +25,9 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 const (
-	ConfigCRName                         = "self-node-remediation-config"
-	defaultWatchdogPath                  = "/dev/watchdog"
-	DefaultSafeToAssumeNodeRebootTimeout = 180
-	defaultIsSoftwareRebootEnabled       = true
+	ConfigCRName                   = "self-node-remediation-config"
+	defaultWatchdogPath            = "/dev/watchdog"
+	defaultIsSoftwareRebootEnabled = true
 )
 
 // SelfNodeRemediationConfigSpec defines the desired state of SelfNodeRemediationConfig
@@ -36,8 +35,9 @@ type SelfNodeRemediationConfigSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// WatchdogFilePath is the watchdog file path that should be available on each node, e.g. /dev/watchdog
+	// WatchdogFilePath is the watchdog file path that should be available on each node, e.g. /dev/watchdog.
 	// +kubebuilder:default=/dev/watchdog
+	// +optional
 	WatchdogFilePath string `json:"watchdogFilePath,omitempty"`
 
 	// SafeTimeToAssumeNodeRebootedSeconds is the time after which the healthy self node remediation
@@ -45,82 +45,87 @@ type SelfNodeRemediationConfigSpec struct {
 	// This is extremely important as starting replacement Pods while they are still running on the failed
 	// node will likely lead to data corruption and violation of run-once semantics.
 	// In an effort to prevent this, the operator ignores values lower than a minimum calculated from the
-	// ApiCheckInterval, ApiServerTimeout, MaxApiErrorThreshold, PeerDialTimeout, and PeerRequestTimeout fields.
-	// +kubebuilder:validation:Minimum=0
-	// +kubebuilder:default=180
-	SafeTimeToAssumeNodeRebootedSeconds int `json:"safeTimeToAssumeNodeRebootedSeconds,omitempty"`
-
-	// Valid time units are "ms", "s", "m", "h".
+	// ApiCheckInterval, ApiServerTimeout, MaxApiErrorThreshold, PeerDialTimeout, and PeerRequestTimeout fields,
+	// and the unhealthy node's individual watchdog timeout.
 	// +optional
+	SafeTimeToAssumeNodeRebootedSeconds *int `json:"safeTimeToAssumeNodeRebootedSeconds,omitempty"`
+
+	// The timeout for api-server connectivity check.
+	// Valid time units are "ms", "s", "m", "h".
 	// +kubebuilder:default:="5s"
-	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ms|s|m|h)))$"
+	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
 	// +kubebuilder:validation:Type:=string
+	// +optional
 	PeerApiServerTimeout *metav1.Duration `json:"peerApiServerTimeout,omitempty"`
 
-	// the frequency for api-server connectivity check
+	// The frequency for api-server connectivity check.
 	// Valid time units are "ms", "s", "m", "h".
-	// +optional
 	// +kubebuilder:default:="15s"
-	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ms|s|m|h)))$"
+	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
 	// +kubebuilder:validation:Type:=string
 	// the frequency for api-server connectivity check
+	// +optional
 	ApiCheckInterval *metav1.Duration `json:"apiCheckInterval,omitempty"`
 
+	// The frequency for updating peers.
 	// Valid time units are "ms", "s", "m", "h".
-	// +optional
 	// +kubebuilder:default:="15m"
-	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ms|s|m|h)))$"
+	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
 	// +kubebuilder:validation:Type:=string
+	// +optional
 	PeerUpdateInterval *metav1.Duration `json:"peerUpdateInterval,omitempty"`
 
+	// Timeout for each api-connectivity check.
 	// Valid time units are "ms", "s", "m", "h".
-	// +optional
 	// +kubebuilder:default:="5s"
-	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ms|s|m|h)))$"
+	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
 	// +kubebuilder:validation:Type:=string
-	// timeout for each api-connectivity check
+	// +optional
 	ApiServerTimeout *metav1.Duration `json:"apiServerTimeout,omitempty"`
 
+	// Timeout for establishing connection to peer.
 	// Valid time units are "ms", "s", "m", "h".
-	// +optional
 	// +kubebuilder:default:="5s"
-	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ms|s|m|h)))$"
+	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
 	// +kubebuilder:validation:Type:=string
-	// timeout for establishing connection to peer
+	// +optional
 	PeerDialTimeout *metav1.Duration `json:"peerDialTimeout,omitempty"`
 
+	// Timeout for each peer request.
 	// Valid time units are "ms", "s", "m", "h".
-	// +optional
 	// +kubebuilder:default:="5s"
-	// +kubebuilder:validation:Pattern="^(0|([0-9]+(\\.[0-9]+)?(ms|s|m|h)))$"
+	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
 	// +kubebuilder:validation:Type:=string
-	// timeout for each peer request
+	// +optional
 	PeerRequestTimeout *metav1.Duration `json:"peerRequestTimeout,omitempty"`
 
-	// +optional
+	// After this threshold, the node will start contacting its peers.
 	// +kubebuilder:default:=3
 	// +kubebuilder:validation:Minimum=1
-	// after this threshold, the node will start contacting its peers
+	// +optional
 	MaxApiErrorThreshold int `json:"maxApiErrorThreshold,omitempty"`
 
 	// IsSoftwareRebootEnabled indicates whether self node remediation agent will do software reboot,
 	// if the watchdog device can not be used or will use watchdog only,
-	// without a fallback to software reboot
+	// without a fallback to software reboot.
 	// +kubebuilder:default=true
+	// +optional
 	IsSoftwareRebootEnabled bool `json:"isSoftwareRebootEnabled,omitempty"`
 
 	// EndpointHealthCheckUrl is an url that self node remediation agents which run on control-plane node will try to access when they can't contact their peers.
 	// This is a part of self diagnostics which will decide whether the node should be remediated or not.
 	// It will be ignored when empty (which is the default).
+	// +optional
 	EndpointHealthCheckUrl string `json:"endpointHealthCheckUrl,omitempty"`
 
 	// HostPort is used for internal communication between SNR agents.
-	// +optional
 	// +kubebuilder:default:=30001
 	// +kubebuilder:validation:Minimum=1
+	// +optional
 	HostPort int `json:"hostPort,omitempty"`
 
 	// CustomDsTolerations allows to add custom tolerations snr agents that are running on the ds in order to support remediation for different types of nodes.
+	// +optional
 	CustomDsTolerations []v1.Toleration `json:"customDsTolerations,omitempty"`
 }
 
@@ -163,9 +168,8 @@ func NewDefaultSelfNodeRemediationConfig() SelfNodeRemediationConfig {
 			Name: ConfigCRName,
 		},
 		Spec: SelfNodeRemediationConfigSpec{
-			WatchdogFilePath:                    defaultWatchdogPath,
-			SafeTimeToAssumeNodeRebootedSeconds: DefaultSafeToAssumeNodeRebootTimeout,
-			IsSoftwareRebootEnabled:             defaultIsSoftwareRebootEnabled,
+			WatchdogFilePath:        defaultWatchdogPath,
+			IsSoftwareRebootEnabled: defaultIsSoftwareRebootEnabled,
 		},
 	}
 }

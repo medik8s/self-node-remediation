@@ -118,12 +118,14 @@ type SelfNodeRemediationReconciler struct {
 	client.Client
 	Log logr.Logger
 	//logger is a logger that holds the CR name being reconciled
-	logger     logr.Logger
-	Scheme     *runtime.Scheme
-	Recorder   record.EventRecorder
-	Rebooter   reboot.Rebooter
-	MyNodeName string
-	reboot.SafeTimeCalculator
+	logger                   logr.Logger
+	Scheme                   *runtime.Scheme
+	Recorder                 record.EventRecorder
+	Rebooter                 reboot.Rebooter
+	RebootDurationCalculator reboot.Calculator
+	MyNodeName               string
+	MyNamespace              string
+	IsAgent                  bool
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -146,7 +148,50 @@ func (r *SelfNodeRemediationReconciler) SetupWithManager(mgr ctrl.Manager) error
 //+kubebuilder:rbac:groups="",resources=namespaces,verbs=list;get;watch
 
 func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (returnResult ctrl.Result, returnErr error) {
-	r.logger = r.Log.WithValues("selfnoderemediation", req.NamespacedName)
+	if r.IsAgent {
+		return r.ReconcileAgent(ctx, req)
+	}
+	return r.ReconcileManager(ctx, req)
+}
+
+func (r *SelfNodeRemediationReconciler) ReconcileAgent(ctx context.Context, req ctrl.Request) (returnResult ctrl.Result, returnErr error) {
+	r.logger = r.Log.WithValues("pod", "agent", "selfnoderemediation", req.NamespacedName)
+
+	snr := &v1alpha1.SelfNodeRemediation{}
+	err := r.Get(ctx, req.NamespacedName, snr)
+	if apiErrors.IsNotFound(err) || err == nil && snr.GetDeletionTimestamp() != nil {
+		// SNR is deleted, stop reconciling
+		r.logger.Info("SNR already deleted")
+		return ctrl.Result{}, nil
+	} else if err != nil {
+		r.logger.Error(err, "failed to get SNR")
+		return ctrl.Result{}, err
+	}
+
+	targetNodeName := getNodeName(snr)
+	if targetNodeName != r.MyNodeName {
+		r.logger.Info("agent pod skipping remediation because node belongs to a different agent", "Agent node name", r.MyNodeName, "Remediated node name", targetNodeName)
+		return ctrl.Result{}, nil
+	}
+
+	// just care for reboot, everything else is done by the manager!
+	phase := r.getPhase(snr)
+	switch phase {
+	case preRebootCompletedPhase:
+		r.logger.Info("node reboot not completed yet, start rebooting")
+		node, err := r.getNodeFromSnr(snr)
+		if err != nil {
+			r.logger.Info("didn't find node, eventing might be incomplete", "node name", targetNodeName)
+		}
+		return r.rebootIfNeeded(snr, node)
+	default:
+		r.logger.Info("not ready for reboot", "phase", phase)
+	}
+	return ctrl.Result{}, nil
+}
+
+func (r *SelfNodeRemediationReconciler) ReconcileManager(ctx context.Context, req ctrl.Request) (returnResult ctrl.Result, returnErr error) {
+	r.logger = r.Log.WithValues("pod", "manager", "selfnoderemediation", req.NamespacedName)
 
 	snr := &v1alpha1.SelfNodeRemediation{}
 	if err := r.Get(ctx, req.NamespacedName, snr); err != nil {
@@ -157,15 +202,6 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 		}
 		r.logger.Error(err, "failed to get SNR")
 		return ctrl.Result{}, err
-	}
-
-	if r.IsAgent() {
-		targetNodeName := getNodeName(snr)
-		if targetNodeName != r.MyNodeName {
-			r.logger.Info("agent pod skipping remediation because node belongs to a different agent", "Agent node name", r.MyNodeName, "Node name", targetNodeName)
-			return ctrl.Result{}, nil
-		}
-		r.logger.Info("agent pod starting remediation on owned node")
 	}
 
 	defer func() {
@@ -223,18 +259,15 @@ func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.
 	//used as an indication not to spam the event
 	if isFinalizerAlreadyAdded := controllerutil.ContainsFinalizer(snr, SNRFinalizer); !isFinalizerAlreadyAdded {
 		eventMessage := "Remediation started by SNR manager"
-		if r.IsAgent() {
-			eventMessage = "Remediation started by SNR agent"
-		}
 		events.NormalEvent(r.Recorder, snr, "RemediationStarted", eventMessage)
 	}
 
 	strategy := r.getRuntimeStrategy(snr)
 	switch strategy {
 	case v1alpha1.ResourceDeletionRemediationStrategy:
-		result, err = r.remediateWithResourceDeletion(snr, node)
+		result, err = r.remediateWithResourceDeletion(ctx, snr, node)
 	case v1alpha1.OutOfServiceTaintRemediationStrategy:
-		result, err = r.remediateWithOutOfServiceTaint(snr, node)
+		result, err = r.remediateWithOutOfServiceTaint(ctx, snr, node)
 	default:
 		//this should never happen since we enforce valid values with kubebuilder
 		err := errors.New("unsupported remediation strategy")
@@ -261,7 +294,7 @@ func (r *SelfNodeRemediationReconciler) updateConditions(processingTypeReason pr
 		succeededConditionStatus = metav1.ConditionFalse
 	default:
 		err := fmt.Errorf("unkown processingChangeReason:%s", processingTypeReason)
-		r.Log.Error(err, "couldn't update snr processing condition")
+		r.logger.Error(err, "couldn't update snr processing condition")
 		return err
 	}
 
@@ -309,8 +342,8 @@ func (r *SelfNodeRemediationReconciler) getPhase(snr *v1alpha1.SelfNodeRemediati
 	}
 }
 
-func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(snr *v1alpha1.SelfNodeRemediation, node *v1.Node) (ctrl.Result, error) {
-	return r.remediateWithResourceRemoval(snr, node, r.deleteResourcesWrapper)
+func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(ctx context.Context, snr *v1alpha1.SelfNodeRemediation, node *v1.Node) (ctrl.Result, error) {
+	return r.remediateWithResourceRemoval(ctx, snr, node, r.deleteResourcesWrapper)
 }
 
 // deleteResourcesWrapper returns a 'zero' time and nil if it completes to delete node resources successfully
@@ -320,8 +353,8 @@ func (r *SelfNodeRemediationReconciler) deleteResourcesWrapper(node *v1.Node, _ 
 	return 0, resources.DeletePods(context.Background(), r.Client, node.Name)
 }
 
-func (r *SelfNodeRemediationReconciler) remediateWithOutOfServiceTaint(snr *v1alpha1.SelfNodeRemediation, node *v1.Node) (ctrl.Result, error) {
-	return r.remediateWithResourceRemoval(snr, node, r.useOutOfServiceTaint)
+func (r *SelfNodeRemediationReconciler) remediateWithOutOfServiceTaint(ctx context.Context, snr *v1alpha1.SelfNodeRemediation, node *v1.Node) (ctrl.Result, error) {
+	return r.remediateWithResourceRemoval(ctx, snr, node, r.useOutOfServiceTaint)
 }
 
 func (r *SelfNodeRemediationReconciler) useOutOfServiceTaint(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (time.Duration, error) {
@@ -349,13 +382,13 @@ func (r *SelfNodeRemediationReconciler) useOutOfServiceTaint(node *v1.Node, snr 
 
 type removeNodeResources func(*v1.Node, *v1alpha1.SelfNodeRemediation) (time.Duration, error)
 
-func (r *SelfNodeRemediationReconciler) remediateWithResourceRemoval(snr *v1alpha1.SelfNodeRemediation, node *v1.Node, rmNodeResources removeNodeResources) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) remediateWithResourceRemoval(ctx context.Context, snr *v1alpha1.SelfNodeRemediation, node *v1.Node, rmNodeResources removeNodeResources) (ctrl.Result, error) {
 	result := ctrl.Result{}
 	phase := r.getPhase(snr)
 	var err error
 	switch phase {
 	case fencingStartedPhase:
-		result, err = r.handleFencingStartedPhase(node, snr)
+		result, err = r.handleFencingStartedPhase(ctx, node, snr)
 	case preRebootCompletedPhase:
 		result, err = r.handlePreRebootCompletedPhase(node, snr)
 	case rebootCompletedPhase:
@@ -370,11 +403,11 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceRemoval(snr *v1alph
 	return result, err
 }
 
-func (r *SelfNodeRemediationReconciler) handleFencingStartedPhase(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
-	return r.prepareReboot(node, snr)
+func (r *SelfNodeRemediationReconciler) handleFencingStartedPhase(ctx context.Context, node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+	return r.prepareReboot(ctx, node, snr)
 }
 
-func (r *SelfNodeRemediationReconciler) prepareReboot(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) prepareReboot(ctx context.Context, node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	r.logger.Info("pre-reboot not completed yet, prepare for rebooting")
 	if !r.isNodeRebootCapable(node) {
 		//use err to trigger exponential backoff
@@ -393,8 +426,8 @@ func (r *SelfNodeRemediationReconciler) prepareReboot(node *v1.Node, snr *v1alph
 		return r.markNodeAsUnschedulable(node)
 	}
 
-	if snr.Status.TimeAssumedRebooted.IsZero() {
-		r.updateTimeAssumedRebooted(node, snr)
+	if err := r.setTimeAssumedRebooted(ctx, node, snr); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	preRebootCompleted := string(preRebootCompletedPhase)
@@ -404,18 +437,13 @@ func (r *SelfNodeRemediationReconciler) prepareReboot(node *v1.Node, snr *v1alph
 }
 
 func (r *SelfNodeRemediationReconciler) handlePreRebootCompletedPhase(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
-	return r.rebootNode(node, snr)
+	return r.waitForNodeRebooted(node, snr)
 }
 
-func (r *SelfNodeRemediationReconciler) rebootNode(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
-	r.logger.Info("node reboot not completed yet, start rebooting")
-	if r.MyNodeName == node.Name {
-		// we have a problem on this node, reboot!
-		return r.rebootIfNeeded(snr, node)
-	}
-
+func (r *SelfNodeRemediationReconciler) waitForNodeRebooted(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	wasRebooted, timeLeft := r.wasNodeRebooted(snr)
 	if !wasRebooted {
+		r.logger.Info("Node didn't reboot yet, waiting for it to reboot", "node name", node.Name, "time left", timeLeft)
 		return ctrl.Result{RequeueAfter: timeLeft}, nil
 	}
 
@@ -600,12 +628,23 @@ func (r *SelfNodeRemediationReconciler) updateSnrStatus(ctx context.Context, snr
 	return nil
 }
 
-func (r *SelfNodeRemediationReconciler) updateTimeAssumedRebooted(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) {
-	r.logger.Info("updating snr with node backup and updating time to assume node has been rebooted", "node name", node.Name)
-	//we assume the unhealthy node will be rebooted by maxTimeNodeHasRebooted
-	maxTimeNodeHasRebooted := metav1.NewTime(metav1.Now().Add(r.SafeTimeCalculator.GetTimeToAssumeNodeRebooted()))
-	snr.Status.TimeAssumedRebooted = &maxTimeNodeHasRebooted
+func (r *SelfNodeRemediationReconciler) setTimeAssumedRebooted(ctx context.Context, node *v1.Node, snr *v1alpha1.SelfNodeRemediation) error {
+	if snr.Status.TimeAssumedRebooted != nil {
+		// timeAssumedRebooted already set, nothing to do
+		return nil
+	}
+	// get reboot duration
+	rebootDuration, err := r.RebootDurationCalculator.GetRebootDuration(ctx, node)
+	if err != nil {
+		r.logger.Error(err, "failed to get assumed reboot duration")
+		return err
+	}
+	// calculate rebooted time
+	timeAssumedRebooted := metav1.NewTime(metav1.Now().Add(rebootDuration))
+	snr.Status.TimeAssumedRebooted = &timeAssumedRebooted
+	r.logger.Info("setting SNR's time to assume node has been rebooted", "node name", node.Name, "time", timeAssumedRebooted)
 	events.NormalEvent(r.Recorder, snr, eventReasonUpdateTimeAssumedRebooted, "Remediation process - about to update required fencing time on snr")
+	return nil
 }
 
 // getNodeFromSnr returns the unhealthy node reported in the given snr

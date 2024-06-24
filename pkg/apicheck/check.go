@@ -22,6 +22,7 @@ import (
 	"github.com/medik8s/self-node-remediation/pkg/peerhealth"
 	"github.com/medik8s/self-node-remediation/pkg/peers"
 	"github.com/medik8s/self-node-remediation/pkg/reboot"
+	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
 type ApiConnectivityCheck struct {
@@ -142,22 +143,8 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 	// nodesToAsk is being reduced in every iteration, iterate until no nodes left to ask
 	for i := 0; len(nodesToAsk) > 0; i++ {
 
-		// start asking a few nodes only in first iteration to cover the case we get a healthy / unhealthy result
-		nodesBatchCount := reboot.MinNodesNumberInBatch
-		if i > 0 {
-			// after that ask 10% of the cluster each time to check the api problem case
-			nodesBatchCount = len(nodesToAsk) / reboot.MaxBatchesAfterFirst
-			if nodesBatchCount < reboot.MinNodesNumberInBatch {
-				nodesBatchCount = reboot.MinNodesNumberInBatch
-			}
-		}
-
-		// but do not ask more than we have
-		if len(nodesToAsk) < nodesBatchCount {
-			nodesBatchCount = len(nodesToAsk)
-		}
-
-		chosenNodesAddresses := c.popNodes(&nodesToAsk, nodesBatchCount)
+		batchSize := utils.GetNextBatchSize(nrAllNodes, len(nodesToAsk))
+		chosenNodesAddresses := c.popNodes(&nodesToAsk, batchSize)
 		healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenNodesAddresses)
 		if healthyResponses+unhealthyResponses+apiErrorsResponses > 0 {
 			c.timeOfLastPeerResponse = time.Now()
@@ -189,6 +176,7 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 
 	//we asked all peers
 	now := time.Now()
+	// MaxTimeForNoPeersResponse check prevents the node from being considered unhealthy in case of short network outages
 	if now.After(c.timeOfLastPeerResponse.Add(c.config.MaxTimeForNoPeersResponse)) {
 		c.config.Log.Error(fmt.Errorf("failed health check"), "Failed to get health status peers. Assuming unhealthy")
 		return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecauseNodeIsIsolated}

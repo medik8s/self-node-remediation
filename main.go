@@ -180,19 +180,18 @@ func initSelfNodeRemediationManager(mgr manager.Manager, enableHTTP2 bool) {
 		os.Exit(1)
 	}
 
-	safeRebootCalc := reboot.NewManagerSafeTimeCalculator(mgr.GetClient(), selfnoderemediationv1alpha1.DefaultSafeToAssumeNodeRebootTimeout*time.Second)
-	if err = mgr.Add(safeRebootCalc); err != nil {
-		setupLog.Error(err, "failed to add safe reboot time calculator to the manager")
-		os.Exit(1)
-	}
+	calculator := reboot.NewCalculator(
+		mgr.GetClient(),
+		ctrl.Log.WithName("rebootDurationCalculator"),
+	)
 
 	if err := (&controllers.SelfNodeRemediationConfigReconciler{
-		Client:                    mgr.GetClient(),
-		Log:                       ctrl.Log.WithName("controllers").WithName("SelfNodeRemediationConfig"),
-		Scheme:                    mgr.GetScheme(),
-		InstallFileFolder:         "./install",
-		Namespace:                 ns,
-		ManagerSafeTimeCalculator: safeRebootCalc,
+		Client:                   mgr.GetClient(),
+		Log:                      ctrl.Log.WithName("controllers").WithName("SelfNodeRemediationConfig"),
+		Scheme:                   mgr.GetScheme(),
+		InstallFileFolder:        "./install",
+		Namespace:                ns,
+		RebootDurationCalculator: calculator,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SelfNodeRemediationConfig")
 		os.Exit(1)
@@ -217,13 +216,15 @@ func initSelfNodeRemediationManager(mgr manager.Manager, enableHTTP2 bool) {
 	}
 
 	snrReconciler := &controllers.SelfNodeRemediationReconciler{
-		Client:             mgr.GetClient(),
-		Log:                ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
-		Scheme:             mgr.GetScheme(),
-		Recorder:           mgr.GetEventRecorderFor("SelfNodeRemediation"),
-		Rebooter:           nil,
-		MyNodeName:         myNodeName,
-		SafeTimeCalculator: safeRebootCalc,
+		Client:                   mgr.GetClient(),
+		Log:                      ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
+		Scheme:                   mgr.GetScheme(),
+		Recorder:                 mgr.GetEventRecorderFor("SelfNodeRemediation"),
+		Rebooter:                 nil,
+		RebootDurationCalculator: calculator,
+		MyNodeName:               myNodeName,
+		MyNamespace:              ns,
+		IsAgent:                  false,
 	}
 
 	if err = snrReconciler.SetupWithManager(mgr); err != nil {
@@ -264,21 +265,23 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
-	wasWatchdogInitiated := false
 	wd, err := watchdog.NewLinux(ctrl.Log.WithName("watchdog"))
 	if err != nil {
 		setupLog.Error(err, "failed to init watchdog, using soft reboot")
 	}
 
+	wasWatchdogInitiated := false
+	watchdogTimeout := time.Duration(0)
 	if wd != nil {
 		if err = mgr.Add(wd); err != nil {
 			setupLog.Error(err, "failed to add watchdog to the manager")
 			os.Exit(1)
 		}
 		wasWatchdogInitiated = true
+		watchdogTimeout = wd.GetTimeout()
 	}
 
-	if err = utils.UpdateNodeWithIsRebootCapableAnnotation(wasWatchdogInitiated, myNodeName, mgr); err != nil {
+	if err = utils.UpdateNodeAnnotations(wasWatchdogInitiated, watchdogTimeout, myNodeName, mgr); err != nil {
 		setupLog.Error(err, "failed to update node's annotation", "annotation", utils.IsRebootCapableAnnotation)
 		os.Exit(1)
 	}
@@ -299,14 +302,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	apiServerTimeout := getDurEnvVarOrDie("API_SERVER_TIMEOUT")       //timeout for each api-connectivity check
 	peerDialTimeout := getDurEnvVarOrDie("PEER_DIAL_TIMEOUT")         //timeout for establishing connection to peer
 	peerRequestTimeout := getDurEnvVarOrDie("PEER_REQUEST_TIMEOUT")   //timeout for each peer request
-	timeToAssumeNodeRebootedInSeconds := getIntEnvVarOrDie("TIME_TO_ASSUME_NODE_REBOOTED")
 	peerHealthDefaultPort := getIntEnvVarOrDie("HOST_PORT")
-
-	safeRebootCalc := reboot.NewAgentSafeTimeCalculator(mgr.GetClient(), wd, maxErrorThreshold, apiCheckInterval, apiServerTimeout, peerDialTimeout, peerRequestTimeout, time.Duration(timeToAssumeNodeRebootedInSeconds)*time.Second)
-	if err = mgr.Add(safeRebootCalc); err != nil {
-		setupLog.Error(err, "failed to add safe reboot time calculator to the manager")
-		os.Exit(1)
-	}
 
 	// it's fine when the watchdog is nil!
 	rebooter := reboot.NewWatchdogRebooter(wd, ctrl.Log.WithName("rebooter"))
@@ -351,13 +347,14 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	}
 
 	snrReconciler := &controllers.SelfNodeRemediationReconciler{
-		Client:             mgr.GetClient(),
-		Log:                ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
-		Scheme:             mgr.GetScheme(),
-		Recorder:           mgr.GetEventRecorderFor("SelfNodeRemediation"),
-		Rebooter:           rebooter,
-		MyNodeName:         myNodeName,
-		SafeTimeCalculator: safeRebootCalc,
+		Client:      mgr.GetClient(),
+		Log:         ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
+		Scheme:      mgr.GetScheme(),
+		Recorder:    mgr.GetEventRecorderFor("SelfNodeRemediation"),
+		Rebooter:    rebooter,
+		MyNodeName:  myNodeName,
+		MyNamespace: ns,
+		IsAgent:     true,
 	}
 
 	if err = snrReconciler.SetupWithManager(mgr); err != nil {
