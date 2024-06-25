@@ -2,7 +2,6 @@ package testconfig
 
 import (
 	"context"
-	"os"
 	"strconv"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
@@ -25,7 +25,6 @@ var _ = Describe("SNR Config Test", func() {
 	dsName := "self-node-remediation-ds"
 	var config *selfnoderemediationv1alpha1.SelfNodeRemediationConfig
 	var ds *appsv1.DaemonSet
-	dummySelfNodeRemediationImage := "self-node-remediation-image"
 	dsKey := types.NamespacedName{
 		Namespace: shared.Namespace,
 		Name:      dsName,
@@ -33,12 +32,7 @@ var _ = Describe("SNR Config Test", func() {
 	var isSkipCleanup bool
 	BeforeEach(func() {
 		ds = &appsv1.DaemonSet{}
-		_ = os.Setenv("SELF_NODE_REMEDIATION_IMAGE", dummySelfNodeRemediationImage)
-		config = &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}
-		config.Kind = "SelfNodeRemediationConfig"
-		config.APIVersion = "self-node-remediation.medik8s.io/v1alpha1"
-		config.Name = selfnoderemediationv1alpha1.ConfigCRName
-		config.Namespace = shared.Namespace
+		config = shared.GenerateTestConfig()
 	})
 
 	AfterEach(func() {
@@ -76,7 +70,7 @@ var _ = Describe("SNR Config Test", func() {
 	Context("DS installation", func() {
 		BeforeEach(func() {
 			config.Spec.WatchdogFilePath = "/dev/foo"
-			config.Spec.SafeTimeToAssumeNodeRebootedSeconds = 123
+			config.Spec.SafeTimeToAssumeNodeRebootedSeconds = pointer.Int(123)
 			config.Spec.HostPort = 30111
 		})
 
@@ -118,10 +112,9 @@ var _ = Describe("SNR Config Test", func() {
 			dsContainers := ds.Spec.Template.Spec.Containers
 			Expect(len(dsContainers)).To(BeNumerically("==", 1))
 			container := dsContainers[0]
-			Expect(container.Image).To(Equal(dummySelfNodeRemediationImage))
+			Expect(container.Image).To(Equal(shared.DsDummyImageName))
 			envVars := getEnvVarMap(container.Env)
 			Expect(envVars["WATCHDOG_PATH"].Value).To(Equal(config.Spec.WatchdogFilePath))
-			Expect(envVars["TIME_TO_ASSUME_NODE_REBOOTED"].Value).To(Equal("123"))
 
 			Expect(len(ds.OwnerReferences)).To(Equal(1))
 			Expect(ds.OwnerReferences[0].Name).To(Equal(config.Name))
@@ -177,25 +170,6 @@ var _ = Describe("SNR Config Test", func() {
 
 				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 			})
-		})
-		When("SafeTimeToAssumeNodeRebootedSeconds is modified in Configuration", func() {
-			BeforeEach(func() {
-				Expect(managerReconciler.SafeTimeCalculator.GetTimeToAssumeNodeRebooted()).ToNot(Equal(time.Minute))
-				config.Spec.SafeTimeToAssumeNodeRebootedSeconds = 60
-			})
-			It("The Manager Reconciler and the DS should be modified with the new value", func() {
-				Eventually(func(g Gomega) {
-					ds = &appsv1.DaemonSet{}
-					g.Expect(k8sClient.Get(context.Background(), dsKey, ds)).To(Succeed())
-					dsContainers := ds.Spec.Template.Spec.Containers
-					g.Expect(len(dsContainers)).To(BeNumerically("==", 1))
-					container := dsContainers[0]
-					envVars := getEnvVarMap(container.Env)
-					g.Expect(envVars["TIME_TO_ASSUME_NODE_REBOOTED"].Value).To(Equal("60"))
-					g.Expect(managerReconciler.SafeTimeCalculator.GetTimeToAssumeNodeRebooted()).To(Equal(time.Minute))
-				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
-			})
-
 		})
 		Context("DS Recreation on Operator Update", func() {
 			var timeToWaitForDsUpdate = 6 * time.Second
@@ -261,7 +235,7 @@ var _ = Describe("SNR Config Test", func() {
 			}, 5*time.Second, 250*time.Millisecond).Should(BeNil())
 
 			Expect(createdConfig.Spec.WatchdogFilePath).To(Equal("/dev/watchdog"))
-			Expect(createdConfig.Spec.SafeTimeToAssumeNodeRebootedSeconds).To(Equal(180))
+			Expect(createdConfig.Spec.SafeTimeToAssumeNodeRebootedSeconds).To(BeNil())
 			Expect(createdConfig.Spec.MaxApiErrorThreshold).To(Equal(3))
 
 			Expect(createdConfig.Spec.PeerApiServerTimeout.Seconds()).To(BeEquivalentTo(5))
@@ -292,13 +266,10 @@ var _ = Describe("SNR Config Test", func() {
 			dsResourceVersion = ds.ResourceVersion
 
 			By("create a config CR")
-			config := &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}
-			config.Kind = "SelfNodeRemediationConfig"
-			config.APIVersion = "self-node-remediation.medik8s.io/v1alpha1"
+			config := shared.GenerateTestConfig()
 			config.Name = "not-the-expected-name"
 			config.Spec.WatchdogFilePath = "foo"
-			config.Spec.SafeTimeToAssumeNodeRebootedSeconds = 9999
-			config.Namespace = shared.Namespace
+			config.Spec.SafeTimeToAssumeNodeRebootedSeconds = pointer.Int(9999)
 
 			Expect(k8sClient.Create(context.Background(), config)).To(Succeed())
 		})

@@ -21,7 +21,6 @@ import (
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/controllers"
-	"github.com/medik8s/self-node-remediation/controllers/tests/shared"
 )
 
 func TestPeerHealth(t *testing.T) {
@@ -75,11 +74,10 @@ var _ = BeforeSuite(func() {
 
 	// we need a reconciler for getting last SNR namespace
 	snrReconciler = &controllers.SelfNodeRemediationReconciler{
-		Client:             k8sClient,
-		Log:                ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
-		MyNodeName:         nodeName,
-		SafeTimeCalculator: &shared.MockCalculator{MockTimeToAssumeNodeRebooted: time.Minute * 3, IsAgentVar: true},
-		Recorder:           record.NewFakeRecorder(1000),
+		Client:     k8sClient,
+		Log:        ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
+		MyNodeName: nodeName,
+		Recorder:   record.NewFakeRecorder(1000),
 	}
 	err = snrReconciler.SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())

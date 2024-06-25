@@ -33,6 +33,7 @@ const (
 
 var _ = Describe("SNR Controller", func() {
 	var snr *v1alpha1.SelfNodeRemediation
+	var snrConfig *v1alpha1.SelfNodeRemediationConfig
 	var remediationStrategy v1alpha1.RemediationStrategyType
 	var nodeRebootCapable = "true"
 	var isAdditionalSetupNeeded = false
@@ -42,6 +43,7 @@ var _ = Describe("SNR Controller", func() {
 		snr = &v1alpha1.SelfNodeRemediation{}
 		snr.Name = shared.UnhealthyNodeName
 		snr.Namespace = snrNamespace
+		snrConfig = shared.GenerateTestConfig()
 		time.Sleep(time.Second * 2)
 	})
 
@@ -50,7 +52,10 @@ var _ = Describe("SNR Controller", func() {
 			createSelfNodeRemediationPod()
 			verifySelfNodeRemediationPodExist()
 		}
-
+		Expect(k8sClient.Create(context.Background(), snrConfig)).To(Succeed())
+		DeferCleanup(func() {
+			Expect(k8sClient.Delete(context.Background(), snrConfig)).To(Succeed())
+		})
 		updateIsRebootCapable(nodeRebootCapable)
 	})
 
@@ -317,6 +322,8 @@ var _ = Describe("SNR Controller", func() {
 
 					verifyNoExecuteTaintExist()
 
+					verifyOutOfServiceTaintExist()
+
 					verifyEvent("Normal", "AddOutOfService", "Remediation process - add out-of-service taint to unhealthy node")
 
 					// simulate the out-of-service taint by Pod GC Controller
@@ -508,7 +515,7 @@ func verifyLastErrorKeepsApiError(snr *v1alpha1.SelfNodeRemediation) {
 			return false
 		}
 		return snr.Status.LastError == k8sClient.SimulatedFailureMessage
-	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
+	}, shared.CalculatedRebootDuration+10*time.Second, 250*time.Millisecond).Should(BeTrue())
 }
 
 func verifySelfNodeRemediationPodDoesntExist() {
@@ -523,7 +530,7 @@ func verifySelfNodeRemediationPodDoesntExist() {
 		err := k8sClient.Get(context.Background(), podKey, pod)
 		return apierrors.IsNotFound(err)
 
-	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
+	}, shared.CalculatedRebootDuration+10*time.Second, 250*time.Millisecond).Should(BeTrue())
 }
 
 func verifyNodeIsSchedulable() {
@@ -571,6 +578,13 @@ func verifyOutOfServiceTaintRemoved() {
 	}, 10*time.Second, 200*time.Millisecond).Should(BeFalse())
 }
 
+func verifyOutOfServiceTaintExist() {
+	By("Verify that node has out-of-service taint")
+	Eventually(func() (bool, error) {
+		return isTaintExist(controllers.OutOfServiceTaint)
+	}, shared.CalculatedRebootDuration+10*time.Second, 200*time.Millisecond).Should(BeTrue())
+}
+
 func isTaintExist(taintToMatch *v1.Taint) (bool, error) {
 	node := &v1.Node{}
 	err := k8sClient.Reader.Get(context.TODO(), unhealthyNodeNamespacedName, node)
@@ -591,7 +605,6 @@ func verifyTimeHasBeenRebootedExists(snr *v1alpha1.SelfNodeRemediation) {
 		snrNamespacedName := client.ObjectKeyFromObject(snr)
 		err := k8sClient.Client.Get(context.Background(), snrNamespacedName, snr)
 		return snr.Status.TimeAssumedRebooted, err
-
 	}, 5*time.Second, 250*time.Millisecond).ShouldNot(BeZero())
 }
 
@@ -752,19 +765,22 @@ func createTerminatingPod() {
 		Image: "bar",
 	}
 	pod.Spec.Containers = []v1.Container{container}
-	now := metav1.Now()
-	pod.ObjectMeta = metav1.ObjectMeta{Name: pod.Name, Namespace: pod.Namespace, DeletionTimestamp: &now}
+	pod.ObjectMeta = metav1.ObjectMeta{Name: pod.Name, Namespace: pod.Namespace, Finalizers: []string{"medik8s.io/keep-me"}}
 	ExpectWithOffset(1, k8sClient.Client.Create(context.Background(), pod)).To(Succeed())
+	ExpectWithOffset(1, k8sClient.Client.Delete(context.Background(), pod)).To(Succeed())
 }
 
 func deleteTerminatingPod() {
 	pod := &v1.Pod{}
-	pod.Name = "terminatingpod"
-	pod.Namespace = "default"
 	podKey := client.ObjectKey{
-		Namespace: shared.Namespace,
-		Name:      pod.Name,
+		Name:      "terminatingpod",
+		Namespace: "default",
 	}
+
+	// remove finalizer to allow pod deletion
+	ExpectWithOffset(1, k8sClient.Client.Get(context.Background(), podKey, pod)).To(Succeed())
+	pod.Finalizers = []string{}
+	ExpectWithOffset(1, k8sClient.Client.Update(context.Background(), pod)).To(Succeed())
 
 	var grace client.GracePeriodSeconds = 0
 	ExpectWithOffset(1, k8sClient.Client.Delete(context.Background(), pod, grace)).To(Succeed())

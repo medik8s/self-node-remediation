@@ -33,8 +33,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/pkg/apply"
@@ -50,11 +53,11 @@ const (
 // SelfNodeRemediationConfigReconciler reconciles a SelfNodeRemediationConfig object
 type SelfNodeRemediationConfigReconciler struct {
 	client.Client
-	Log                       logr.Logger
-	Scheme                    *runtime.Scheme
-	InstallFileFolder         string
-	Namespace                 string
-	ManagerSafeTimeCalculator reboot.SafeTimeCalculator
+	Log                      logr.Logger
+	Scheme                   *runtime.Scheme
+	InstallFileFolder        string
+	Namespace                string
+	RebootDurationCalculator reboot.Calculator
 }
 
 //+kubebuilder:rbac:groups=self-node-remediation.medik8s.io,resources=selfnoderemediationconfigs,verbs=get;list;watch;create;update;patch;delete
@@ -87,6 +90,8 @@ func (r *SelfNodeRemediationConfigReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, err
 	}
 
+	r.RebootDurationCalculator.SetConfig(config)
+
 	if err := r.syncCerts(config); err != nil {
 		logger.Error(err, "error syncing certs")
 		return ctrl.Result{}, err
@@ -103,16 +108,26 @@ func (r *SelfNodeRemediationConfigReconciler) Reconcile(ctx context.Context, req
 	if err := r.setCRsEnabledStatus(ctx); err != nil {
 		return ctrl.Result{}, err
 	}
-	//sync manager reconciler
-	r.ManagerSafeTimeCalculator.SetTimeToAssumeNodeRebooted(time.Duration(config.Spec.SafeTimeToAssumeNodeRebootedSeconds) * time.Second)
+	
 	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *SelfNodeRemediationConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	generationChangePredicate := predicate.GenerationChangedPredicate{}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}).
-		Owns(&v1.DaemonSet{}).
+		Owns(&v1.DaemonSet{}, builder.WithPredicates(
+			// only
+			predicate.Funcs{
+				// skip reconcile for status only changes
+				UpdateFunc: func(ev event.UpdateEvent) bool {
+					return generationChangePredicate.Update(ev)
+				},
+				// we want to recreate the DS in case someone deletes it
+				DeleteFunc: func(_ event.DeleteEvent) bool { return true },
+			}),
+		).
 		Complete(r)
 }
 
@@ -139,13 +154,6 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 	data.Data["MaxApiErrorThreshold"] = snrConfig.Spec.MaxApiErrorThreshold
 	data.Data["EndpointHealthCheckUrl"] = snrConfig.Spec.EndpointHealthCheckUrl
 	data.Data["HostPort"] = snrConfig.Spec.HostPort
-
-	safeTimeToAssumeNodeRebootedSeconds := snrConfig.Spec.SafeTimeToAssumeNodeRebootedSeconds
-	if safeTimeToAssumeNodeRebootedSeconds == 0 {
-		safeTimeToAssumeNodeRebootedSeconds = selfnoderemediationv1alpha1.DefaultSafeToAssumeNodeRebootTimeout
-	}
-	data.Data["TimeToAssumeNodeRebooted"] = fmt.Sprintf("\"%d\"", safeTimeToAssumeNodeRebootedSeconds)
-
 	data.Data["IsSoftwareRebootEnabled"] = fmt.Sprintf("\"%t\"", snrConfig.Spec.IsSoftwareRebootEnabled)
 
 	objs, err := render.Dir(r.InstallFileFolder, &data)
