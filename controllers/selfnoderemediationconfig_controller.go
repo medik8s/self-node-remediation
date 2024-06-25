@@ -108,7 +108,7 @@ func (r *SelfNodeRemediationConfigReconciler) Reconcile(ctx context.Context, req
 	if err := r.setCRsEnabledStatus(ctx); err != nil {
 		return ctrl.Result{}, err
 	}
-	
+
 	return ctrl.Result{}, nil
 }
 
@@ -318,7 +318,7 @@ func (r *SelfNodeRemediationConfigReconciler) setCRsEnabledStatus(ctx context.Co
 	for _, cr := range crs.Items {
 		//is disabled
 		if meta.IsStatusConditionTrue(cr.Status.Conditions, string(selfnoderemediationv1alpha1.DisabledConditionType)) {
-			//enable
+			//since config was created snr is now enabled, so we can remove the disabled status condition
 			meta.RemoveStatusCondition(&cr.Status.Conditions, string(selfnoderemediationv1alpha1.DisabledConditionType))
 			if err := r.Status().Update(ctx, &cr); err != nil {
 				r.Log.Error(err, "Failed to update self node remediation CR status")
