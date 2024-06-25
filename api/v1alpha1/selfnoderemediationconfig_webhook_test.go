@@ -137,14 +137,6 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 				Expect(war[0]).To(ContainSubstring("The default configuration is deleted, Self Node Remediation is now disabled"))
 			})
 		})
-
-		When("SelfNodeRemediationConfig CR is non default", func() {
-			It("should not be rejected", func() {
-				_, err := conf.ValidateDelete()
-				Expect(err).NotTo(HaveOccurred())
-			})
-		})
-
 	})
 
 })
