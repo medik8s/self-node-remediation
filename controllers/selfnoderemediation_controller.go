@@ -228,7 +228,7 @@ func (r *SelfNodeRemediationReconciler) ReconcileManager(ctx context.Context, re
 	if isConfigurationExist, err := r.isConfigurationExist(ctx); err != nil {
 		return ctrl.Result{}, err
 	} else if !isConfigurationExist {
-		r.logger.Info("snr is disabled because configuration does not exist, waiting for configuration creation ")
+		r.logger.Info("SNR is disabled because configuration does not exist, waiting for configuration creation ")
 		meta.SetStatusCondition(&snr.Status.Conditions, metav1.Condition{
 			Type:    string(v1alpha1.DisabledConditionType),
 			Status:  metav1.ConditionTrue,
