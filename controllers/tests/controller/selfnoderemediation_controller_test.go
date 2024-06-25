@@ -33,7 +33,6 @@ const (
 
 var _ = Describe("SNR Controller", func() {
 	var snr *v1alpha1.SelfNodeRemediation
-	var snrConfig *v1alpha1.SelfNodeRemediationConfig
 	var remediationStrategy v1alpha1.RemediationStrategyType
 	var nodeRebootCapable = "true"
 	var isAdditionalSetupNeeded = false
@@ -52,9 +51,9 @@ var _ = Describe("SNR Controller", func() {
 			createSelfNodeRemediationPod()
 			verifySelfNodeRemediationPodExist()
 		}
-		Expect(k8sClient.Create(context.Background(), snrConfig)).To(Succeed())
+		createConfig()
 		DeferCleanup(func() {
-			Expect(k8sClient.Delete(context.Background(), snrConfig)).To(Succeed())
+			deleteConfig()
 		})
 		updateIsRebootCapable(nodeRebootCapable)
 	})
@@ -465,23 +464,14 @@ var _ = Describe("SNR Controller", func() {
 	})
 
 	Context("Configuration is missing", func() {
-		BeforeEach(func() {
+		JustBeforeEach(func() {
+			//Delete it
 			deleteConfig()
 			//Restore the config
 			DeferCleanup(func() {
-				configToRestore := &v1alpha1.SelfNodeRemediationConfig{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      snrConfig.Name,
-						Namespace: snrConfig.Namespace,
-					},
-				}
-				Expect(k8sClient.Create(context.Background(), configToRestore)).To(Succeed())
-				Eventually(func(g Gomega) {
-					g.Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snrConfig), &v1alpha1.SelfNodeRemediationConfig{})).To(Succeed())
-				}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
+				createConfig()
 			})
-		})
-		JustBeforeEach(func() {
+
 			createSNR(snr, v1alpha1.AutomaticRemediationStrategy)
 		})
 		It("verify remediation updated snr status", func() {
@@ -967,6 +957,17 @@ func deleteConfig() {
 	Eventually(func(g Gomega) {
 		err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snrConfig), snrConfigTmp)
 		g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+	}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
+
+}
+
+func createConfig() {
+	snrConfigTmp := snrConfig.DeepCopy()
+	//create config
+	Expect(k8sClient.Create(context.Background(), snrConfigTmp)).To(Succeed())
+	// verify it's created
+	Eventually(func(g Gomega) {
+		g.Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snrConfig), snrConfigTmp)).To(Succeed())
 	}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
 
 }

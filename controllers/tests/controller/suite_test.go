@@ -123,19 +123,8 @@ var _ = BeforeSuite(func() {
 	}
 	Expect(k8sClient.Create(context.Background(), nsToCreate)).To(Succeed())
 
-
 	//mock deployment ns
 	_ = os.Setenv("DEPLOYMENT_NAMESPACE", nsToCreate.Name)
-
-	snrConfig = &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      selfnoderemediationv1alpha1.ConfigCRName,
-			Namespace: nsToCreate.Name,
-		},
-	}
-	Expect(k8sClient.Create(context.Background(), snrConfig)).To(Succeed())
-
-
 	_ = os.Setenv("SELF_NODE_REMEDIATION_IMAGE", shared.DsDummyImageName)
 
 	dummyDog = watchdog.NewFake(true)
