@@ -53,7 +53,7 @@ const (
 
 	eventReasonRemediationSkipped = "RemediationSkipped"
 
-	//remediation
+	// remediation
 	eventReasonAddFinalizer              = "AddFinalizer"
 	eventReasonMarkUnschedulable         = "MarkUnschedulable"
 	eventReasonAddNoExecute              = "AddNoExecute"
@@ -89,13 +89,13 @@ var (
 type conditionReason string
 
 const (
-	//Reasons related to ProcessingConditionType
+	// Reasons related to ProcessingConditionType
 	remediationStarted              conditionReason = "RemediationStarted"
 	remediationTimeoutByNHC         conditionReason = "RemediationTimeoutByNHC"
 	remediationFinishedSuccessfully conditionReason = "RemediationFinishedSuccessfully"
 	remediationSkippedNodeNotFound  conditionReason = "RemediationSkippedNodeNotFound"
 
-	//Other Reasons
+	// Other Reasons
 	snrDisabledNoConfig conditionReason = "SNRDisabledConfigurationNotFound"
 )
 
@@ -121,7 +121,7 @@ func (e *UnreconcilableError) Error() string {
 type SelfNodeRemediationReconciler struct {
 	client.Client
 	Log logr.Logger
-	//logger is a logger that holds the CR name being reconciled
+	// logger is a logger that holds the CR name being reconciled
 	logger                   logr.Logger
 	Scheme                   *runtime.Scheme
 	Recorder                 record.EventRecorder
@@ -212,7 +212,7 @@ func (r *SelfNodeRemediationReconciler) ReconcileManager(ctx context.Context, re
 		if updateErr := r.updateSnrStatus(ctx, snr); updateErr != nil {
 			if apiErrors.IsConflict(updateErr) {
 				minRequeue := time.Second
-				//if requeue is already set choose the lowest one
+				// if requeue is already set choose the lowest one
 				if returnResult.RequeueAfter > 0 && minRequeue > returnResult.RequeueAfter {
 					minRequeue = returnResult.RequeueAfter
 				}
@@ -233,7 +233,7 @@ func (r *SelfNodeRemediationReconciler) ReconcileManager(ctx context.Context, re
 			Type:    string(v1alpha1.DisabledConditionType),
 			Status:  metav1.ConditionTrue,
 			Reason:  string(snrDisabledNoConfig),
-			Message: "snr is disabled because configuration does not exist",
+			Message: "SelfNodeRemediation is disabled because configuration does not exist",
 		})
 
 		return ctrl.Result{}, nil
@@ -274,7 +274,7 @@ func (r *SelfNodeRemediationReconciler) ReconcileManager(ctx context.Context, re
 		return ctrl.Result{}, nil
 	}
 
-	//used as an indication not to spam the event
+	// used as an indication not to spam the event
 	if isFinalizerAlreadyAdded := controllerutil.ContainsFinalizer(snr, SNRFinalizer); !isFinalizerAlreadyAdded {
 		eventMessage := "Remediation started by SNR manager"
 		events.NormalEvent(r.Recorder, snr, "RemediationStarted", eventMessage)
@@ -287,7 +287,7 @@ func (r *SelfNodeRemediationReconciler) ReconcileManager(ctx context.Context, re
 	case v1alpha1.OutOfServiceTaintRemediationStrategy:
 		result, err = r.remediateWithOutOfServiceTaint(ctx, snr, node)
 	default:
-		//this should never happen since we enforce valid values with kubebuilder
+		// this should never happen since we enforce valid values with kubebuilder
 		err := errors.New("unsupported remediation strategy")
 		r.logger.Error(err, "Encountered unsupported remediation strategy. Please check template spec", "strategy", snr.Spec.RemediationStrategy)
 	}
@@ -349,7 +349,7 @@ func (r *SelfNodeRemediationReconciler) updateConditions(processingTypeReason co
 		Reason: string(processingTypeReason),
 	})
 
-	//Reason is mandatory, and reason for processing matches succeeded
+	// Reason is mandatory, and reason for processing matches succeeded
 	meta.SetStatusCondition(&snr.Status.Conditions, metav1.Condition{
 		Type:   string(v1alpha1.SucceededConditionType),
 		Status: succeededConditionStatus,
@@ -436,7 +436,7 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceRemoval(ctx context
 	case fencingCompletedPhase:
 		result, err = r.handleFencingCompletedPhase(node, snr)
 	default:
-		//this should never happen since we enforce valid values with kubebuilder
+		// this should never happen since we enforce valid values with kubebuilder
 		err = errors.New("unknown phase")
 		r.logger.Error(err, "Undefined unknown phase", "phase", phase)
 	}
@@ -450,7 +450,7 @@ func (r *SelfNodeRemediationReconciler) handleFencingStartedPhase(ctx context.Co
 func (r *SelfNodeRemediationReconciler) prepareReboot(ctx context.Context, node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	r.logger.Info("pre-reboot not completed yet, prepare for rebooting")
 	if !r.isNodeRebootCapable(node) {
-		//use err to trigger exponential backoff
+		// use err to trigger exponential backoff
 		return ctrl.Result{}, errors.New("Node is not capable to reboot itself")
 	}
 
@@ -605,8 +605,8 @@ func (r *SelfNodeRemediationReconciler) isNodeRebootCapable(node *v1.Node) bool 
 		return false
 	}
 
-	//if the unhealthy node has the self node remediation agent pod, but the is-reboot-capable annotation is unknown/false/doesn't exist
-	//the node might not reboot, and we might end up in deleting a running node
+	// if the unhealthy node has the self node remediation agent pod, but the is-reboot-capable annotation is unknown/false/doesn't exist
+	// the node might not reboot, and we might end up in deleting a running node
 	if node.Annotations == nil || node.Annotations[utils.IsRebootCapableAnnotation] != "true" {
 		annVal := ""
 		if node.Annotations != nil {
@@ -625,8 +625,8 @@ func (r *SelfNodeRemediationReconciler) removeFinalizer(snr *v1alpha1.SelfNodeRe
 	controllerutil.RemoveFinalizer(snr, SNRFinalizer)
 	if err := r.Client.Update(context.Background(), snr); err != nil {
 		if apiErrors.IsConflict(err) {
-			//we don't need to log anything as conflict is expected, but we do want to return an err
-			//to trigger a requeue
+			// we don't need to log anything as conflict is expected, but we do want to return an err
+			// to trigger a requeue
 			return err
 		}
 		r.logger.Error(err, "failed to remove finalizer from snr")
@@ -638,8 +638,8 @@ func (r *SelfNodeRemediationReconciler) removeFinalizer(snr *v1alpha1.SelfNodeRe
 
 func (r *SelfNodeRemediationReconciler) addFinalizer(snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	if !snr.DeletionTimestamp.IsZero() {
-		//snr is going to be deleted before we started any remediation action, so taking no-op
-		//otherwise we continue the remediation even if the deletionTimestamp is not zero
+		// snr is going to be deleted before we started any remediation action, so taking no-op
+		// otherwise we continue the remediation even if the deletionTimestamp is not zero
 		r.logger.Info("snr is about to be deleted, which means the resource is healthy again. taking no-op")
 		return ctrl.Result{}, nil
 	}
@@ -689,10 +689,10 @@ func (r *SelfNodeRemediationReconciler) setTimeAssumedRebooted(ctx context.Conte
 
 // getNodeFromSnr returns the unhealthy node reported in the given snr
 func (r *SelfNodeRemediationReconciler) getNodeFromSnr(snr *v1alpha1.SelfNodeRemediation) (*v1.Node, error) {
-	//SNR could be created by either machine based controller (e.g. MHC) or
-	//by a node based controller (e.g. NHC).
-	//In case snr is created with machine owner reference if NHC isn't it's owner it means
-	//it was created by a machine based controller (e.g. MHC).
+	// SNR could be created by either machine based controller (e.g. MHC) or
+	// by a node based controller (e.g. NHC).
+	// In case snr is created with machine owner reference if NHC isn't it's owner it means
+	// it was created by a machine based controller (e.g. MHC).
 	if !IsOwnedByNHC(snr) {
 		for _, ownerRef := range snr.OwnerReferences {
 			if ownerRef.Kind == "Machine" {

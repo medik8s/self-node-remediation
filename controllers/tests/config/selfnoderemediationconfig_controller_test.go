@@ -282,7 +282,7 @@ var _ = Describe("SNR Config Test", func() {
 		})
 	})
 
-	Context("Config is created for when SNR CR already exists", func() {
+	Context("Config is created when SNR CR already exists", func() {
 		var snr *selfnoderemediationv1alpha1.SelfNodeRemediation
 
 		BeforeEach(func() {
