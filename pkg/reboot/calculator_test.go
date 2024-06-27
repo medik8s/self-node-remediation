@@ -38,9 +38,13 @@ var _ = Describe("Calculator tests", func() {
 	})
 
 	JustBeforeEach(func() {
-		createConfig(snrConfig)
+		Expect(k8sClient.Create(context.Background(), snrConfig)).To(Succeed())
 		DeferCleanup(func() {
-			deleteConfig(snrConfig)
+			Expect(k8sClient.Delete(context.Background(), snrConfig)).To(Succeed())
+			Eventually(func(g Gomega) {
+				err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snrConfig), &v1alpha1.SelfNodeRemediationConfig{})
+				g.Expect(errors.IsNotFound(err)).To(BeTrue())
+			}, "5s", "1s").Should(Succeed())
 			calculator.SetConfig(nil)
 		})
 
@@ -121,31 +125,4 @@ func getNode(name string) *v1.Node {
 	node.Labels = make(map[string]string)
 	node.Labels["kubernetes.io/hostname"] = name
 	return node
-}
-
-func deleteConfig(snrConfig *v1alpha1.SelfNodeRemediationConfig) {
-	snrConfigTmp := &v1alpha1.SelfNodeRemediationConfig{}
-	// make sure config is already created
-	Eventually(func(g Gomega) {
-		g.Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snrConfig), snrConfigTmp)).To(Succeed())
-	}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
-
-	//delete config and verify it's deleted
-	Expect(k8sClient.Delete(context.Background(), snrConfigTmp)).To(Succeed())
-	Eventually(func(g Gomega) {
-		err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snrConfig), snrConfigTmp)
-		g.Expect(errors.IsNotFound(err)).To(BeTrue())
-	}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
-
-}
-
-func createConfig(snrConfig *v1alpha1.SelfNodeRemediationConfig) {
-	snrConfigTmp := snrConfig.DeepCopy()
-	//create config
-	Expect(k8sClient.Create(context.Background(), snrConfigTmp)).To(Succeed())
-	// verify it's created
-	Eventually(func(g Gomega) {
-		g.Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snrConfig), snrConfigTmp)).To(Succeed())
-	}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
-
 }
