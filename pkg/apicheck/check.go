@@ -99,6 +99,8 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 				c.config.Log.Error(err, "peers did not confirm that we are unhealthy, ignoring error")
 			}
 			return
+		} else {
+			c.config.Log.Info("Api check report", "client get result", result)
 		}
 
 		// reset error count after a successful API call
