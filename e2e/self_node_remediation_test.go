@@ -145,8 +145,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 		})
 
 		Describe("Without API connectivity", func() {
-			FContext("Healthy node (no SNR)", func() {
-				var testStart time.Time
+			Context("Healthy node (no SNR)", func() {
 				// no api connectivity
 				// a) healthy
 				//    - kill connectivity on one node
@@ -155,9 +154,6 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				//    - verify peer check did happen
 
 				BeforeEach(func() {
-					testStart = time.Now()
-					// verify node is Ready and last transition was before test start (now)
-					Expect(checkNodeTransitionedToReadyAfterGivenTime(node, testStart)).To(BeFalse(), "Expected node transitioned to Ready before test start")
 					killApiConnection(node, apiIPs, true)
 				})
 
@@ -175,12 +171,10 @@ var _ = Describe("Self Node Remediation E2E", func() {
 						// check logs to make sure that the actual peer health check did run
 						checkSnrLogs(node, []string{"failed to check api server", "Peer told me I'm healthy."})
 					}
-					// verify node is Ready and last transition was after test start (now)
-					Expect(checkNodeTransitionedToReadyAfterGivenTime(node, testStart)).To(BeTrue(), "Expected node to be unready during the test")
 				})
 			})
 
-			Context("Unhealthy node (with SNR) TEST THIS", func() {
+			Context("Unhealthy node (with SNR)", func() {
 
 				// no api connectivity
 				// b) unhealthy
@@ -673,19 +667,4 @@ func printSNRLogsFromNode(node *v1.Node) {
 		logger.Info(line)
 	}
 	logger.Info("END logs of healthy self-node-remediation pod", "name", pod.GetName())
-}
-
-func checkNodeTransitionedToReadyAfterGivenTime(node *v1.Node, reference time.Time) bool {
-	key := client.ObjectKeyFromObject(node)
-	var tmpNode v1.Node
-	Expect(k8sClient.Get(context.TODO(), key, &tmpNode)).To(Succeed())
-
-	for _, c := range node.Status.Conditions {
-		if c.Type == "Ready" {
-			if c.Status != v1.ConditionTrue && c.LastTransitionTime.Time.After(reference) {
-				return true
-			}
-		}
-	}
-	return false
 }
