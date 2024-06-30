@@ -33,7 +33,6 @@ const (
 
 var _ = Describe("SNR Controller", func() {
 	var snr *v1alpha1.SelfNodeRemediation
-	var snrConfig *v1alpha1.SelfNodeRemediationConfig
 	var remediationStrategy v1alpha1.RemediationStrategyType
 	var nodeRebootCapable = "true"
 	var isAdditionalSetupNeeded = false
@@ -52,9 +51,9 @@ var _ = Describe("SNR Controller", func() {
 			createSelfNodeRemediationPod()
 			verifySelfNodeRemediationPodExist()
 		}
-		Expect(k8sClient.Create(context.Background(), snrConfig)).To(Succeed())
+		createConfig()
 		DeferCleanup(func() {
-			Expect(k8sClient.Delete(context.Background(), snrConfig)).To(Succeed())
+			deleteConfig()
 		})
 		updateIsRebootCapable(nodeRebootCapable)
 	})
@@ -463,6 +462,22 @@ var _ = Describe("SNR Controller", func() {
 			}, 10*shared.PeerUpdateInterval, timeout).Should(BeTrue())
 		})
 	})
+
+	Context("Configuration is missing", func() {
+		JustBeforeEach(func() {
+			//Delete it
+			deleteConfig()
+			//Restore the config
+			DeferCleanup(func() {
+				createConfig()
+			})
+
+			createSNR(snr, v1alpha1.AutomaticRemediationStrategy)
+		})
+		It("verify remediation updated snr status", func() {
+			shared.VerifySNRStatusExist(k8sClient, snr, "Disabled", metav1.ConditionTrue)
+		})
+	})
 })
 
 func verifyTypeConditions(snr *v1alpha1.SelfNodeRemediation, expectedProcessingConditionStatus, expectedSucceededConditionStatus metav1.ConditionStatus, expectedReason string) {
@@ -472,9 +487,9 @@ func verifyTypeConditions(snr *v1alpha1.SelfNodeRemediation, expectedProcessingC
 		if err := k8sClient.Client.Get(context.Background(), snrNamespacedName, snr); err != nil {
 			return false
 		}
-		actualProcessingCondition := meta.FindStatusCondition(snr.Status.Conditions, v1alpha1.ProcessingConditionType)
+		actualProcessingCondition := meta.FindStatusCondition(snr.Status.Conditions, string(v1alpha1.ProcessingConditionType))
 		isActualProcessingMatchExpected := actualProcessingCondition != nil && actualProcessingCondition.Status == expectedProcessingConditionStatus
-		isActualSucceededMatchExpected := meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, v1alpha1.SucceededConditionType, expectedSucceededConditionStatus)
+		isActualSucceededMatchExpected := meta.IsStatusConditionPresentAndEqual(snr.Status.Conditions, string(v1alpha1.SucceededConditionType), expectedSucceededConditionStatus)
 
 		return isActualProcessingMatchExpected &&
 			isActualSucceededMatchExpected && actualProcessingCondition.Reason == expectedReason
@@ -928,4 +943,31 @@ func isEventOccurred(eventType string, reason string, message string) bool {
 		fakeRecorder.Events <- unMatchedEvent
 	}
 	return isEventMatch
+}
+
+func deleteConfig() {
+	snrConfigTmp := &v1alpha1.SelfNodeRemediationConfig{}
+	// make sure config is already created
+	Eventually(func(g Gomega) {
+		g.Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snrConfig), snrConfigTmp)).To(Succeed())
+	}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
+
+	//delete config and verify it's deleted
+	Expect(k8sClient.Delete(context.Background(), snrConfigTmp)).To(Succeed())
+	Eventually(func(g Gomega) {
+		err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snrConfig), snrConfigTmp)
+		g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+	}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
+
+}
+
+func createConfig() {
+	snrConfigTmp := snrConfig.DeepCopy()
+	//create config
+	Expect(k8sClient.Create(context.Background(), snrConfigTmp)).To(Succeed())
+	// verify it's created
+	Eventually(func(g Gomega) {
+		g.Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snrConfig), snrConfigTmp)).To(Succeed())
+	}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
+
 }

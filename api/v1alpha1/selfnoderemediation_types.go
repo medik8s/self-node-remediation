@@ -25,10 +25,17 @@ const (
 	ResourceDeletionRemediationStrategy  = RemediationStrategyType("ResourceDeletion")
 	OutOfServiceTaintRemediationStrategy = RemediationStrategyType("OutOfServiceTaint")
 	DefaultRemediationStrategy           = AutomaticRemediationStrategy
+)
+
+type ConditionType string
+
+const (
 	// ProcessingConditionType is the condition type used to signal NHC the remediation status
-	ProcessingConditionType = "Processing"
+	ProcessingConditionType ConditionType = "Processing"
 	// SucceededConditionType is the condition type used to signal NHC whether the remediation was successful or not
-	SucceededConditionType = "Succeeded"
+	SucceededConditionType ConditionType = "Succeeded"
+	// DisabledConditionType is the condition type used to signal SNR is disabled
+	DisabledConditionType ConditionType = "Disabled"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!

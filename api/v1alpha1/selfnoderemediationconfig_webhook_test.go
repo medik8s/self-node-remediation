@@ -82,8 +82,8 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 
 			When("CR name doesn't match default name", func() {
 				It("create should be rejected", func() {
-					snrc := createDefaultSelfNodeRemediationConfigCR()
-					err := snrc.ValidateCreate()
+					snrc := createTestSelfNodeRemediationConfigCR()
+					_, err := snrc.ValidateCreate()
 					Expect(err).To(HaveOccurred())
 					Expect(err.Error()).To(ContainSubstring("to enforce only one SelfNodeRemediationConfig in the cluster, a name other than"))
 
@@ -92,11 +92,11 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 
 			When("CR name namespace does not match deployment namespace", func() {
 				It("create should be rejected", func() {
-					snrc := createDefaultSelfNodeRemediationConfigCR()
+					snrc := createTestSelfNodeRemediationConfigCR()
 					snrc.Name = ConfigCRName
 					_ = os.Setenv("DEPLOYMENT_NAMESPACE", "mock-deployment-namespace")
 
-					err := snrc.ValidateCreate()
+					_, err := snrc.ValidateCreate()
 					Expect(err).To(HaveOccurred())
 					Expect(err.Error()).To(ContainSubstring("SelfNodeRemediationConfig is only allowed to be created in the namespace:"))
 
@@ -119,6 +119,26 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 
 	})
 
+	Describe("deleting SelfNodeRemediationConfig CR", func() {
+		var conf *SelfNodeRemediationConfig
+		BeforeEach(func() {
+			conf = createTestSelfNodeRemediationConfigCR()
+		})
+
+		When("SelfNodeRemediationConfig CR is default", func() {
+			BeforeEach(func() {
+				conf.Name = "self-node-remediation-config"
+				//Mock deployment namespace
+				_ = os.Setenv("DEPLOYMENT_NAMESPACE", conf.Namespace)
+			})
+			It("should have warning", func() {
+				war, err := conf.ValidateDelete()
+				Expect(err).To(Succeed())
+				Expect(war[0]).To(ContainSubstring("The default configuration is deleted, Self Node Remediation is now disabled"))
+			})
+		})
+	})
+
 })
 
 func testSingleInvalidField(validationType validationType) {
@@ -128,14 +148,14 @@ func testSingleInvalidField(validationType validationType) {
 		text := "for field" + item.name + " with value shorter than " + item.minDurationValue.String()
 		Context(text, func() {
 			It("should be rejected", func() {
-				snrc := createSelfNodeRemediationConfigCR(item.name, item.durationValue)
+				snrc := createSelfNodeRemediationConfigCRWithFieldValue(item.name, item.durationValue)
 
 				var err error
 				if validationType == update {
-					snrcOld := createDefaultSelfNodeRemediationConfigCR()
-					err = snrc.ValidateUpdate(snrcOld)
+					snrcOld := createTestSelfNodeRemediationConfigCR()
+					_, err = snrc.ValidateUpdate(snrcOld)
 				} else {
-					err = snrc.ValidateCreate()
+					_, err = snrc.ValidateCreate()
 				}
 
 				Expect(err).To(HaveOccurred())
@@ -146,30 +166,30 @@ func testSingleInvalidField(validationType validationType) {
 
 	Context(fmt.Sprintf("%s validation of customized toleration", validationType.getName()), func() {
 		It("should be rejected - invalid operator value", func() {
-			snrc := createDefaultSelfNodeRemediationConfigCR()
+			snrc := createTestSelfNodeRemediationConfigCR()
 			snrc.Spec.CustomDsTolerations = []v1.Toleration{{Key: "validValue", Operator: "dummyInvalidOperatorValue"}}
 
 			var err error
 			if validationType == update {
-				snrcOld := createDefaultSelfNodeRemediationConfigCR()
-				err = snrc.ValidateUpdate(snrcOld)
+				snrcOld := createTestSelfNodeRemediationConfigCR()
+				_, err = snrc.ValidateUpdate(snrcOld)
 			} else {
-				err = snrc.ValidateCreate()
+				_, err = snrc.ValidateCreate()
 			}
 
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("invalid operator for toleration: dummyInvalidOperatorValue"))
 		})
 		It("should be rejected- non empty value when operator equals Exists", func() {
-			snrc := createDefaultSelfNodeRemediationConfigCR()
+			snrc := createTestSelfNodeRemediationConfigCR()
 			snrc.Spec.CustomDsTolerations = []v1.Toleration{{Value: "someValue", Operator: "Exists"}}
 
 			var err error
 			if validationType == update {
-				snrcOld := createDefaultSelfNodeRemediationConfigCR()
-				err = snrc.ValidateUpdate(snrcOld)
+				snrcOld := createTestSelfNodeRemediationConfigCR()
+				_, err = snrc.ValidateUpdate(snrcOld)
 			} else {
-				err = snrc.ValidateCreate()
+				_, err = snrc.ValidateCreate()
 			}
 
 			Expect(err).To(HaveOccurred())
@@ -180,7 +200,7 @@ func testSingleInvalidField(validationType validationType) {
 
 func testMultipleInvalidFields(validationType validationType) {
 	var errorMsg string
-	snrc := createDefaultSelfNodeRemediationConfigCR()
+	snrc := createTestSelfNodeRemediationConfigCR()
 
 	for _, item := range testItems2 {
 		item := item
@@ -195,10 +215,10 @@ func testMultipleInvalidFields(validationType validationType) {
 		It("should be rejected", func() {
 			var err error
 			if validationType == update {
-				snrcOld := createDefaultSelfNodeRemediationConfigCR()
-				err = snrc.ValidateUpdate(snrcOld)
+				snrcOld := createTestSelfNodeRemediationConfigCR()
+				_, err = snrc.ValidateUpdate(snrcOld)
 			} else {
-				err = snrc.ValidateCreate()
+				_, err = snrc.ValidateCreate()
 			}
 
 			Expect(err).To(HaveOccurred())
@@ -232,10 +252,10 @@ func testValidCR(validationType validationType) {
 		It("should not be rejected", func() {
 			var err error
 			if validationType == update {
-				snrcOld := createDefaultSelfNodeRemediationConfigCR()
-				err = snrc.ValidateUpdate(snrcOld)
+				snrcOld := createTestSelfNodeRemediationConfigCR()
+				_, err = snrc.ValidateUpdate(snrcOld)
 			} else {
-				err = snrc.ValidateCreate()
+				_, err = snrc.ValidateCreate()
 			}
 			Expect(err).NotTo(HaveOccurred())
 
@@ -243,7 +263,7 @@ func testValidCR(validationType validationType) {
 	})
 }
 
-func createDefaultSelfNodeRemediationConfigCR() *SelfNodeRemediationConfig {
+func createTestSelfNodeRemediationConfigCR() *SelfNodeRemediationConfig {
 	snrc := &SelfNodeRemediationConfig{}
 	snrc.Name = "test"
 	snrc.Namespace = "default"
@@ -259,8 +279,8 @@ func createDefaultSelfNodeRemediationConfigCR() *SelfNodeRemediationConfig {
 	return snrc
 }
 
-func createSelfNodeRemediationConfigCR(fieldName string, value time.Duration) *SelfNodeRemediationConfig {
-	snrc := createDefaultSelfNodeRemediationConfigCR()
+func createSelfNodeRemediationConfigCRWithFieldValue(fieldName string, value time.Duration) *SelfNodeRemediationConfig {
+	snrc := createTestSelfNodeRemediationConfigCR()
 
 	//set the tested field
 	setFieldValue(snrc, fieldName, value)

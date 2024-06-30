@@ -59,6 +59,7 @@ var (
 	cancelFunc              context.CancelFunc
 	k8sClient               *shared.K8sClientWrapper
 	fakeRecorder            *record.FakeRecorder
+	snrConfig               *selfnoderemediationv1alpha1.SelfNodeRemediationConfig
 )
 
 var unhealthyNodeNamespacedName = client.ObjectKey{
@@ -122,7 +123,10 @@ var _ = BeforeSuite(func() {
 	}
 	Expect(k8sClient.Create(context.Background(), nsToCreate)).To(Succeed())
 
+	//mock deployment ns
+	_ = os.Setenv("DEPLOYMENT_NAMESPACE", nsToCreate.Name)
 	_ = os.Setenv("SELF_NODE_REMEDIATION_IMAGE", shared.DsDummyImageName)
+
 	dummyDog = watchdog.NewFake(true)
 	err = k8sManager.Add(dummyDog)
 	Expect(err).ToNot(HaveOccurred())

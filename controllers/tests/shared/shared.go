@@ -5,7 +5,10 @@ import (
 	"errors"
 	"time"
 
+	. "github.com/onsi/gomega"
+
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -68,4 +71,12 @@ func (m MockRebootDurationCalculator) GetRebootDuration(_ context.Context, _ *co
 
 func (m MockRebootDurationCalculator) SetConfig(_ *selfnoderemediationv1alpha1.SelfNodeRemediationConfig) {
 	// no-op
+}
+
+func VerifySNRStatusExist(k8sClient client.Client, snr *selfnoderemediationv1alpha1.SelfNodeRemediation, statusType string, conditionStatus metav1.ConditionStatus) {
+	Eventually(func(g Gomega) {
+		tmpSNR := &selfnoderemediationv1alpha1.SelfNodeRemediation{}
+		g.Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snr), tmpSNR)).To(Succeed())
+		g.Expect(meta.IsStatusConditionPresentAndEqual(tmpSNR.Status.Conditions, statusType, conditionStatus)).To(BeTrue())
+	}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 }

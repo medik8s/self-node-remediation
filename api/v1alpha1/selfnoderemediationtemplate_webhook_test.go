@@ -46,7 +46,8 @@ var _ = Describe("SelfNodeRemediationTemplate Validation", func() {
 
 		Context("with valid strategy", func() {
 			It("should be allowed", func() {
-				Expect(snrtValid.ValidateCreate()).To(Succeed())
+				_, err := snrtValid.ValidateCreate()
+				Expect(err).To(Succeed())
 			})
 		})
 
@@ -61,8 +62,10 @@ var _ = Describe("SelfNodeRemediationTemplate Validation", func() {
 					utils.IsOutOfServiceTaintSupported = true
 				})
 				It("should be allowed", func() {
-					Expect(outOfServiceStrategy.ValidateCreate()).To(Succeed())
-					Expect(snrtValid.ValidateUpdate(outOfServiceStrategy)).To(Succeed())
+					_, err := outOfServiceStrategy.ValidateCreate()
+					Expect(err).To(Succeed())
+					_, err = snrtValid.ValidateUpdate(outOfServiceStrategy)
+					Expect(err).To(Succeed())
 				})
 			})
 			When("out of service taint is not supported", func() {
@@ -70,8 +73,10 @@ var _ = Describe("SelfNodeRemediationTemplate Validation", func() {
 					utils.IsOutOfServiceTaintSupported = false
 				})
 				It("should be denied", func() {
-					Expect(outOfServiceStrategy.ValidateCreate()).To(MatchError(ContainSubstring("OutOfServiceTaint remediation strategy is not supported at kubernetes version lower than 1.26, please use a different remediation strategy")))
-					Expect(outOfServiceStrategy.ValidateUpdate(snrtValid)).To(MatchError(ContainSubstring("OutOfServiceTaint remediation strategy is not supported at kubernetes version lower than 1.26, please use a different remediation strategy")))
+					_, err := outOfServiceStrategy.ValidateCreate()
+					Expect(err).To(MatchError(ContainSubstring("OutOfServiceTaint remediation strategy is not supported at kubernetes version lower than 1.26, please use a different remediation strategy")))
+					_, err = outOfServiceStrategy.ValidateUpdate(snrtValid)
+					Expect(err).To(MatchError(ContainSubstring("OutOfServiceTaint remediation strategy is not supported at kubernetes version lower than 1.26, please use a different remediation strategy")))
 				})
 			})
 

@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"go.uber.org/zap/zapcore"
 
@@ -45,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	machinev1beta1 "github.com/openshift/api/machine/v1beta1"
 
@@ -111,6 +113,18 @@ func main() {
 
 	printVersion()
 
+	// TLS options for metric and webhook servers:
+	// disable HTTP/2 for mitigating relevant CVEs unless configured otherwise
+	var tlsOpts []func(*tls.Config)
+	if !enableHTTP2 {
+		tlsOpts = append(tlsOpts, func(c *tls.Config) {
+			c.NextProtos = []string{"http/1.1"}
+		})
+		setupLog.Info("HTTP/2 for metrics and webhook server disabled")
+	} else {
+		setupLog.Info("HTTP/2 for metrics and webhook server enabled")
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
 		// HEADS UP: once controller runtime is updated and this changes to metrics.Options{},
@@ -120,6 +134,7 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "547f6cb6.medik8s.io",
+		WebhookServer:          getWebhookServer(tlsOpts, setupLog),
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -131,7 +146,7 @@ func main() {
 	}
 
 	if isManager {
-		initSelfNodeRemediationManager(mgr, enableHTTP2)
+		initSelfNodeRemediationManager(mgr)
 	} else {
 		initSelfNodeRemediationAgent(mgr)
 	}
@@ -154,10 +169,8 @@ func main() {
 	}
 }
 
-func initSelfNodeRemediationManager(mgr manager.Manager, enableHTTP2 bool) {
+func initSelfNodeRemediationManager(mgr manager.Manager) {
 	setupLog.Info("Starting as a manager that installs the daemonset")
-
-	configureWebhookServer(mgr, enableHTTP2)
 
 	if err := (&selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "SelfNodeRemediationConfig")
@@ -390,11 +403,14 @@ func getMachineName(reader client.Reader, myNodeName string) (string, error) {
 	return "", nil
 }
 
-func configureWebhookServer(mgr ctrl.Manager, enableHTTP2 bool) {
+func getWebhookServer(tlsOpts []func(*tls.Config), log logr.Logger) webhook.Server {
 
-	server := mgr.GetWebhookServer()
+	options := webhook.Options{
+		Port:    9443,
+		TLSOpts: tlsOpts,
+	}
 
-	// check for OLM injected certs
+	// check if OLM injected certs
 	certs := []string{filepath.Join(WebhookCertDir, WebhookCertName), filepath.Join(WebhookCertDir, WebhookKeyName)}
 	certsInjected := true
 	for _, fname := range certs {
@@ -404,25 +420,14 @@ func configureWebhookServer(mgr ctrl.Manager, enableHTTP2 bool) {
 		}
 	}
 	if certsInjected {
-		server.CertDir = WebhookCertDir
-		server.CertName = WebhookCertName
-		server.KeyName = WebhookKeyName
+		options.CertDir = WebhookCertDir
+		options.CertName = WebhookCertName
+		options.KeyName = WebhookKeyName
 	} else {
-		setupLog.Info("OLM injected certs for webhooks not found")
+		log.Info("OLM injected certs for webhooks not found")
 	}
 
-	// disable http/2 for mitigating relevant CVEs
-	if !enableHTTP2 {
-		server.TLSOpts = append(server.TLSOpts,
-			func(c *tls.Config) {
-				c.NextProtos = []string{"http/1.1"}
-			},
-		)
-		setupLog.Info("HTTP/2 for webhooks disabled")
-	} else {
-		setupLog.Info("HTTP/2 for webhooks enabled")
-	}
-
+	return webhook.NewServer(options)
 }
 
 func printVersion() {

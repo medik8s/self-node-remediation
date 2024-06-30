@@ -38,7 +38,8 @@ var _ = Describe("SelfNodeRemediation Validation", func() {
 
 		Context("with valid strategy", func() {
 			It("should be allowed", func() {
-				Expect(snrValid.ValidateCreate()).To(Succeed())
+				_, err := snrValid.ValidateCreate()
+				Expect(err).To(Succeed())
 			})
 		})
 
@@ -53,8 +54,10 @@ var _ = Describe("SelfNodeRemediation Validation", func() {
 					utils.IsOutOfServiceTaintSupported = true
 				})
 				It("should be allowed", func() {
-					Expect(outOfServiceStrategy.ValidateCreate()).To(Succeed())
-					Expect(snrValid.ValidateUpdate(outOfServiceStrategy)).To(Succeed())
+					_, err := outOfServiceStrategy.ValidateCreate()
+					Expect(err).To(Succeed())
+					_, err = snrValid.ValidateUpdate(outOfServiceStrategy)
+					Expect(err).To(Succeed())
 				})
 			})
 			When("out of service taint is not supported", func() {
@@ -62,8 +65,10 @@ var _ = Describe("SelfNodeRemediation Validation", func() {
 					utils.IsOutOfServiceTaintSupported = false
 				})
 				It("should be denied", func() {
-					Expect(outOfServiceStrategy.ValidateCreate()).To(MatchError(ContainSubstring("OutOfServiceTaint remediation strategy is not supported at kubernetes version lower than 1.26, please use a different remediation strategy")))
-					Expect(outOfServiceStrategy.ValidateUpdate(snrValid)).To(MatchError(ContainSubstring("OutOfServiceTaint remediation strategy is not supported at kubernetes version lower than 1.26, please use a different remediation strategy")))
+					_, err := outOfServiceStrategy.ValidateCreate()
+					Expect(err).To(MatchError(ContainSubstring("OutOfServiceTaint remediation strategy is not supported at kubernetes version lower than 1.26, please use a different remediation strategy")))
+					_, err = outOfServiceStrategy.ValidateUpdate(snrValid)
+					Expect(err).To(MatchError(ContainSubstring("OutOfServiceTaint remediation strategy is not supported at kubernetes version lower than 1.26, please use a different remediation strategy")))
 				})
 			})
 

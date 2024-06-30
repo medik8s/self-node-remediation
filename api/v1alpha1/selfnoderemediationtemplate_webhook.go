@@ -25,6 +25,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
@@ -60,22 +61,22 @@ func (r *SelfNodeRemediationTemplate) Default() {
 var _ webhook.Validator = &SelfNodeRemediationTemplate{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
-func (r *SelfNodeRemediationTemplate) ValidateCreate() error {
+func (r *SelfNodeRemediationTemplate) ValidateCreate() (warning admission.Warnings, err error) {
 	webhookTemplateLog.Info("validate create", "name", r.Name)
-	return validateStrategy(r.Spec.Template.Spec)
+	return admission.Warnings{}, validateStrategy(r.Spec.Template.Spec)
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
-func (r *SelfNodeRemediationTemplate) ValidateUpdate(_ runtime.Object) error {
+func (r *SelfNodeRemediationTemplate) ValidateUpdate(_ runtime.Object) (warning admission.Warnings, err error) {
 	webhookTemplateLog.Info("validate update", "name", r.Name)
-	return validateStrategy(r.Spec.Template.Spec)
+	return admission.Warnings{}, validateStrategy(r.Spec.Template.Spec)
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
-func (r *SelfNodeRemediationTemplate) ValidateDelete() error {
+func (r *SelfNodeRemediationTemplate) ValidateDelete() (warning admission.Warnings, err error) {
 	// unused for now, add "delete" when needed to verbs in the kubebuilder annotation above
 	webhookTemplateLog.Info("validate delete", "name", r.Name)
-	return nil
+	return admission.Warnings{}, nil
 }
 
 func validateStrategy(snrSpec SelfNodeRemediationSpec) error {
