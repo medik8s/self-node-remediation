@@ -75,11 +75,12 @@ var _ = Describe("Self Node Remediation E2E", func() {
 
 		AfterEach(func() {
 			// restart snr pods for resetting logs...
-			restartSnrPods(workers)
+			//restartSnrPods(workers)
 		})
 
 		JustAfterEach(func() {
-			printSNRLogsFromNode(&workers.Items[1])
+			// TODO why worker 1??
+			//printSNRLogsFromNode(&workers.Items[1])
 		})
 
 		Describe("With API connectivity", func() {
@@ -153,7 +154,9 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				//    - verify node did not reboot and wasn't deleted
 				//    - verify peer check did happen
 
+				var testStartTime *metav1.Time
 				BeforeEach(func() {
+					testStartTime = &metav1.Time{time.Now()}
 					killApiConnection(node, apiIPs, true)
 				})
 
@@ -169,7 +172,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 
 					//if _, isExist := os.LookupEnv(skipLogsEnvVarName); !isExist {
 					// check logs to make sure that the actual peer health check did run
-					checkSnrLogs(node, []string{"failed to check api server", "Peer told me I'm healthy."})
+					checkSnrLogs(node, []string{"failed to check api server", "Peer told me I'm healthy."}, testStartTime)
 					//}
 				})
 			})
@@ -184,8 +187,10 @@ var _ = Describe("Self Node Remediation E2E", func() {
 
 				var snr *v1alpha1.SelfNodeRemediation
 				var oldPodCreationTime time.Time
+				var testStartTime *metav1.Time
 
 				BeforeEach(func() {
+					testStartTime = &metav1.Time{time.Now()}
 					killApiConnection(node, apiIPs, false)
 					snr = createSNR(node, v1alpha1.ResourceDeletionRemediationStrategy)
 					oldPodCreationTime = findSnrPod(node).CreationTimestamp.Time
@@ -206,7 +211,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 					//if _, isExist := os.LookupEnv(skipLogsEnvVarName); !isExist {
 					// we can't check logs of unhealthy node anymore, check peer logs
 					peer := &workers.Items[1]
-					checkSnrLogs(peer, []string{node.GetName(), "IsHealthy OWNED by NHC unhealthy"})
+					checkSnrLogs(peer, []string{node.GetName(), "IsHealthy OWNED by NHC unhealthy"}, testStartTime)
 					//}
 				})
 
@@ -221,9 +226,11 @@ var _ = Describe("Self Node Remediation E2E", func() {
 
 				uids := make(map[string]types.UID)
 				bootTimes := make(map[string]*time.Time)
+				var testStartTime *metav1.Time
 
 				BeforeEach(func() {
 					wg := sync.WaitGroup{}
+					testStartTime = &metav1.Time{time.Now()}
 					for i := range workers.Items {
 						wg.Add(1)
 						worker := &workers.Items[i]
@@ -232,7 +239,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 						Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(worker), worker)).ToNot(HaveOccurred())
 						uids[worker.GetName()] = worker.GetUID()
 
-						// and the lat boot time
+						// and the last boot time
 						t, err := getBootTime(worker)
 						Expect(err).ToNot(HaveOccurred())
 						bootTimes[worker.GetName()] = t
@@ -270,7 +277,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 
 							//if _, isExist := os.LookupEnv(skipLogsEnvVarName); !isExist {
 							// check logs to make sure that the actual peer health check did run
-							checkSnrLogs(worker, []string{"failed to check api server", "nodes couldn't access the api-server"})
+							checkSnrLogs(worker, []string{"failed to check api server", "nodes couldn't access the api-server"}, testStartTime)
 							//}
 						}()
 					}
@@ -310,11 +317,11 @@ var _ = Describe("Self Node Remediation E2E", func() {
 
 		AfterEach(func() {
 			// restart snr pods for resetting logs...
-			restartSnrPods(controlPlaneNodes)
+			//restartSnrPods(controlPlaneNodes)
 		})
 
 		JustAfterEach(func() {
-			printSNRLogsFromNode(&controlPlaneNodes.Items[1])
+			//printSNRLogsFromNode(&controlPlaneNodes.Items[1])
 		})
 
 		Describe("With API connectivity", func() {
@@ -523,7 +530,7 @@ func checkNoReboot(node *v1.Node, oldBootTime *time.Time) {
 	}, 5*time.Minute, 10*time.Second).Should(BeTemporally("==", *oldBootTime))
 }
 
-func checkSnrLogs(node *v1.Node, expected []string) {
+func checkSnrLogs(node *v1.Node, expected []string, since *metav1.Time) {
 	By("checking logs")
 	pod := findSnrPod(node)
 	ExpectWithOffset(1, pod).ToNot(BeNil())
@@ -535,7 +542,7 @@ func checkSnrLogs(node *v1.Node, expected []string) {
 
 	EventuallyWithOffset(1, func() string {
 		var err error
-		logs, err := utils.GetLogs(k8sClientSet, pod)
+		logs, err := utils.GetLogs(k8sClientSet, pod, since)
 		if err != nil {
 			logger.Error(err, "failed to get logs, might retry")
 			return ""
@@ -657,14 +664,14 @@ func ensureSnrRunning(nodes *v1.NodeList) {
 	wg.Wait()
 }
 
-func printSNRLogsFromNode(node *v1.Node) {
-	By("printing self node remediation log of healthy node")
-	pod := findSnrPod(node)
-	logs, err := utils.GetLogs(k8sClientSet, pod)
-	Expect(err).ToNot(HaveOccurred())
-	logger.Info("BEGIN logs of healthy self-node-remediation pod", "name", pod.GetName())
-	for _, line := range strings.Split(logs, "\n") {
-		logger.Info(line)
-	}
-	logger.Info("END logs of healthy self-node-remediation pod", "name", pod.GetName())
-}
+//func printSNRLogsFromNode(node *v1.Node) {
+//	By("printing self node remediation log of healthy node")
+//	pod := findSnrPod(node)
+//	logs, err := utils.GetLogs(k8sClientSet, pod)
+//	Expect(err).ToNot(HaveOccurred())
+//	logger.Info("BEGIN logs of healthy self-node-remediation pod", "name", pod.GetName())
+//	for _, line := range strings.Split(logs, "\n") {
+//		logger.Info(line)
+//	}
+//	logger.Info("END logs of healthy self-node-remediation pod", "name", pod.GetName())
+//}
