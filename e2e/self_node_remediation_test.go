@@ -167,10 +167,10 @@ var _ = Describe("Self Node Remediation E2E", func() {
 					checkNoNodeRecreate(node, oldUID)
 					checkNoReboot(node, oldBootTime)
 
-					if _, isExist := os.LookupEnv(skipLogsEnvVarName); !isExist {
-						// check logs to make sure that the actual peer health check did run
-						checkSnrLogs(node, []string{"failed to check api server", "Peer told me I'm healthy."})
-					}
+					//if _, isExist := os.LookupEnv(skipLogsEnvVarName); !isExist {
+					// check logs to make sure that the actual peer health check did run
+					checkSnrLogs(node, []string{"failed to check api server", "Peer told me I'm healthy."})
+					//}
 				})
 			})
 
@@ -203,11 +203,11 @@ var _ = Describe("Self Node Remediation E2E", func() {
 					// - because the 2nd check has a small timeout only
 					checkReboot(node, oldBootTime)
 					checkPodRecreated(node, oldPodCreationTime)
-					if _, isExist := os.LookupEnv(skipLogsEnvVarName); !isExist {
-						// we can't check logs of unhealthy node anymore, check peer logs
-						peer := &workers.Items[1]
-						checkSnrLogs(peer, []string{node.GetName(), "node is unhealthy"})
-					}
+					//if _, isExist := os.LookupEnv(skipLogsEnvVarName); !isExist {
+					// we can't check logs of unhealthy node anymore, check peer logs
+					peer := &workers.Items[1]
+					checkSnrLogs(peer, []string{node.GetName(), "IsHealthy OWNED by NHC unhealthy"})
+					//}
 				})
 
 			})
@@ -268,10 +268,10 @@ var _ = Describe("Self Node Remediation E2E", func() {
 							checkNoNodeRecreate(worker, uids[worker.GetName()])
 							checkNoReboot(worker, bootTimes[worker.GetName()])
 
-							if _, isExist := os.LookupEnv(skipLogsEnvVarName); !isExist {
-								// check logs to make sure that the actual peer health check did run
-								checkSnrLogs(worker, []string{"failed to check api server", "nodes couldn't access the api-server"})
-							}
+							//if _, isExist := os.LookupEnv(skipLogsEnvVarName); !isExist {
+							// check logs to make sure that the actual peer health check did run
+							checkSnrLogs(worker, []string{"failed to check api server", "nodes couldn't access the api-server"})
+							//}
 						}()
 					}
 					wg.Wait()

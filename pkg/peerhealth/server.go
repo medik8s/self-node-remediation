@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -132,7 +133,7 @@ func (s Server) IsHealthy(ctx context.Context, request *HealthRequest) (*HealthR
 	//return healthy only if all of snrs are considered healthy for that node
 	for _, snr := range snrs.Items {
 		isOwnedByNHC := controllers.IsOwnedByNHC(&snr)
-		if isOwnedByNHC && snr.Name == nodeName {
+		if isOwnedByNHC && strings.HasPrefix(snr.Name, nodeName) {
 			s.log.Info("IsHealthy OWNED by NHC unhealthy", "snr name", snr.Name, "node", nodeName)
 			return toResponse(selfNodeRemediationApis.Unhealthy)
 
