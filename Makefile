@@ -35,6 +35,10 @@ ENVSUBST_VERSION = v1.4.2
 # OCP Version: for Red Hat bundle community
 OCP_VERSION = 4.12
 
+# update for major version updates to YQ_VERSION! see https://github.com/mikefarah/yq
+YQ_API_VERSION = v4
+YQ_VERSION = v4.44.1
+
 OPERATOR_NAME ?= self-node-remediation
 OPERATOR_NAMESPACE ?= openshift-workload-availability
 
@@ -275,7 +279,7 @@ ENVSUBST_BIN_FOLDER = $(shell pwd)/bin/envsubst
 ENVSUBST = $(ENVSUBST_BIN_FOLDER)/$(ENVSUBST_VERSION)/envsubst
 .PHONY: envsubst
 envsubst: ## Download envsubst locally if necessary.
-	$(call go-install-tool,$(ENVSUBST),github.com/a8m/envsubst/cmd/envsubst@${ENVSUBST_VERSION}) ;\
+	@$(call go-install-tool,$(ENVSUBST),github.com/a8m/envsubst/cmd/envsubst@${ENVSUBST_VERSION}) ;\
 
 KUSTOMIZE_BIN_FOLDER = $(shell pwd)/bin/kustomize
 KUSTOMIZE = $(KUSTOMIZE_BIN_FOLDER)/$(KUSTOMIZE_VERSION)/kustomize
@@ -291,12 +295,12 @@ endif
 
 .PHONY: envtest
 envtest: ## Download envtest-setup locally if necessary.
-	$(call go-install-tool,$(ENVTEST_ASSETS_DIR),sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_VERSION)) # no tagged versions :/
+	@$(call go-install-tool,$(ENVTEST_ASSETS_DIR),sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_VERSION)) # no tagged versions :/
 
 # go-install-tool will 'go install' any package $2 and install it to $1.
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 define go-install-tool
-@[ -f $(1) ] || { \
+[ -f $(1) ] || { \
 set -e ;\
 TMP_DIR=$$(mktemp -d) ;\
 cd $$TMP_DIR ;\
@@ -311,7 +315,7 @@ endef
 
 DEFAULT_ICON_BASE64 := $(shell base64 --wrap=0 ./config/assets/snr_icon_blue.png)
 export ICON_BASE64 ?= ${DEFAULT_ICON_BASE64}
-export BUNDLE_CSV ?= "./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml"
+export CSV ?= "./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml"
 .PHONY: bundle
 bundle: manifests operator-sdk kustomize envsubst ## Generate bundle manifests and metadata, then validate generated files.
 	$(OPERATOR_SDK) generate kustomize manifests -q
@@ -320,32 +324,59 @@ bundle: manifests operator-sdk kustomize envsubst ## Generate bundle manifests a
 	$(MAKE) bundle-validate
 
 .PHONY: bundle-community-k8s
-bundle-community-k8s: bundle-community ## Generate bundle manifests and metadata customized to k8s community release, then validate generated files.
+bundle-community-k8s: bundle add-community-edition-to-display-name ## Generate bundle manifests and metadata customized to k8s community release, then validate generated files.
 	# Note that k8s 1.25+ needs PSA label
-	sed -r -i "s|by default\.|by default.\n    Note that prior to installing SNR on a Kubernetes 1.25+ cluster, a user must manually set a [privileged PSA label](https://kubernetes.io/docs/tasks/configure-pod-container/enforce-standards-namespace-labels/) on SNR's namespace. It gives SNR's agents permissions to reboot the node (in case it needs to be remediated).|;" ${BUNDLE_CSV}
+	sed -r -i "s|by default\.|by default.\n    Note that prior to installing SNR on a Kubernetes 1.25+ cluster, a user must manually set a [privileged PSA label](https://kubernetes.io/docs/tasks/configure-pod-container/enforce-standards-namespace-labels/) on SNR's namespace. It gives SNR's agents permissions to reboot the node (in case it needs to be remediated).|;" ${CSV}
 	$(MAKE) bundle-update
 
-.PHONY: bundle-community-rh
-bundle-community-rh: bundle-community ## Generate bundle manifests and metadata customized to Red Hat community release
+.PHONY: bundle-community-okd
+bundle-community-okd: bundle add-community-edition-to-display-name ## Generate bundle manifests and metadata customized to Red Hat community release
+	$(MAKE) add-replaces-field
+	$(MAKE) add-ocp-annotations
 	echo -e "\n  # Annotations for OCP\n  com.redhat.openshift.versions: \"v${OCP_VERSION}\"" >> bundle/metadata/annotations.yaml
 	$(MAKE) bundle-update
 
-.PHONY: bundle-community
-bundle-community: bundle ##Add Community Edition suffix to operator name
-	sed -r -i "s|displayName: Self Node Remediation Operator.*|displayName: Self Node Remediation Operator - Community Edition|;" ${BUNDLE_CSV}
+
+.PHONY: add-ocp-annotations
+add-ocp-annotations: yq ## Add OCP annotations
+	$(YQ) -i '.metadata.annotations."operators.openshift.io/valid-subscription" = "[\"OpenShift Kubernetes Engine\", \"OpenShift Container Platform\", \"OpenShift Platform Plus\"]"' ${CSV}
+	# new infrastructure annotations see https://docs.engineering.redhat.com/display/CFC/Best_Practices#Best_Practices-(New)RequiredInfrastructureAnnotations
+	$(YQ) -i '.metadata.annotations."features.operators.openshift.io/disconnected" = "true"' ${CSV}
+	$(YQ) -i '.metadata.annotations."features.operators.openshift.io/fips-compliant" = "false"' ${CSV}
+	$(YQ) -i '.metadata.annotations."features.operators.openshift.io/proxy-aware" = "false"' ${CSV}
+	$(YQ) -i '.metadata.annotations."features.operators.openshift.io/tls-profiles" = "false"' ${CSV}
+	$(YQ) -i '.metadata.annotations."features.operators.openshift.io/token-auth-aws" = "false"' ${CSV}
+	$(YQ) -i '.metadata.annotations."features.operators.openshift.io/token-auth-azure" = "false"' ${CSV}
+	$(YQ) -i '.metadata.annotations."features.operators.openshift.io/token-auth-gcp" = "false"' ${CSV}
+
+.PHONY: add-community-edition-to-display-name
+add-community-edition-to-display-name: ##Add Community Edition suffix to operator name
+	sed -r -i "s|displayName: Self Node Remediation Operator.*|displayName: Self Node Remediation Operator - Community Edition|;" ${CSV}
+
+
+.PHONY: add-replaces-field
+add-replaces-field: ## Add replaces field to the CSV
+	# add replaces field when building versioned bundle
+	@if [ $(VERSION) != $(DEFAULT_VERSION) ]; then \
+		if [ $(PREVIOUS_VERSION) == $(DEFAULT_VERSION) ]; then \
+			echo "Error: PREVIOUS_VERSION must be set for versioned builds"; \
+			exit 1; \
+		else \
+		  	# preferring sed here, in order to have "replaces" near "version" \
+			sed -r -i "/  version: $(VERSION)/ a\  replaces: $(OPERATOR_NAME).v$(PREVIOUS_VERSION)" ${CSV}; \
+		fi \
+	fi
 
 .PHONY: bundle-update
 bundle-update: verify-previous-version ## Update CSV fields and validate the bundle directory
 	# update container image in the metadata
-	sed -r -i "s|containerImage: .*|containerImage: ${IMG}|;" ${BUNDLE_CSV}
+	sed -r -i "s|containerImage: .*|containerImage: ${IMG}|;" ${CSV}
 	# set creation date
-	sed -r -i "s|createdAt: \".*\"|createdAt: \"`date "+%Y-%m-%d %T" `\"|;" ${BUNDLE_CSV}
+	sed -r -i "s|createdAt: \".*\"|createdAt: \"`date "+%Y-%m-%d %T" `\"|;" ${CSV}
 	# set skipRange
-	sed -r -i "s|olm.skipRange: .*|olm.skipRange: '>=0.4.0 <${VERSION}'|;" ${BUNDLE_CSV}
-	# set  replaces
-	sed -r -i "s|replaces: .*|replaces: self-node-remediation.v${PREVIOUS_VERSION}|;" ${BUNDLE_CSV}
+	sed -r -i "s|olm.skipRange: .*|olm.skipRange: '>=0.4.0 <${VERSION}'|;" ${CSV}
 	# set icon (not version or build date related, but just to not having this huge data permanently in the CSV)
-	sed -r -i "s|base64data:.*|base64data: ${ICON_BASE64}|;" ${BUNDLE_CSV}
+	sed -r -i "s|base64data:.*|base64data: ${ICON_BASE64}|;" ${CSV}
 	$(MAKE) bundle-validate
 
 .PHONY: verify-previous-version
@@ -375,18 +406,23 @@ protoc: protoc-gen-go protoc-gen-go-grpc ## Download protoc (protocol buffers to
 .PHONY: protoc-gen-go
 PROTOC_GEN_GO = $(shell pwd)/bin/proto/bin/protoc-gen-go
 protoc-gen-go: ## Download protoc-gen-go locally if necessary.
-	$(call go-install-tool,$(PROTOC_GEN_GO),google.golang.org/protobuf/cmd/protoc-gen-go@v1.26)
+	@$(call go-install-tool,$(PROTOC_GEN_GO),google.golang.org/protobuf/cmd/protoc-gen-go@v1.26)
 
 .PHONY: protoc-gen-go-grpc
 PROTOC_GEN_GO_GRPC = $(shell pwd)/bin/proto/bin/protoc-gen-go-prpc
 protoc-gen-go-grpc: ## Download protoc-gen-go-grpc locally if necessary.
-	$(call go-install-tool,$(PROTOC_GEN_GO_GRPC),google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.1.0)
+	@$(call go-install-tool,$(PROTOC_GEN_GO_GRPC),google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.1.0)
 
 .PHONY: e2e-test
 e2e-test:
 	# KUBECONFIG must be set to the cluster, and PP needs to be deployed already
     # count arg makes the test ignoring cached test results
 	go test ./e2e -ginkgo.vv -test.v -timeout 60m -count=1 ${TEST_OPS}
+
+YQ = $(shell pwd)/bin/yq
+.PHONY: yq
+yq: ## Download yq locally if necessary.
+	@$(call go-install-tool,$(YQ),github.com/mikefarah/yq/$(YQ_API_VERSION)@$(YQ_VERSION))
 
 .PHONY: operator-sdk
 OPERATOR_SDK_BIN_FOLDER = ./bin/operator-sdk
@@ -471,12 +507,12 @@ verify-bundle: manifests bundle bundle-reset verify-no-changes ##Verifies bundle
 bundle-reset:
 	VERSION=0.0.1 $(MAKE) manifests bundle
 	# empty creation date
-	sed -r -i "s|createdAt: .*|createdAt: \"\"|;" ${BUNDLE_CSV}
+	sed -r -i "s|createdAt: .*|createdAt: \"\"|;" ${CSV}
 
 SORT_IMPORTS = $(shell pwd)/bin/sort-imports
 .PHONY: sort-imports
 sort-imports: ## Download sort-imports locally if necessary.
-	$(call go-install-tool,$(SORT_IMPORTS),github.com/slintes/sort-imports@$(SORT_IMPORTS_VERSION))
+	@$(call go-install-tool,$(SORT_IMPORTS),github.com/slintes/sort-imports@$(SORT_IMPORTS_VERSION))
 
 .PHONY: test-imports
 test-imports: sort-imports ## Check for sorted imports
