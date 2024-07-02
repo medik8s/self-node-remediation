@@ -621,11 +621,11 @@ func getApiIPs() []string {
 		Namespace: "default",
 		Name:      "kubernetes",
 	}
-	ep := &v1.Endpoints{}
-	ExpectWithOffset(1, k8sClient.Get(context.Background(), key, ep)).ToNot(HaveOccurred())
+	svc := &v1.Service{}
+	ExpectWithOffset(1, k8sClient.Get(context.Background(), key, svc)).ToNot(HaveOccurred())
 	ips := make([]string, 0)
-	for _, addr := range ep.Subsets[0].Addresses {
-		ips = append(ips, addr.IP)
+	for _, addr := range svc.Spec.ClusterIPs {
+		ips = append(ips, addr)
 	}
 	return ips
 }
