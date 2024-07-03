@@ -29,18 +29,12 @@ var _ = Describe("SNR Config Test", func() {
 		Namespace: shared.Namespace,
 		Name:      dsName,
 	}
-	var isSkipCleanup bool
 	BeforeEach(func() {
 		ds = &appsv1.DaemonSet{}
 		config = shared.GenerateTestConfig()
 	})
 
 	AfterEach(func() {
-		if isSkipCleanup {
-			isSkipCleanup = false
-			return
-		}
-
 		tmpConfig := &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}
 		tmpDs := &appsv1.DaemonSet{}
 		//verify config exist
