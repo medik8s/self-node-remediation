@@ -30,7 +30,7 @@ import (
 const (
 	disconnectCommand  = "ip route add blackhole %s"
 	reconnectCommand   = "ip route delete blackhole %s"
-	nodeExecTimeout    = 20 * time.Second
+	nodeExecTimeout    = 120 * time.Second
 	reconnectInterval  = 300 * time.Second
 	skipLogsEnvVarName = "SKIP_LOG_VERIFICATION"
 	skipOOSREnvVarName = "SKIP_OOST_REMEDIATION_VERIFICATION"
@@ -454,7 +454,7 @@ func killApiConnection(node *v1.Node, apiIPs []string, withReconnect bool) {
 	msg := fmt.Sprintf("killing api connectivity on NODE: %s and API ep: %v", node.Name, apiIPs)
 	By(msg)
 
-	script := composeScript(disconnectCommand, apiIPs)
+	script := "dnf -y install iproute && " + composeScript(disconnectCommand, apiIPs)
 	if withReconnect {
 		script += fmt.Sprintf(" && sleep %s && ", strconv.Itoa(int(reconnectInterval.Seconds())))
 		script += composeScript(reconnectCommand, apiIPs)
