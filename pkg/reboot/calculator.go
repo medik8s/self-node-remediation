@@ -55,11 +55,10 @@ func (r *calculator) SetConfig(config *v1alpha1.SelfNodeRemediationConfig) {
 	r.snrConfig = config
 }
 
-// TODO add unit test!
 func (r *calculator) GetRebootDuration(ctx context.Context, node *v1.Node) (time.Duration, error) {
 
-	r.snrConfigLock.Lock()
-	defer r.snrConfigLock.Unlock()
+	r.snrConfigLock.RLock()
+	defer r.snrConfigLock.RUnlock()
 	if r.snrConfig == nil {
 		return 0, errors.New("SelfNodeRemediationConfig not set yet, can't calculate minimum reboot duration")
 	}

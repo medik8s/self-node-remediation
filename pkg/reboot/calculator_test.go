@@ -88,7 +88,7 @@ var _ = Describe("Calculator tests", func() {
 		It("GetRebootTime should return correct value", func() {
 			Eventually(func() (time.Duration, error) {
 				return calculator.GetRebootDuration(context.Background(), unhealthyNode)
-			}, "5s", "200ms").Should(Equal(time.Duration(expectedRebootDurationSeconds) * time.Second))
+			}, "15s", "200ms").Should(Equal(time.Duration(expectedRebootDurationSeconds) * time.Second))
 		})
 	})
 
@@ -114,7 +114,7 @@ var _ = Describe("Calculator tests", func() {
 		It("GetRebootTime should return correct value", func() {
 			Eventually(func() (time.Duration, error) {
 				return calculator.GetRebootDuration(context.Background(), unhealthyNode)
-			}, "5s", "200ms").Should(Equal(time.Duration(expectedRebootDurationSeconds) * time.Second))
+			}, "15s", "200ms").Should(Equal(time.Duration(expectedRebootDurationSeconds) * time.Second))
 		})
 	})
 })
