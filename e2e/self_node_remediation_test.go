@@ -391,22 +391,18 @@ func createSNR(node *v1.Node, remediationStrategy v1alpha1.RemediationStrategyTy
 }
 
 func getBootTime(node *v1.Node) (*time.Time, error) {
-	bootTimeCommand := []string{"uptime", "-s"}
-	var bootTime time.Time
+	var bootTime *time.Time
 	EventuallyWithOffset(1, func() error {
 		ctx, cancel := context.WithTimeout(context.Background(), nodeExecTimeout)
 		defer cancel()
-		bootTimeString, err := utils.ExecCommandOnNode(k8sClient, bootTimeCommand, node, ctx)
-		if err != nil {
-			return err
-		}
-		bootTime, err = time.Parse("2006-01-02 15:04:05", bootTimeString)
+		var err error
+		bootTime, err = utils.GetBootTime(ctx, k8sClientSet, node.GetName(), testNamespace)
 		if err != nil {
 			return err
 		}
 		return nil
 	}, 15*time.Minute, 10*time.Second).ShouldNot(HaveOccurred(), "Could not get boot time on target node")
-	return &bootTime, nil
+	return bootTime, nil
 }
 
 func checkNoExecuteTaintRemoved(node *v1.Node) {
@@ -464,8 +460,6 @@ func killApiConnection(node *v1.Node, apiIPs []string, withReconnect bool) {
 		script += composeScript(reconnectCommand, apiIPs)
 	}
 
-	command := []string{"/bin/bash", "-c", script}
-
 	var ctx context.Context
 	var cancel context.CancelFunc
 	if withReconnect {
@@ -474,7 +468,7 @@ func killApiConnection(node *v1.Node, apiIPs []string, withReconnect bool) {
 		ctx, cancel = context.WithTimeout(context.Background(), nodeExecTimeout)
 	}
 	defer cancel()
-	_, err := utils.ExecCommandOnNode(k8sClient, command, node, ctx)
+	_, err := utils.RunCommandInCluster(ctx, k8sClientSet, node.GetName(), testNamespace, script)
 
 	if withReconnect {
 		//in case the sleep didn't work
