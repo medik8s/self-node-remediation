@@ -162,7 +162,7 @@ func getPod(nodeName string) *corev1.Pod {
 			Containers: []corev1.Container{
 				{
 					Name:  "test",
-					Image: "registry.access.redhat.com/ubi8/ubi-minimal",
+					Image: "registry.access.redhat.com/ubi8/ubi:latest",
 					SecurityContext: &corev1.SecurityContext{
 						Privileged: pointer.Bool(true),
 					},
