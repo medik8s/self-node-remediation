@@ -96,7 +96,7 @@ const (
 	remediationSkippedNodeNotFound  conditionReason = "RemediationSkippedNodeNotFound"
 
 	// Other Reasons
-	snrDisabledNoConfig conditionReason = "SNRDisabledConfigurationNotFound"
+	snrDisabledNoConfig conditionReason = "ConfigurationNotFound"
 )
 
 type remediationPhase string
