@@ -78,7 +78,7 @@ func (r *calculator) GetRebootDuration(ctx context.Context, node *v1.Node) (time
 	specRebootDurationSeconds := r.snrConfig.Spec.SafeTimeToAssumeNodeRebootedSeconds
 	if specRebootDurationSeconds == nil {
 		r.log.Info("No SafeTimeToAssumeNodeRebootedSeconds specified, using calculated minimum safe reboot time",
-			"calculated minimum time in seconds", minimumCalculatedRebootDuration)
+			"calculated minimum time in seconds", minimumCalculatedRebootDuration.Seconds())
 		return minimumCalculatedRebootDuration, nil
 	}
 
