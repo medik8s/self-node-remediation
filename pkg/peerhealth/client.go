@@ -17,7 +17,7 @@ type Client struct {
 
 // NewClient return a new client for peer health checks. Don't forget to close it when done
 func NewClient(serverAddr string, peerDialTimeout time.Duration, log logr.Logger, clientCreds credentials.TransportCredentials) (*Client, error) {
-
+	log.Info("new peer client", "serveraddr", serverAddr)
 	var opts []grpc.DialOption
 
 	if clientCreds != nil {

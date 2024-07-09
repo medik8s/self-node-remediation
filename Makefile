@@ -27,7 +27,7 @@ KUSTOMIZE_VERSION = v5.3.0
 ENVTEST_VERSION = v0.0.0-20240215124517-56159419231e
 
 # versions at https://github.com/slintes/sort-imports/tags
-SORT_IMPORTS_VERSION = v0.2.1
+SORT_IMPORTS_VERSION = v0.3.0
 
 # version at https://github.com/a8m/envsubst/releases
 ENVSUBST_VERSION = v1.4.2
@@ -415,9 +415,9 @@ protoc-gen-go-grpc: ## Download protoc-gen-go-grpc locally if necessary.
 
 .PHONY: e2e-test
 e2e-test:
-	# KUBECONFIG must be set to the cluster, and PP needs to be deployed already
+	# KUBECONFIG must be set to the cluster, and SNR needs to be deployed already
     # count arg makes the test ignoring cached test results
-	go test ./e2e -ginkgo.vv -test.v -timeout 60m -count=1 ${TEST_OPS}
+	go test ./e2e -ginkgo.vv -test.v -timeout 80m -count=1 ${TEST_OPS}
 
 YQ = $(shell pwd)/bin/yq
 .PHONY: yq
