@@ -690,7 +690,7 @@ func (r *SelfNodeRemediationReconciler) setTimeAssumedRebooted(ctx context.Conte
 
 // getNodeFromSnr returns the unhealthy node reported in the given snr
 func (r *SelfNodeRemediationReconciler) getNodeFromSnr(ctx context.Context, snr *v1alpha1.SelfNodeRemediation) (*v1.Node, error) {
-	nodeName, err := GetNodeName(ctx, r.Client, snr, r.logger)
+	nodeName, err := getNodeName(ctx, r.Client, snr, r.logger)
 	if err != nil {
 		return nil, err
 	}
