@@ -102,7 +102,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 // IsHealthy checks if the given node is healthy
 func (s *Server) IsHealthy(ctx context.Context, request *HealthRequest) (*HealthResponse, error) {
-	s.log.Info("IsHealthy", "node", request.GetNodeName(), "machine", request.GetMachineName())
+	s.log.Info("checking health for peer", "node", request.GetNodeName(), "machine", request.GetMachineName())
 
 	nodeName := request.GetNodeName()
 	if nodeName == "" {
