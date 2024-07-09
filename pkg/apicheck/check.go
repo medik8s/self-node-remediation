@@ -69,7 +69,7 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 	}
 	restClient := cs.RESTClient()
 
-	go wait.UntilWithContext(ctx, func(ctx context.Context) {
+	wait.UntilWithContext(ctx, func(ctx context.Context) {
 
 		readerCtx, cancel := context.WithTimeout(ctx, c.config.ApiServerTimeout)
 		defer cancel()
@@ -86,7 +86,7 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 			}
 		}
 		if failure != "" {
-			c.config.Log.Error(fmt.Errorf(failure), "failed to check api server")
+			c.config.Log.Info(fmt.Sprintf("failed to check api server: %s", failure))
 			if isHealthy := c.isConsideredHealthy(); !isHealthy {
 				// we have a problem on this node
 				c.config.Log.Error(err, "we are unhealthy, triggering a reboot")
@@ -94,7 +94,7 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 					c.config.Log.Error(err, "failed to trigger reboot")
 				}
 			} else {
-				c.config.Log.Error(err, "peers did not confirm that we are unhealthy, ignoring error")
+				c.config.Log.Info("peers did not confirm that we are unhealthy, ignoring error")
 			}
 			return
 		}
@@ -104,9 +104,6 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 
 	}, c.config.CheckInterval)
 
-	c.config.Log.Info("api connectivity check started")
-
-	<-ctx.Done()
 	return nil
 }
 
