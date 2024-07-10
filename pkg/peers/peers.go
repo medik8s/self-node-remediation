@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-logr/logr"
 	commonlabels "github.com/medik8s/common/pkg/labels"
+	pkgerrors "github.com/pkg/errors"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -36,7 +37,7 @@ type Peers struct {
 	myNodeName                                       string
 	mutex                                            sync.Mutex
 	apiServerTimeout                                 time.Duration
-	workerPeersAddresses, controlPlanePeersAddresses [][]v1.NodeAddress
+	workerPeersAddresses, controlPlanePeersAddresses []v1.PodIP
 }
 
 func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Reader, log logr.Logger, apiServerTimeout time.Duration) *Peers {
@@ -47,8 +48,8 @@ func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Read
 		myNodeName:                 myNodeName,
 		mutex:                      sync.Mutex{},
 		apiServerTimeout:           apiServerTimeout,
-		workerPeersAddresses:       [][]v1.NodeAddress{},
-		controlPlanePeersAddresses: [][]v1.NodeAddress{},
+		workerPeersAddresses:       []v1.PodIP{},
+		controlPlanePeersAddresses: []v1.PodIP{},
 	}
 }
 
@@ -76,30 +77,37 @@ func (p *Peers) Start(ctx context.Context) error {
 		p.controlPlanePeerSelector = createSelector(hostname, getControlPlaneLabel(myNode))
 	}
 
-	go wait.UntilWithContext(ctx, func(ctx context.Context) {
-		p.updateWorkerPeers(ctx)
-		p.updateControlPlanePeers(ctx)
+	var updatePeersError error
+	cancellableCtx, cancel := context.WithCancel(ctx)
+
+	p.log.Info("peer starting", "name", p.myNodeName)
+	wait.UntilWithContext(cancellableCtx, func(ctx context.Context) {
+		updatePeersError = p.updateWorkerPeers(ctx)
+		if updatePeersError != nil {
+			cancel()
+		}
+		updatePeersError = p.updateControlPlanePeers(ctx)
+		if updatePeersError != nil {
+			cancel()
+		}
 	}, p.peerUpdateInterval)
 
-	p.log.Info("peers started")
-
-	<-ctx.Done()
-	return nil
+	return updatePeersError
 }
 
-func (p *Peers) updateWorkerPeers(ctx context.Context) {
-	setterFunc := func(addresses [][]v1.NodeAddress) { p.workerPeersAddresses = addresses }
+func (p *Peers) updateWorkerPeers(ctx context.Context) error {
+	setterFunc := func(addresses []v1.PodIP) { p.workerPeersAddresses = addresses }
 	selectorGetter := func() labels.Selector { return p.workerPeerSelector }
-	p.updatePeers(ctx, selectorGetter, setterFunc)
+	return p.updatePeers(ctx, selectorGetter, setterFunc)
 }
 
-func (p *Peers) updateControlPlanePeers(ctx context.Context) {
-	setterFunc := func(addresses [][]v1.NodeAddress) { p.controlPlanePeersAddresses = addresses }
+func (p *Peers) updateControlPlanePeers(ctx context.Context) error {
+	setterFunc := func(addresses []v1.PodIP) { p.controlPlanePeersAddresses = addresses }
 	selectorGetter := func() labels.Selector { return p.controlPlanePeerSelector }
-	p.updatePeers(ctx, selectorGetter, setterFunc)
+	return p.updatePeers(ctx, selectorGetter, setterFunc)
 }
 
-func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selector, setAddresses func(addresses [][]v1.NodeAddress)) {
+func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selector, setAddresses func(addresses []v1.PodIP)) error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
@@ -111,25 +119,45 @@ func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selec
 	if err := p.List(readerCtx, &nodes, client.MatchingLabelsSelector{Selector: getSelector()}); err != nil {
 		if errors.IsNotFound(err) {
 			// we are the only node at the moment... reset peerList
-			p.workerPeersAddresses = [][]v1.NodeAddress{}
+			p.workerPeersAddresses = []v1.PodIP{}
 		}
 		p.log.Error(err, "failed to update peer list")
-		return
+		return pkgerrors.Wrap(err, "failed to update peer list")
+	}
+
+	pods := v1.PodList{}
+	listOptions := &client.ListOptions{
+		LabelSelector: labels.SelectorFromSet(labels.Set{
+			"app.kubernetes.io/name":      "self-node-remediation",
+			"app.kubernetes.io/component": "agent",
+		}),
+	}
+	if err := p.List(readerCtx, &pods, listOptions); err != nil {
+		p.log.Error(err, "could not get pods")
+		return pkgerrors.Wrap(err, "could not get pods")
 	}
 
 	nodesCount := len(nodes.Items)
-	addresses := make([][]v1.NodeAddress, nodesCount)
+	addresses := make([]v1.PodIP, nodesCount)
 	for i, node := range nodes.Items {
-		addresses[i] = node.Status.Addresses
+		for _, pod := range pods.Items {
+			if pod.Spec.NodeName == node.Name {
+				if pod.Status.PodIPs == nil || len(pod.Status.PodIPs) == 0 {
+					return pkgerrors.New(fmt.Sprintf("empty Pod IP for Pod %s on Node %s", pod.Name, node.Name))
+				}
+				addresses[i] = pod.Status.PodIPs[0]
+			}
+		}
 	}
 	setAddresses(addresses)
+	return nil
 }
 
-func (p *Peers) GetPeersAddresses(role Role) [][]v1.NodeAddress {
+func (p *Peers) GetPeersAddresses(role Role) []v1.PodIP {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
-	var addresses [][]v1.NodeAddress
+	var addresses []v1.PodIP
 	if role == Worker {
 		addresses = p.workerPeersAddresses
 	} else {
@@ -137,11 +165,8 @@ func (p *Peers) GetPeersAddresses(role Role) [][]v1.NodeAddress {
 	}
 	//we don't want the caller to be able to change the addresses
 	//so we create a deep copy and return it
-	addressesCopy := make([][]v1.NodeAddress, len(addresses))
-	for i := range addressesCopy {
-		addressesCopy[i] = make([]v1.NodeAddress, len(addresses[i]))
-		copy(addressesCopy, addresses)
-	}
+	addressesCopy := make([]v1.PodIP, len(addresses))
+	copy(addressesCopy, addresses)
 
 	return addressesCopy
 }
