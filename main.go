@@ -35,6 +35,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	pkgruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -141,7 +142,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := utils.InitOutOfServiceTaintFlags(mgr.GetConfig()); err != nil {
+	interval := 2 * time.Second // retry every 2 seconds
+	timeout := 10 * time.Second // for a period of 10 seconds
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Using wait.PollUntilContextTimeout to retry InitOutOfServiceTaintFlags in case there is a temporary network issue.
+	// Since the last internal error returned by InitOutOfServiceTaintFlags also indicates whether polling succeed or not, there is no need to also keep the context error returned by PollUntilContextTimeout.
+	_ = wait.PollUntilContextTimeout(ctx, interval, timeout, true, func(ctx context.Context) (bool, error) {
+		if err = utils.InitOutOfServiceTaintFlags(mgr.GetConfig()); err != nil {
+			return false, nil // Keep retrying
+		}
+		return true, nil // Success
+	})
+
+	if err != nil {
 		setupLog.Error(err, "unable to verify out-of-service taint support. out-of-service taint isn't supported")
 	}
 
