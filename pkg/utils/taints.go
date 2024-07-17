@@ -1,11 +1,14 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strconv"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -54,7 +57,25 @@ func DeleteTaint(taints []v1.Taint, taintToDelete *v1.Taint) ([]v1.Taint, bool) 
 	return newTaints, deleted
 }
 
-func InitOutOfServiceTaintFlags(config *rest.Config) error {
+// InitOutOfServiceTaintFlagsWithRetry tries to initialize the OutOfService flags based on k8s version, in case it fails (potentially due to network issues) it will retry for a limited number of times
+func InitOutOfServiceTaintFlagsWithRetry(ctx context.Context, config *rest.Config) error {
+
+	var err error
+	interval := 2 * time.Second // retry every 2 seconds
+	timeout := 10 * time.Second // for a period of 10 seconds
+
+	// Since the last internal error returned by InitOutOfServiceTaintFlags also indicates whether polling succeed or not, there is no need to also keep the context error returned by PollUntilContextTimeout.
+	// Using wait.PollUntilContextTimeout to retry initOutOfServiceTaintFlags in case there is a temporary network issue.
+	_ = wait.PollUntilContextTimeout(ctx, interval, timeout, true, func(ctx context.Context) (bool, error) {
+		if err = initOutOfServiceTaintFlags(config); err != nil {
+			return false, nil // Keep retrying
+		}
+		return true, nil // Success
+	})
+	return err
+}
+
+func initOutOfServiceTaintFlags(config *rest.Config) error {
 	if cs, err := kubernetes.NewForConfig(config); err != nil || cs == nil {
 		if cs == nil {
 			err = fmt.Errorf("k8s client set is nil")
