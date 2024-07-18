@@ -141,7 +141,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := utils.InitOutOfServiceTaintFlags(mgr.GetConfig()); err != nil {
+	if err := utils.InitOutOfServiceTaintFlagsWithRetry(context.Background(), mgr.GetConfig()); err != nil {
 		setupLog.Error(err, "unable to verify out-of-service taint support. out-of-service taint isn't supported")
 	}
 
