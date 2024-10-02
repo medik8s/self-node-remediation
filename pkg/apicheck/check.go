@@ -50,6 +50,7 @@ type ApiConnectivityCheckConfig struct {
 	PeerRequestTimeout        time.Duration
 	PeerHealthPort            int
 	MaxTimeForNoPeersResponse time.Duration
+	MinPeersForRemediation    int
 }
 
 func New(config *ApiConnectivityCheckConfig, controlPlaneManager *controlplane.Manager) *ApiConnectivityCheck {
@@ -129,10 +130,15 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 
 	c.config.Log.Info("Error count exceeds threshold, trying to ask other nodes if I'm healthy")
 	peersToAsk := c.config.Peers.GetPeersAddresses(peers.Worker)
-	if peersToAsk == nil || len(peersToAsk) == 0 {
-		c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, nothing we can do, so consider the node being healthy")
-		// TODO: maybe we need to check if this happens too much and reboot
+	if peersToAsk == nil && c.config.MinPeersForRemediation != 0 || len(peersToAsk) < c.config.MinPeersForRemediation {
+		c.config.Log.Info("Peers list is empty and / or less than the minimum required peers for remediation, so consider the node being healthy")
+		//todo maybe we need to check if this happens too much and reboot
 		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseNoPeersWereFound}
+	}
+
+	//if MinPeersForRemediation == 0 and there are no peers to contact, assume node is unhealthy
+	if peersToAsk == nil || len(peersToAsk) == 0 {
+		return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecauseNodeIsIsolated}
 	}
 
 	apiErrorsResponsesSum := 0

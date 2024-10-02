@@ -28,6 +28,7 @@ const (
 	ConfigCRName                   = "self-node-remediation-config"
 	defaultWatchdogPath            = "/dev/watchdog"
 	defaultIsSoftwareRebootEnabled = true
+	defaultMinPeersForRemediation  = 1
 )
 
 // SelfNodeRemediationConfigSpec defines the desired state of SelfNodeRemediationConfig
@@ -127,6 +128,11 @@ type SelfNodeRemediationConfigSpec struct {
 	// CustomDsTolerations allows to add custom tolerations snr agents that are running on the ds in order to support remediation for different types of nodes.
 	// +optional
 	CustomDsTolerations []v1.Toleration `json:"customDsTolerations,omitempty"`
+
+	// +kubebuilder:default:=1
+	// +kubebuilder:validation:Minimum=0
+	// Minimum number of peer workers/control nodes to attempt to contact before deciding if node is unhealthy or not
+	MinPeersForRemediation int `json:"minPeersForRemediation,omitempty"`
 }
 
 // SelfNodeRemediationConfigStatus defines the observed state of SelfNodeRemediationConfig
@@ -170,6 +176,7 @@ func NewDefaultSelfNodeRemediationConfig() SelfNodeRemediationConfig {
 		Spec: SelfNodeRemediationConfigSpec{
 			WatchdogFilePath:        defaultWatchdogPath,
 			IsSoftwareRebootEnabled: defaultIsSoftwareRebootEnabled,
+			MinPeersForRemediation:  defaultMinPeersForRemediation,
 		},
 	}
 }

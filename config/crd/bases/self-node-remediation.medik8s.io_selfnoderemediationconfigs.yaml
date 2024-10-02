@@ -125,6 +125,12 @@ spec:
                   its peers.
                 minimum: 1
                 type: integer
+              minPeersForRemediation:
+                default: 1
+                description: Minimum number of peer workers/control nodes to attempt
+                  to contact before deciding if node is unhealthy or not
+                minimum: 0
+                type: integer
               peerApiServerTimeout:
                 default: 5s
                 description: |-
