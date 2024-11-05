@@ -89,7 +89,8 @@ func TestDir(t *testing.T) {
 	g := NewGomegaWithT(t)
 
 	d := MakeRenderData()
-	d.Funcs["fname"] = func(s string) string { return s }
+	d.Funcs["fname"] = func(s string) string { return "test-" + s }
+	d.Funcs["getOr"] = func(s string) string { return s }
 	d.Data["Namespace"] = "myns"
 
 	o, err := Dir("testdata/manifests", &d)
