@@ -3,7 +3,6 @@ package render
 import (
 	"bytes"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -106,7 +105,7 @@ func renderTemplate(path string, d *Data) (*bytes.Buffer, error) {
 	// Add getOr and isSet functions
 	tmpl.Funcs(template.FuncMap{"getOr": getOr, "isSet": isSet})
 
-	source, err := ioutil.ReadFile(path)
+	source, err := os.ReadFile(path)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to read manifest %s", path)
 	}
