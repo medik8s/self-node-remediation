@@ -50,6 +50,7 @@ type ApiConnectivityCheckConfig struct {
 	PeerRequestTimeout        time.Duration
 	PeerHealthPort            int
 	MaxTimeForNoPeersResponse time.Duration
+	MinPeersForRemediation    int
 }
 
 func New(config *ApiConnectivityCheckConfig, controlPlaneManager *controlplane.Manager) *ApiConnectivityCheck {
@@ -129,10 +130,26 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 
 	c.config.Log.Info("Error count exceeds threshold, trying to ask other nodes if I'm healthy")
 	peersToAsk := c.config.Peers.GetPeersAddresses(peers.Worker)
-	if peersToAsk == nil || len(peersToAsk) == 0 {
-		c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, nothing we can do, so consider the node being healthy")
+
+	// We check to see if we have at least the number of peers that the user has configured as required.
+	//	If we don't have this many peers (for instance there are zero peers, and the default value is set
+	//	which requires at least one peer), we don't want to remediate. In this case we have some confusion
+	//	and don't want to remediate a node when we shouldn't.  Note: It would be unusual for MinPeersForRemediation
+	//	to be greater than 1 unless the environment has specific requirements.
+	if len(peersToAsk) < c.config.MinPeersForRemediation {
+		c.config.Log.Info("Ignoring api-server error as we have an insufficient number of peers found, "+
+			"so we aren't going to attempt to contact any to check for a SelfNodeRemediation CR"+
+			" - we will consider it as if there was no CR present & as healthy.", "minPeersRequired",
+			c.config.MinPeersForRemediation, "actualNumPeersFound", len(peersToAsk))
+
 		// TODO: maybe we need to check if this happens too much and reboot
 		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseNoPeersWereFound}
+	}
+
+	// If we make it here and there are no peers, we can't proceed because we need at least one peer
+	//	to check.  So it doesn't make sense to continue on - we'll mark as unhealthy and exit fast
+	if len(peersToAsk) == 0 {
+		return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecauseNodeIsIsolated}
 	}
 
 	apiErrorsResponsesSum := 0
