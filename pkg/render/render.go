@@ -3,13 +3,11 @@ package render
 import (
 	"bytes"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 	"text/template"
 
-	"github.com/Masterminds/sprig"
 	"github.com/pkg/errors"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -104,11 +102,10 @@ func renderTemplate(path string, d *Data) (*bytes.Buffer, error) {
 		tmpl.Funcs(d.Funcs)
 	}
 
-	// Add universal functions
+	// Add getOr and isSet functions
 	tmpl.Funcs(template.FuncMap{"getOr": getOr, "isSet": isSet})
-	tmpl.Funcs(sprig.TxtFuncMap())
 
-	source, err := ioutil.ReadFile(path)
+	source, err := os.ReadFile(path)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to read manifest %s", path)
 	}
