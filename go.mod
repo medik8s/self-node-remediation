@@ -1,12 +1,12 @@
 module github.com/medik8s/self-node-remediation
 
-go 1.21
+go 1.23
 
 require (
 	github.com/go-logr/logr v1.2.4
 	github.com/go-ping/ping v1.1.0
 	github.com/medik8s/common v1.17.0
-	github.com/onsi/ginkgo/v2 v2.9.5
+	github.com/onsi/ginkgo/v2 v2.22.0
 	github.com/onsi/gomega v1.27.7
 	github.com/openshift/api v0.0.0-20230414143018-3367bc7e6ac7 // release-4.13
 	github.com/pkg/errors v0.9.1
