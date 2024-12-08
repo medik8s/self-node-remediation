@@ -5,7 +5,7 @@ SHELL := /bin/bash
 CONTROLLER_GEN_VERSION = v0.14.0
 
 # GO_VERSION refers to the version of Golang to be downloaded when running dockerized version
-GO_VERSION = 1.21
+GO_VERSION = 1.23
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary, align with k8s.io/client-go in go.mod
 ENVTEST_K8S_VERSION = 1.26
@@ -33,7 +33,7 @@ SORT_IMPORTS_VERSION = v0.3.0
 ENVSUBST_VERSION = v1.4.2
 
 # OCP Version: for Red Hat bundle community
-OCP_VERSION = 4.12
+OCP_VERSION = 4.14
 
 # update for major version updates to YQ_VERSION! see https://github.com/mikefarah/yq
 YQ_API_VERSION = v4
