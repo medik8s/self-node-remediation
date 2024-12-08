@@ -238,6 +238,7 @@ var _ = Describe("SNR Config Test", func() {
 			Expect(createdConfig.Spec.ApiServerTimeout.Seconds()).To(BeEquivalentTo(5))
 			Expect(createdConfig.Spec.ApiCheckInterval.Seconds()).To(BeEquivalentTo(15))
 			Expect(createdConfig.Spec.PeerUpdateInterval.Seconds()).To(BeEquivalentTo(15 * 60))
+			Expect(createdConfig.Spec.MinPeersForRemediation).To(BeEquivalentTo(1))
 		})
 	})
 
