@@ -1,6 +1,6 @@
 module github.com/medik8s/self-node-remediation
 
-go 1.23
+go 1.23.0
 
 require (
 	github.com/go-logr/logr v1.4.2
