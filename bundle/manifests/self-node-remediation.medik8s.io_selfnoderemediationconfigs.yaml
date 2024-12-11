@@ -127,6 +127,17 @@ spec:
                   its peers.
                 minimum: 1
                 type: integer
+              minPeersForRemediation:
+                default: 1
+                description: "Minimum number of peer workers/control nodes to attempt
+                  to contact before deciding if node is unhealthy or not\n\tif set
+                  to zero, no other peers will be required to be present for remediation
+                  action to occur when this\n\tnode has lost API server access.  If
+                  an insufficient number of peers are found, we will not attempt to
+                  ask\n\tany peer nodes (if present) whether they see that the current
+                  node has been marked unhealthy with a\n\tSelfNodeRemediation CR"
+                minimum: 0
+                type: integer
               peerApiServerTimeout:
                 default: 5s
                 description: |-

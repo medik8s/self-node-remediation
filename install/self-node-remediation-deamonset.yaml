@@ -72,6 +72,8 @@ spec:
             value: {{.EndpointHealthCheckUrl}}
           - name: HOST_PORT
             value: "{{.HostPort}}"
+          - name: MIN_PEERS_FOR_REMEDIATION
+            value: "{{.MinPeersForRemediation}}"
         image: {{.Image}}
         imagePullPolicy: Always
         volumeMounts:
