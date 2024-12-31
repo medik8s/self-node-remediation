@@ -186,7 +186,7 @@ ENVTEST = $(shell pwd)/bin/setup-envtest
 # Use TEST_OPS to pass further options to `go test` (e.g. -gingo.v and/or -ginkgo.focus)
 export TEST_OPS ?= ""
 .PHONY: test
-test: envtest generate fix-imports manifests fmt vet ## Run tests.
+test: go-verify envtest generate fix-imports manifests fmt vet ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path --bin-dir $(PROJECT_DIR)/testbin)" \
 		KUBEBUILDER_CONTROLPLANE_STOP_TIMEOUT="60s"\
 		go test ./api/... ./controllers/... ./pkg/... -coverprofile cover.out -v ${TEST_OPS}
@@ -488,18 +488,22 @@ container-build: docker-build bundle-build ## Build containers
 container-push: ## Push containers (NOTE: catalog can't be build before bundle was pushed)
 	make docker-push bundle-push catalog-build catalog-push
 
-.PHONY: vendor
-vendor: ## Runs go mod vendor
-	go mod vendor
-
 .PHONY: tidy
-tidy: ## Runs go mod tidy
+tidy: # Run go mod tidy - add missing and remove unused modules.
 	go mod tidy
 
-.PHONY:verify-vendor
-verify-vendor: tidy vendor verify-no-changes ##Verifies vendor and tidy didn't cause changes
+.PHONY: vendor
+vendor: # Run go mod vendor - make vendored copy of dependencies.
+	go mod vendor
 
-.PHONY:verify-bundle
+.PHONY: go-verify
+go-verify: tidy vendor # Run go mod verify - verify dependencies have expected content
+	go mod verify
+
+.PHONY: verify-vendor
+verify-vendor: go-verify verify-no-changes ##Verifies vendor and tidy didn't cause changes
+
+.PHONY: verify-bundle
 verify-bundle: manifests bundle bundle-reset verify-no-changes ##Verifies bundle and manifests didn't cause changes
 
 # Revert all version or build date related changes
