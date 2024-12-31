@@ -40,7 +40,10 @@ import (
 	"github.com/medik8s/self-node-remediation/pkg/apicheck"
 	"github.com/medik8s/self-node-remediation/pkg/certificates"
 	"github.com/medik8s/self-node-remediation/pkg/peers"
+
 	//+kubebuilder:scaffold:imports
+	"github.com/medik8s/self-node-remediation/pkg/reboot"
+	"github.com/medik8s/self-node-remediation/pkg/watchdog"
 )
 
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
@@ -52,6 +55,7 @@ var cancelFunc context.CancelFunc
 var k8sClient *shared.K8sClientWrapper
 var certReader certificates.CertStorageReader
 var managerReconciler *controllers.SelfNodeRemediationReconciler
+var dummyDog watchdog.Watchdog
 
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -120,12 +124,17 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	certReader = certificates.NewSecretCertStorage(k8sClient, ctrl.Log.WithName("SecretCertStorage"), shared.Namespace)
+
+	dummyDog = watchdog.NewFake(true)
+	rebooter := reboot.NewWatchdogRebooter(dummyDog, ctrl.Log.WithName("rebooter"))
+
 	apiConnectivityCheckConfig := &apicheck.ApiConnectivityCheckConfig{
 		Log:                ctrl.Log.WithName("api-check"),
 		MyNodeName:         shared.UnhealthyNodeName,
 		CheckInterval:      shared.ApiCheckInterval,
 		MaxErrorsThreshold: shared.MaxErrorThreshold,
 		Peers:              peers,
+		Rebooter:           rebooter,
 		Cfg:                cfg,
 		CertReader:         certReader,
 	}
