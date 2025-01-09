@@ -241,6 +241,12 @@ func (r *SelfNodeRemediationReconciler) ReconcileManager(ctx context.Context, re
 	}
 
 	if r.isStoppedByNHC(snr) {
+		//This remediation is no longer relevant, most likely because fixed by a different remediator.
+		if snr.GetDeletionTimestamp() != nil {
+			//Removing finalizer so NHC deletion of the remediation can be completed
+			r.logger.Info("Removing finalizer of timed-out remediation deleted by NHC", "remediation name", snr.GetName())
+			return ctrl.Result{}, r.removeFinalizer(snr)
+		}
 		r.logger.Info("NHC added the timed-out annotation, remediation will be stopped")
 		events.RemediationStoppedByNHC(r.Recorder, snr)
 		return ctrl.Result{}, r.updateConditions(remediationTimeoutByNHC, snr)
