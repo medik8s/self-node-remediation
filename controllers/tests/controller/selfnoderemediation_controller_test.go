@@ -25,6 +25,7 @@ import (
 	"github.com/medik8s/self-node-remediation/controllers"
 	"github.com/medik8s/self-node-remediation/controllers/tests/shared"
 	"github.com/medik8s/self-node-remediation/pkg/utils"
+	"github.com/medik8s/self-node-remediation/pkg/watchdog"
 )
 
 const (
@@ -44,6 +45,9 @@ var _ = Describe("SNR Controller", func() {
 		snr.Namespace = snrNamespace
 		snrConfig = shared.GenerateTestConfig()
 		time.Sleep(time.Second * 2)
+
+		// reset watchdog for each test!
+		dummyDog.Reset()
 	})
 
 	JustBeforeEach(func() {
@@ -183,7 +187,7 @@ var _ = Describe("SNR Controller", func() {
 
 				verifyTimeHasBeenRebootedExists(snr)
 
-				verifyNoWatchdogFood()
+				verifyWatchdogTriggered()
 
 				verifyEvent("Normal", "NodeReboot", "Remediation process - about to attempt fencing the unhealthy node by rebooting it")
 
@@ -233,7 +237,7 @@ var _ = Describe("SNR Controller", func() {
 
 				verifyTimeHasBeenRebootedExists(snr)
 
-				verifyNoWatchdogFood()
+				verifyWatchdogTriggered()
 
 				// The kube-api calls for VA fail intentionally. In this case, we expect the snr agent to try
 				// to delete node resources again. So LastError is set to the error every time Reconcile()
@@ -315,7 +319,7 @@ var _ = Describe("SNR Controller", func() {
 
 					verifyTimeHasBeenRebootedExists(snr)
 
-					verifyNoWatchdogFood()
+					verifyWatchdogTriggered()
 
 					verifyFinalizerExists(snr)
 
@@ -436,30 +440,16 @@ var _ = Describe("SNR Controller", func() {
 	})
 
 	Context("Unhealthy node without api-server access", func() {
-
-		// this is not a controller test anymore... it's testing peers. But keep it here for now...
-
 		BeforeEach(func() {
 			By("Simulate api-server failure")
 			k8sClient.ShouldSimulateFailure = true
 			remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
 		})
 
-		It("Verify that watchdog is not receiving food after some time", func() {
-			lastFoodTime := dummyDog.LastFoodTime()
-			timeout := dummyDog.GetTimeout()
-			Eventually(func() bool {
-				newTime := dummyDog.LastFoodTime()
-				// ensure the timeout passed
-				timeoutPassed := time.Now().After(lastFoodTime.Add(3 * timeout))
-				// ensure wd wasn't feeded
-				missedFeed := newTime.Before(lastFoodTime.Add(timeout))
-				if timeoutPassed && missedFeed {
-					return true
-				}
-				lastFoodTime = newTime
-				return false
-			}, 10*shared.PeerUpdateInterval, timeout).Should(BeTrue())
+		Context("no peer found", func() {
+			It("Verify that watchdog is not triggered", func() {
+				verifyWatchdogNotTriggered()
+			})
 		})
 	})
 
@@ -532,12 +522,16 @@ func verifyNodeIsSchedulable() {
 	}, 95*time.Second, 250*time.Millisecond).Should(BeFalse())
 }
 
-func verifyNoWatchdogFood() {
-	By("Verify that watchdog is not receiving food")
-	currentLastFoodTime := dummyDog.LastFoodTime()
-	ConsistentlyWithOffset(1, func() time.Time {
-		return dummyDog.LastFoodTime()
-	}, 5*dummyDog.GetTimeout(), 1*time.Second).Should(Equal(currentLastFoodTime), "watchdog should not receive food anymore")
+func verifyWatchdogTriggered() {
+	EventuallyWithOffset(1, func(g Gomega) {
+		g.Expect(dummyDog.Status()).To(Equal(watchdog.Triggered))
+	}, 5*dummyDog.GetTimeout(), 1*time.Second).Should(Succeed(), "watchdog should be triggered")
+}
+
+func verifyWatchdogNotTriggered() {
+	ConsistentlyWithOffset(1, func(g Gomega) {
+		g.Expect(dummyDog.Status()).To(Equal(watchdog.Armed))
+	}, 5*dummyDog.GetTimeout(), 1*time.Second).Should(Succeed(), "watchdog should not be triggered")
 }
 
 func verifyFinalizerExists(snr *v1alpha1.SelfNodeRemediation) {

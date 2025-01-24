@@ -12,7 +12,7 @@ import (
 
 var _ = Describe("Watchdog", func() {
 
-	var wd watchdog.Watchdog
+	var wd watchdog.FakeWatchdog
 	var cancel context.CancelFunc
 
 	BeforeEach(func() {
@@ -63,6 +63,20 @@ var _ = Describe("Watchdog", func() {
 				g.Expect(wd.Status()).To(Equal(watchdog.Disarmed))
 			}, 1*time.Second, 100*time.Millisecond).Should(Succeed(), "watchdog should be disarmed")
 			verifyNoWatchdogFood(wd)
+		})
+	})
+
+	Context("Triggered watchdog reset", func() {
+		BeforeEach(func() {
+			wd.Stop()
+			wd.Reset()
+		})
+
+		It("should be armed and fed", func() {
+			Eventually(func(g Gomega) {
+				g.Expect(wd.Status()).To(Equal(watchdog.Armed))
+			}, 1*time.Second, 100*time.Millisecond).Should(Succeed(), "watchdog should be armed")
+			verifyWatchdogFood(wd)
 		})
 	})
 })
