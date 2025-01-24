@@ -27,6 +27,9 @@ type Role int8
 const (
 	Worker Role = iota
 	ControlPlane
+
+	// this is used instead of "peerUpdateInterval" when peer update fails
+	quickPeerUpdateInterval = 2 * time.Minute
 )
 
 type Peers struct {
@@ -77,22 +80,24 @@ func (p *Peers) Start(ctx context.Context) error {
 		p.controlPlanePeerSelector = createSelector(hostname, getControlPlaneLabel(myNode))
 	}
 
-	var updatePeersError error
-	cancellableCtx, cancel := context.WithCancel(ctx)
-
 	p.log.Info("peer starting", "name", p.myNodeName)
-	wait.UntilWithContext(cancellableCtx, func(ctx context.Context) {
-		updatePeersError = p.updateWorkerPeers(ctx)
-		if updatePeersError != nil {
-			cancel()
-		}
-		updatePeersError = p.updateControlPlanePeers(ctx)
-		if updatePeersError != nil {
-			cancel()
+	wait.UntilWithContext(ctx, func(ctx context.Context) {
+		updateWorkerPeersError := p.updateWorkerPeers(ctx)
+		updateControlPlanePeersError := p.updateControlPlanePeers(ctx)
+		if updateWorkerPeersError != nil || updateControlPlanePeersError != nil {
+			// the default update interval is quite long, in case of an error we want to retry quicker
+			quickCtx, quickCancel := context.WithCancel(ctx)
+			wait.UntilWithContext(quickCtx, func(ctx context.Context) {
+				quickUpdateWorkerPeersError := p.updateWorkerPeers(ctx)
+				quickUpdateControlPlanePeersError := p.updateControlPlanePeers(ctx)
+				if quickUpdateWorkerPeersError == nil && quickUpdateControlPlanePeersError == nil {
+					quickCancel()
+				}
+			}, quickPeerUpdateInterval)
 		}
 	}, p.peerUpdateInterval)
 
-	return updatePeersError
+	return nil
 }
 
 func (p *Peers) updateWorkerPeers(ctx context.Context) error {
