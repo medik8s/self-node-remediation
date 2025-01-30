@@ -53,13 +53,14 @@ import (
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 var (
-	testEnv                 *envtest.Environment
-	dummyDog                watchdog.FakeWatchdog
-	unhealthyNode, peerNode = &v1.Node{}, &v1.Node{}
-	cancelFunc              context.CancelFunc
-	k8sClient               *shared.K8sClientWrapper
-	fakeRecorder            *record.FakeRecorder
-	snrConfig               *selfnoderemediationv1alpha1.SelfNodeRemediationConfig
+	testEnv                    *envtest.Environment
+	dummyDog                   watchdog.FakeWatchdog
+	unhealthyNode, peerNode    = &v1.Node{}, &v1.Node{}
+	cancelFunc                 context.CancelFunc
+	k8sClient                  *shared.K8sClientWrapper
+	fakeRecorder               *record.FakeRecorder
+	snrConfig                  *selfnoderemediationv1alpha1.SelfNodeRemediationConfig
+	apiConnectivityCheckConfig *apicheck.ApiConnectivityCheckConfig
 )
 
 var unhealthyNodeNamespacedName = client.ObjectKey{
@@ -152,14 +153,15 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	rebooter := reboot.NewWatchdogRebooter(dummyDog, ctrl.Log.WithName("rebooter"))
-	apiConnectivityCheckConfig := &apicheck.ApiConnectivityCheckConfig{
-		Log:                ctrl.Log.WithName("api-check"),
-		MyNodeName:         shared.UnhealthyNodeName,
-		CheckInterval:      shared.ApiCheckInterval,
-		MaxErrorsThreshold: shared.MaxErrorThreshold,
-		Peers:              peers,
-		Rebooter:           rebooter,
-		Cfg:                cfg,
+	apiConnectivityCheckConfig = &apicheck.ApiConnectivityCheckConfig{
+		Log:                    ctrl.Log.WithName("api-check"),
+		MyNodeName:             shared.UnhealthyNodeName,
+		CheckInterval:          shared.ApiCheckInterval,
+		MaxErrorsThreshold:     shared.MaxErrorThreshold,
+		Peers:                  peers,
+		Rebooter:               rebooter,
+		Cfg:                    cfg,
+		MinPeersForRemediation: shared.MinPeersForRemediation,
 	}
 	apiCheck := apicheck.New(apiConnectivityCheckConfig, nil)
 	err = k8sManager.Add(apiCheck)

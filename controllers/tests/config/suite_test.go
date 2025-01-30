@@ -120,14 +120,16 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	certReader = certificates.NewSecretCertStorage(k8sClient, ctrl.Log.WithName("SecretCertStorage"), shared.Namespace)
+
 	apiConnectivityCheckConfig := &apicheck.ApiConnectivityCheckConfig{
-		Log:                ctrl.Log.WithName("api-check"),
-		MyNodeName:         shared.UnhealthyNodeName,
-		CheckInterval:      shared.ApiCheckInterval,
-		MaxErrorsThreshold: shared.MaxErrorThreshold,
-		Peers:              peers,
-		Cfg:                cfg,
-		CertReader:         certReader,
+		Log:                    ctrl.Log.WithName("api-check"),
+		MyNodeName:             shared.UnhealthyNodeName,
+		CheckInterval:          shared.ApiCheckInterval,
+		MaxErrorsThreshold:     shared.MaxErrorThreshold,
+		MinPeersForRemediation: shared.MinPeersForRemediation,
+		Peers:                  peers,
+		Cfg:                    cfg,
+		CertReader:             certReader,
 	}
 	apiCheck := apicheck.New(apiConnectivityCheckConfig, nil)
 	err = k8sManager.Add(apiCheck)
