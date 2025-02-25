@@ -2,7 +2,7 @@ package utils
 
 import (
 	"context"
-	"errors"
+	"fmt"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -20,6 +20,7 @@ func GetSelfNodeRemediationAgentPod(nodeName string, r client.Reader) (*v1.Pod, 
 
 	err := r.List(context.Background(), podList, &client.ListOptions{LabelSelector: selector})
 	if err != nil {
+		err = fmt.Errorf("failed to retrieve the self-node-remediation agent pod: %w", err)
 		return nil, err
 	}
 
@@ -29,5 +30,5 @@ func GetSelfNodeRemediationAgentPod(nodeName string, r client.Reader) (*v1.Pod, 
 		}
 	}
 
-	return nil, errors.New("failed to find self node remediation pod matching the given node")
+	return nil, fmt.Errorf("failed to find self node remediation pod matching the given node (%s)", nodeName)
 }

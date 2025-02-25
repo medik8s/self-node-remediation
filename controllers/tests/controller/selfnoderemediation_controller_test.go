@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"time"
 
+	labels2 "github.com/medik8s/common/pkg/labels"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -18,12 +19,15 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	machinev1beta1 "github.com/openshift/api/machine/v1beta1"
 
+	"github.com/medik8s/self-node-remediation/api"
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/controllers"
 	"github.com/medik8s/self-node-remediation/controllers/tests/shared"
+	"github.com/medik8s/self-node-remediation/pkg/controlplane"
 	"github.com/medik8s/self-node-remediation/pkg/utils"
 	"github.com/medik8s/self-node-remediation/pkg/watchdog"
 )
@@ -32,53 +36,49 @@ const (
 	snrNamespace = "default"
 )
 
+var remediationStrategy v1alpha1.RemediationStrategyType
+
 var _ = Describe("SNR Controller", func() {
 	var snr *v1alpha1.SelfNodeRemediation
-	var remediationStrategy v1alpha1.RemediationStrategyType
+
 	var nodeRebootCapable = "true"
-	var isAdditionalSetupNeeded = false
 
 	BeforeEach(func() {
 		nodeRebootCapable = "true"
-		snr = &v1alpha1.SelfNodeRemediation{}
-		snr.Name = shared.UnhealthyNodeName
-		snr.Namespace = snrNamespace
-		snrConfig = shared.GenerateTestConfig()
-		time.Sleep(time.Second * 2)
 
-		// reset watchdog for each test!
-		dummyDog.Reset()
+		By("Set default self-node-remediation configuration", func() {
+			snr = &v1alpha1.SelfNodeRemediation{}
+			snr.Name = shared.UnhealthyNodeName
+			snr.Namespace = snrNamespace
+
+			snrConfig = shared.GenerateTestConfig()
+			time.Sleep(time.Second * 2)
+		})
+
+		DeferCleanup(func() {
+			deleteRemediations()
+
+			//clear node's state, this is important to remove taints, label etc.
+			By(fmt.Sprintf("Clear node state for '%s'", shared.UnhealthyNodeName), func() {
+				Expect(k8sClient.Update(context.Background(), getNode(shared.UnhealthyNodeName)))
+			})
+
+			By(fmt.Sprintf("Clear node state for '%s'", shared.PeerNodeName), func() {
+				Expect(k8sClient.Update(context.Background(), getNode(shared.PeerNodeName)))
+			})
+
+			time.Sleep(time.Second * 2)
+
+			deleteRemediations()
+			clearEvents()
+			verifyCleanState()
+		})
 	})
 
 	JustBeforeEach(func() {
-		if isAdditionalSetupNeeded {
-			createSelfNodeRemediationPod()
-			verifySelfNodeRemediationPodExist()
-		}
-		createConfig()
-		DeferCleanup(func() {
-			deleteConfig()
-		})
+		createTestConfig()
 		updateIsRebootCapable(nodeRebootCapable)
-	})
-
-	AfterEach(func() {
-		k8sClient.ShouldSimulateFailure = false
-		k8sClient.ShouldSimulatePodDeleteFailure = false
-		isAdditionalSetupNeeded = false
-
-		By("Restore default settings for api connectivity check")
-		apiConnectivityCheckConfig.MinPeersForRemediation = shared.MinPeersForRemediation
-
-		deleteRemediations()
-		deleteSelfNodeRemediationPod()
-		//clear node's state, this is important to remove taints, label etc.
-		Expect(k8sClient.Update(context.Background(), getNode(shared.UnhealthyNodeName)))
-		Expect(k8sClient.Update(context.Background(), getNode(shared.PeerNodeName)))
-		time.Sleep(time.Second * 2)
-		deleteRemediations()
-		clearEvents()
-		verifyCleanState()
+		resetWatchdogTimer()
 	})
 
 	It("check nodes exist", func() {
@@ -162,8 +162,8 @@ var _ = Describe("SNR Controller", func() {
 
 	Context("Unhealthy node with api-server access", func() {
 
-		BeforeEach(func() {
-			isAdditionalSetupNeeded = true
+		JustBeforeEach(func() {
+			doAdditionalSetup()
 		})
 
 		Context("Automatic strategy - ResourceDeletion selected", func() {
@@ -503,28 +503,78 @@ var _ = Describe("SNR Controller", func() {
 	})
 
 	Context("Unhealthy node without api-server access", func() {
-		BeforeEach(func() {
-			By("Simulate api-server failure")
-			k8sClient.ShouldSimulateFailure = true
-			remediationStrategy = v1alpha1.ResourceDeletionRemediationStrategy
-		})
 
-		Context("no peer found", func() {
-			It("Verify that watchdog is not triggered", func() {
+		Context("two control node peers found, they tell me I'm unhealthy", func() {
+
+			BeforeEach(func() {
+				additionalNodes := []newNodeConfig{
+					{
+						nodeName: shared.Peer2NodeName,
+						labels: map[string]string{
+							labels2.MasterRole: "true",
+						},
+
+						pods: []newPodConfig{
+							{
+								name:              shared.SnrPodName2,
+								simulatedResponse: api.Unhealthy,
+							},
+						},
+					},
+					{
+						nodeName: shared.Peer3NodeName,
+						labels: map[string]string{
+							labels2.MasterRole: "true",
+						},
+						pods: []newPodConfig{
+							{
+								name:              shared.SnrPodName3,
+								simulatedResponse: api.Unhealthy,
+							},
+						},
+					},
+				}
+
+				configureClientWrapperToRandomizePodIpAddresses()
+				setMinPeersForRemediation(0)
+				configureUnhealthyNodeAsControlNode()
+				addNodes(additionalNodes)
+
+				addControlPlaneManager()
+				resetWatchdogTimer()
+				configureApiServerSimulatedFailures(true)
+				configureRemediationStrategy(v1alpha1.ResourceDeletionRemediationStrategy)
+				configureSimulatedPeerResponses(true)
+			})
+
+			It("check that we actually get a triggered watchdog reboot", func() {
+				// it actually should be verifyWatchdogTriggered() but this is currently proving
+				//	that the code is broken!
 				verifyWatchdogNotTriggered()
 			})
 		})
 
-		Context("no peer found and MinPeersForRemediation is configured to 0", func() {
+		Context("api-server should be failing throughout the entire test", func() {
 			BeforeEach(func() {
-				By("Set MinPeersForRemedation to zero which should trigger the watchdog before the test")
-				apiConnectivityCheckConfig.MinPeersForRemediation = 0
+				configureApiServerSimulatedFailures(true)
 			})
 
-			It("Does not receive peer communication and since configured to need zero peers, initiates a reboot",
-				func() {
+			Context("no peer found", func() {
+				It("Verify that watchdog is not triggered", func() {
+					verifyWatchdogNotTriggered()
+				})
+			})
+
+			Context("no peer found and MinPeersForRemediation is configured to 0", func() {
+				BeforeEach(func() {
+					setMinPeersForRemediation(0)
+				})
+
+				It("Does not receive peer communication and since configured to need zero peers, "+
+					"initiates a reboot", func() {
 					verifyWatchdogTriggered()
 				})
+			})
 		})
 
 	})
@@ -715,26 +765,27 @@ func verifySelfNodeRemediationPodExist() {
 	}, 5*time.Second, 250*time.Millisecond).Should(Equal(1))
 }
 func deleteRemediations() {
+	By("Delete any existing remediations", func() {
+		Eventually(func(g Gomega) {
+			snrs := &v1alpha1.SelfNodeRemediationList{}
+			g.Expect(k8sClient.List(context.Background(), snrs)).To(Succeed())
+			if len(snrs.Items) == 0 {
+				return
+			}
 
-	Eventually(func(g Gomega) {
-		snrs := &v1alpha1.SelfNodeRemediationList{}
-		g.Expect(k8sClient.List(context.Background(), snrs)).To(Succeed())
-		if len(snrs.Items) == 0 {
-			return
-		}
+			for _, snr := range snrs.Items {
+				tmpSnr := snr
+				g.Expect(removeFinalizers(&tmpSnr)).To(Succeed())
+				g.Expect(k8sClient.Client.Delete(context.Background(), &tmpSnr)).To(Succeed())
 
-		for _, snr := range snrs.Items {
-			tmpSnr := snr
-			g.Expect(removeFinalizers(&tmpSnr)).To(Succeed())
-			g.Expect(k8sClient.Client.Delete(context.Background(), &tmpSnr)).To(Succeed())
+			}
 
-		}
+			expectedEmptySnrs := &v1alpha1.SelfNodeRemediationList{}
+			g.Expect(k8sClient.List(context.Background(), expectedEmptySnrs)).To(Succeed())
+			g.Expect(len(expectedEmptySnrs.Items)).To(Equal(0))
 
-		expectedEmptySnrs := &v1alpha1.SelfNodeRemediationList{}
-		g.Expect(k8sClient.List(context.Background(), expectedEmptySnrs)).To(Succeed())
-		g.Expect(len(expectedEmptySnrs.Items)).To(Equal(0))
-
-	}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
+		}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
+	})
 }
 
 func deleteSNR(snr *v1alpha1.SelfNodeRemediation) {
@@ -777,42 +828,136 @@ func createSNR(snr *v1alpha1.SelfNodeRemediation, strategy v1alpha1.RemediationS
 	ExpectWithOffset(1, k8sClient.Client.Create(context.TODO(), snr)).To(Succeed(), "failed to create snr CR")
 }
 
-func createSelfNodeRemediationPod() {
-	pod := &v1.Pod{}
-	pod.Spec.NodeName = shared.UnhealthyNodeName
-	pod.Labels = map[string]string{"app.kubernetes.io/name": "self-node-remediation",
-		"app.kubernetes.io/component": "agent"}
+func createGenericSelfNodeRemediationPod(node *v1.Node, podName string) (pod *v1.Pod) {
+	By(fmt.Sprintf("Create pod '%s' under node '%s'", podName, node.Name), func() {
+		pod = &v1.Pod{}
+		pod.Spec.NodeName = node.Name
+		pod.Labels = map[string]string{"app.kubernetes.io/name": "self-node-remediation",
+			"app.kubernetes.io/component": "agent"}
 
-	pod.Name = "self-node-remediation"
-	pod.Namespace = shared.Namespace
-	container := v1.Container{
-		Name:  "foo",
-		Image: "foo",
-	}
-	pod.Spec.Containers = []v1.Container{container}
-	ExpectWithOffset(1, k8sClient.Client.Create(context.Background(), pod)).To(Succeed())
+		pod.Name = podName
+		pod.Namespace = shared.Namespace
+		// Some tests need the containers to exist
+		container := v1.Container{
+			Name:  "foo",
+			Image: "foo",
+		}
+		pod.Spec.Containers = []v1.Container{container}
+
+		ExpectWithOffset(1, k8sClient.Client.Create(context.Background(), pod)).To(Succeed(),
+			"failed to create self-node-remediation pod (%s) for node: '%s'", podName, node.Name)
+
+		time.Sleep(1 * time.Second)
+
+		verifySelfNodeRemediationPodByExistsByName(podName)
+
+		DeferCleanup(func() {
+			deleteSelfNodeRemediationPod(pod, false)
+		})
+	})
+
+	return
 }
 
-func deleteSelfNodeRemediationPod() {
-	pod := &v1.Pod{}
+func verifySelfNodeRemediationPodByExistsByName(name string) {
+	By(fmt.Sprintf("Verify that pod '%s' exists", name), func() {
+		podList := &v1.PodList{}
+		selector := labels.NewSelector()
+		nameRequirement, _ := labels.NewRequirement("app.kubernetes.io/name", selection.Equals, []string{"self-node-remediation"})
+		componentRequirement, _ := labels.NewRequirement("app.kubernetes.io/component", selection.Equals, []string{"agent"})
+		selector = selector.Add(*nameRequirement, *componentRequirement)
 
+		EventuallyWithOffset(1, func() (bool, error) {
+			err := k8sClient.Client.List(context.Background(), podList, &client.ListOptions{LabelSelector: selector})
+			for _, item := range podList.Items {
+				if item.Name == name {
+					return true, nil
+				}
+			}
+			return false, err
+		}, 5*time.Second, 250*time.Millisecond).Should(BeTrue(), "expected that we should have"+
+			" found the SNR pod")
+	})
+
+	return
+}
+
+func getSnrPods() (pods *v1.PodList) {
+	pods = &v1.PodList{}
+
+	By("Listing self-node-remediation pods")
+	listOptions := &client.ListOptions{
+		LabelSelector: labels.SelectorFromSet(labels.Set{
+			"app.kubernetes.io/name":      "self-node-remediation",
+			"app.kubernetes.io/component": "agent",
+		}),
+	}
+	Expect(k8sClient.List(context.Background(), pods, listOptions)).To(Succeed(),
+		"failed to list self-node-remediation pods")
+	return
+}
+
+func deleteSelfNodeRemediationPod(pod *v1.Pod, throwErrorIfNotFound bool) {
+	By(fmt.Sprintf("Attempt to delete pod '%s'", pod.Name), func() {
+		var grace client.GracePeriodSeconds = 0
+		err := k8sClient.Client.Delete(context.Background(), pod, grace)
+		if throwErrorIfNotFound {
+			ExpectWithOffset(1, err).To(Succeed(), "there should have been no error "+
+				"deleting pod '%s'", pod.Name)
+		} else {
+			ExpectWithOffset(1, err).To(Or(Succeed(), shared.IsK8sNotFoundError()),
+				"expected the delete operation to succeed, or for it to have told us that node '%s'"+
+					" didn't exist", pod.Name)
+		}
+
+	})
+
+	By("Check that pod: '"+pod.Name+"' was actually deleted", func() {
+		EventuallyWithOffset(1, func() bool {
+			podTestAfterDelete := &v1.Pod{}
+			podKey := client.ObjectKey{
+				Namespace: shared.Namespace,
+				Name:      pod.Name,
+			}
+			err := k8sClient.Client.Get(context.Background(), podKey, podTestAfterDelete)
+			return apierrors.IsNotFound(err)
+		}, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
+	})
+}
+
+func deleteSelfNodeRemediationPodByName(podName string, throwErrorIfNotFound bool) (err error) {
+	pod := &v1.Pod{}
 	podKey := client.ObjectKey{
 		Namespace: shared.Namespace,
-		Name:      "self-node-remediation",
+		Name:      podName,
 	}
 
-	if err := k8sClient.Get(context.Background(), podKey, pod); err != nil {
-		Expect(apierrors.IsNotFound(err)).To(BeTrue())
-		return
+	By(fmt.Sprintf("Attempting to get pod '%s' before deleting it", podName), func() {
+		if err := k8sClient.Client.Get(context.Background(), podKey, pod); err != nil {
+			if apierrors.IsNotFound(err) && !throwErrorIfNotFound {
+				logf.Log.Info("pod with name '%s' not found, we're not going to do anything", podName)
+				err = nil
+				return
+			}
+
+			err = fmt.Errorf("unable to get pod with name '%s' in order to delete it", err)
+			return
+		}
+	})
+
+	deleteSelfNodeRemediationPod(pod, throwErrorIfNotFound)
+
+	return
+}
+
+func deleteAllSelfNodeRemediationPods() {
+	pods := getSnrPods()
+
+	By("Deleting self-node-remediation pods")
+
+	for _, pod := range pods.Items {
+		deleteSelfNodeRemediationPod(&pod, false)
 	}
-
-	var grace client.GracePeriodSeconds = 0
-	ExpectWithOffset(1, k8sClient.Client.Delete(context.Background(), pod, grace)).To(Succeed())
-
-	EventuallyWithOffset(1, func() bool {
-		err := k8sClient.Client.Get(context.Background(), podKey, pod)
-		return apierrors.IsNotFound(err)
-	}, 10*time.Second, 100*time.Millisecond).Should(BeTrue())
 }
 
 func createTerminatingPod() {
@@ -916,42 +1061,43 @@ func eventuallyUpdateNode(updateFunc func(*v1.Node), isStatusUpdate bool) {
 }
 
 func verifyCleanState() {
-	//Verify nodes are at a clean state
-	nodes := &v1.NodeList{}
-	Expect(k8sClient.List(context.Background(), nodes)).To(Succeed())
-	Expect(len(nodes.Items)).To(BeEquivalentTo(2))
-	var peerNodeActual, unhealthyNodeActual *v1.Node
-	if nodes.Items[0].Name == shared.UnhealthyNodeName {
-		Expect(nodes.Items[1].Name).To(Equal(shared.PeerNodeName))
-		peerNodeActual = &nodes.Items[1]
-		unhealthyNodeActual = &nodes.Items[0]
-	} else {
-		Expect(nodes.Items[0].Name).To(Equal(shared.PeerNodeName))
-		Expect(nodes.Items[1].Name).To(Equal(shared.UnhealthyNodeName))
-		peerNodeActual = &nodes.Items[0]
-		unhealthyNodeActual = &nodes.Items[1]
-	}
+	By("Verifying that test(s) and AfterTest functions properly left us at an expected state", func() {
+		//Verify nodes are at a clean state
+		nodes := &v1.NodeList{}
+		Expect(k8sClient.List(context.Background(), nodes)).To(Succeed())
+		Expect(len(nodes.Items)).To(BeEquivalentTo(2))
+		var peerNodeActual, unhealthyNodeActual *v1.Node
+		if nodes.Items[0].Name == shared.UnhealthyNodeName {
+			Expect(nodes.Items[1].Name).To(Equal(shared.PeerNodeName))
+			peerNodeActual = &nodes.Items[1]
+			unhealthyNodeActual = &nodes.Items[0]
+		} else {
+			Expect(nodes.Items[0].Name).To(Equal(shared.PeerNodeName))
+			Expect(nodes.Items[1].Name).To(Equal(shared.UnhealthyNodeName))
+			peerNodeActual = &nodes.Items[0]
+			unhealthyNodeActual = &nodes.Items[1]
+		}
 
-	peerNodeExpected, unhealthyNodeExpected := getNode(shared.PeerNodeName), getNode(shared.UnhealthyNodeName)
-	verifyNodesAreEqual(peerNodeExpected, peerNodeActual)
-	verifyNodesAreEqual(unhealthyNodeExpected, unhealthyNodeActual)
+		peerNodeExpected, unhealthyNodeExpected := getNode(shared.PeerNodeName), getNode(shared.UnhealthyNodeName)
+		verifyNodesAreEqual(peerNodeExpected, peerNodeActual)
+		verifyNodesAreEqual(unhealthyNodeExpected, unhealthyNodeActual)
 
-	//Verify no existing remediations
-	remediations := &v1alpha1.SelfNodeRemediationList{}
-	Expect(k8sClient.List(context.Background(), remediations)).To(Succeed())
-	Expect(len(remediations.Items)).To(BeEquivalentTo(0))
+		//Verify no existing remediations
+		remediations := &v1alpha1.SelfNodeRemediationList{}
+		Expect(k8sClient.List(context.Background(), remediations)).To(Succeed())
+		Expect(len(remediations.Items)).To(BeEquivalentTo(0))
 
-	//Verify SNR Pod Does not exist
-	pod := &v1.Pod{}
-	podKey := client.ObjectKey{
-		Namespace: shared.Namespace,
-		Name:      "self-node-remediation",
-	}
-	err := k8sClient.Get(context.Background(), podKey, pod)
-	Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		//Verify SNR Pod Does not exist
+		pod := &v1.Pod{}
+		podKey := client.ObjectKey{
+			Namespace: shared.Namespace,
+			Name:      shared.SnrPodName1,
+		}
+		err := k8sClient.Get(context.Background(), podKey, pod)
+		Expect(apierrors.IsNotFound(err)).To(BeTrue())
 
-	verifyOutOfServiceTaintRemoved()
-
+		verifyOutOfServiceTaintRemoved()
+	})
 }
 
 func verifyNodesAreEqual(expected *v1.Node, actual *v1.Node) {
@@ -963,14 +1109,16 @@ func verifyNodesAreEqual(expected *v1.Node, actual *v1.Node) {
 }
 
 func clearEvents() {
-	for {
-		select {
-		case _ = <-fakeRecorder.Events:
+	By("Clear any events in the channel", func() {
+		for {
+			select {
+			case _ = <-fakeRecorder.Events:
 
-		default:
-			return
+			default:
+				return
+			}
 		}
-	}
+	})
 }
 
 func verifyEvent(eventType, reason, message string) {
@@ -1016,19 +1164,20 @@ func isEventOccurred(eventType string, reason string, message string) bool {
 }
 
 func deleteConfig() {
-	snrConfigTmp := &v1alpha1.SelfNodeRemediationConfig{}
-	// make sure config is already created
-	Eventually(func(g Gomega) {
-		g.Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snrConfig), snrConfigTmp)).To(Succeed())
-	}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
+	By("Delete SelfNodeRemediationConfig", func() {
+		snrConfigTmp := &v1alpha1.SelfNodeRemediationConfig{}
+		// make sure config is already created
+		Eventually(func(g Gomega) {
+			g.Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snrConfig), snrConfigTmp)).To(Succeed())
+		}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
 
-	//delete config and verify it's deleted
-	Expect(k8sClient.Delete(context.Background(), snrConfigTmp)).To(Succeed())
-	Eventually(func(g Gomega) {
-		err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snrConfig), snrConfigTmp)
-		g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
-	}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
-
+		//delete config and verify it's deleted
+		Expect(k8sClient.Delete(context.Background(), snrConfigTmp)).To(Succeed())
+		Eventually(func(g Gomega) {
+			err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snrConfig), snrConfigTmp)
+			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
+	})
 }
 
 func createConfig() {
@@ -1040,4 +1189,218 @@ func createConfig() {
 		g.Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snrConfig), snrConfigTmp)).To(Succeed())
 	}, 10*time.Second, 100*time.Millisecond).Should(Succeed())
 
+}
+
+func addControlPlaneManager() {
+	By("Add a control plane manager", func() {
+		controlPlaneMgr := controlplane.NewManager(shared.UnhealthyNodeName, k8sClient)
+		Expect(controlPlaneMgr.Start(context.Background())).To(Succeed(), "we should"+
+			"have been able to enable a control plane manager for the current node")
+
+		apiCheck.SetControlPlaneManager(controlPlaneMgr)
+
+		Expect(apiConnectivityCheckConfig.Peers.UpdateControlPlanePeers(context.Background())).To(Succeed())
+
+		DeferCleanup(func() {
+			By("Removing the control plane manager", func() {
+				apiCheck.SetControlPlaneManager(nil)
+				Expect(apiConnectivityCheckConfig.Peers.UpdateControlPlanePeers(context.Background())).To(Succeed())
+			})
+		})
+	})
+}
+
+func setMinPeersForRemediation(minimumNumberOfPeers int) {
+
+	By(fmt.Sprintf("Setting MinPeersForRemediation to %d", minimumNumberOfPeers), func() {
+		orgMinPeersForRemediation := apiConnectivityCheckConfig.MinPeersForRemediation
+		apiConnectivityCheckConfig.MinPeersForRemediation = minimumNumberOfPeers
+
+		time.Sleep(1 * time.Second)
+
+		DeferCleanup(func() {
+			By("Restore MinPeersForRemediation back to its default value", func() {
+				apiConnectivityCheckConfig.MinPeersForRemediation = orgMinPeersForRemediation
+			})
+		})
+	})
+
+}
+
+func configureClientWrapperToRandomizePodIpAddresses() {
+	By("Configure k8s client wrapper to return random IP address for pods", func() {
+		orgValue := k8sClient.ShouldReturnRandomPodIPs
+
+		k8sClient.ShouldReturnRandomPodIPs = true
+
+		DeferCleanup(func() {
+			By(fmt.Sprintf("Restore k8s client wrapper random pod IP address generation to %t",
+				orgValue), func() {
+				k8sClient.ShouldReturnRandomPodIPs = orgValue
+			})
+
+			return
+		})
+	})
+}
+
+func configureUnhealthyNodeAsControlNode() {
+	var unhealthyNode = &v1.Node{}
+	By("Getting the existing unhealthy node object", func() {
+		Expect(k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, unhealthyNode)).
+			To(Succeed(), "failed to get the unhealthy node object")
+
+		logf.Log.Info("Successfully retrieved node", "unhealthyNode",
+			unhealthyNode)
+	})
+
+	By("Set the existing unhealthy node as a control node", func() {
+		previousRole := unhealthyNode.Labels[labels2.MasterRole]
+		unhealthyNode.Labels[labels2.MasterRole] = "true"
+		Expect(k8sClient.Update(context.TODO(), unhealthyNode)).To(Succeed(), "failed to update unhealthy node")
+
+		DeferCleanup(func() {
+			By("Revert the unhealthy node's role to its previous value", func() {
+				unhealthyNode.Labels[labels2.MasterRole] = previousRole
+			})
+		})
+	})
+}
+
+func configureSimulatedPeerResponses(simulateResponses bool) {
+	By("Start simulating peer responses", func() {
+		orgValue := apiCheck.ShouldSimulatePeerResponses
+		apiCheck.ShouldSimulatePeerResponses = simulateResponses
+
+		DeferCleanup(func() {
+			apiCheck.ShouldSimulatePeerResponses = orgValue
+		})
+	})
+}
+
+func configureApiServerSimulatedFailures(simulateResponses bool) {
+	By("Configure k8s client to simulate API server failures", func() {
+		orgValue := k8sClient.ShouldSimulateFailure
+		k8sClient.ShouldSimulateFailure = simulateResponses
+
+		DeferCleanup(func() {
+			By(fmt.Sprintf("Restore k8s client config value for API server failure simulation to %t",
+				orgValue), func() {
+				k8sClient.ShouldSimulateFailure = orgValue
+			})
+
+		})
+	})
+
+}
+
+func configureRemediationStrategy(newRemediationStrategy v1alpha1.RemediationStrategyType) {
+	By(fmt.Sprintf("Configure remediation strategy to '%s'", newRemediationStrategy), func() {
+		orgValue := remediationStrategy
+		remediationStrategy = newRemediationStrategy
+
+		DeferCleanup(func() {
+			By(fmt.Sprintf("Restore remediation strategy to '%s'", orgValue), func() {
+				remediationStrategy = orgValue
+			})
+
+		})
+	})
+
+}
+
+type newPodConfig struct {
+	name              string
+	simulatedResponse api.HealthCheckResponseCode
+}
+type newNodeConfig struct {
+	nodeName string
+	labels   map[string]string
+
+	pods []newPodConfig
+}
+
+func addNodes(nodes []newNodeConfig) {
+	By("Add peer nodes & pods", func() {
+
+		for _, np := range nodes {
+			newNode := getNode(np.nodeName)
+
+			for key, value := range np.labels {
+				newNode.Labels[key] = value
+			}
+
+			By(fmt.Sprintf("Create node '%s'", np.nodeName), func() {
+				Expect(k8sClient.Create(context.Background(), newNode)).To(Succeed(),
+					"failed to create peer node '%s'", np.nodeName)
+
+				DeferCleanup(func() {
+					By(fmt.Sprintf("Remove node '%s'", np.nodeName), func() {
+						Expect(k8sClient.Delete(context.Background(), newNode)).To(Or(Succeed(), shared.IsK8sNotFoundError()))
+					})
+				})
+			})
+
+			createdNode := &v1.Node{}
+
+			By("Check that the newly created node actually was created", func() {
+				namespace := client.ObjectKey{
+					Name:      np.nodeName,
+					Namespace: "",
+				}
+				Eventually(func() error {
+					return k8sClient.Client.Get(context.TODO(), namespace, createdNode)
+				}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
+				Expect(createdNode.Name).To(Equal(np.nodeName))
+				Expect(createdNode.CreationTimestamp).ToNot(BeZero())
+			})
+
+			for _, pod := range np.pods {
+				By(fmt.Sprintf("Create pod '%s' under node '%s'", pod.name, np.nodeName), func() {
+					_ = createGenericSelfNodeRemediationPod(createdNode, pod.name)
+					apiCheck.SimulatePeerResponses = append(apiCheck.SimulatePeerResponses, pod.simulatedResponse)
+				})
+
+			}
+
+		}
+
+		DeferCleanup(func() {
+			By("Removing the additional peer nodes when all relevant tests are complete", func() {
+				Expect(k8sClient.Delete(context.Background(), getNode(shared.Peer2NodeName))).To(Succeed())
+				Expect(k8sClient.Delete(context.Background(), getNode(shared.Peer3NodeName))).To(Succeed())
+			})
+			return
+		})
+
+	})
+}
+
+func resetWatchdogTimer() {
+	By("Resetting watchdog timer", func() {
+		dummyDog.Reset()
+	})
+}
+
+func doAdditionalSetup() {
+	By("Perform additional setups", func() {
+
+		By("Create the default self-node-remediation agent pod", func() {
+			snrPod := createGenericSelfNodeRemediationPod(unhealthyNode, shared.SnrPodName1)
+			verifySelfNodeRemediationPodExist()
+
+			DeferCleanup(func() {
+				deleteSelfNodeRemediationPod(snrPod, false)
+			})
+		})
+	})
+}
+
+func createTestConfig() {
+	By("Create test configuration", func() {
+		createConfig()
+		DeferCleanup(func() {
+			deleteConfig()
+		})
+	})
 }
