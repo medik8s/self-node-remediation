@@ -54,6 +54,10 @@ func (manager *Manager) Start(_ context.Context) error {
 }
 
 func (manager *Manager) IsControlPlane() bool {
+	manager.log.Info("Checking to see if node is a control plane node",
+		"nodeName", manager.nodeName,
+		"controlPlaneNodeExpectedValue", peers.ControlPlane,
+		"nodeRole", manager.nodeRole)
 	return manager.nodeRole == peers.ControlPlane
 }
 
@@ -131,6 +135,9 @@ func (manager *Manager) initializeManager() error {
 }
 
 func (manager *Manager) setNodeRole(node corev1.Node) {
+	manager.log.Info("setNodeRole called",
+		"labels", node.Labels)
+
 	if nodes.IsControlPlane(&node) {
 		manager.nodeRole = peers.ControlPlane
 	} else {
