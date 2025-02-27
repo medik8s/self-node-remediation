@@ -244,12 +244,27 @@ func (r *SelfNodeRemediationReconciler) ReconcileManager(ctx context.Context, re
 		//This remediation is no longer relevant, most likely because fixed by a different remediator.
 		if snr.GetDeletionTimestamp() != nil {
 			//Removing finalizer so NHC deletion of the remediation can be completed
-			r.logger.Info("Removing finalizer of timed-out remediation deleted by NHC", "remediation name", snr.GetName())
-			return ctrl.Result{}, r.removeFinalizer(snr)
+			r.logger.Info("Cleaning up a timed-out remediation which is deleted by NHC", "remediation name", snr.GetName())
+
+			//Node found, cleanup Taints before removing the finlizer
+			if node, err := r.getNodeFromSnr(ctx, snr); err == nil {
+				if taintErr := r.removeOutOfServiceTaint(node); taintErr != nil {
+					return ctrl.Result{}, taintErr
+				}
+				return r.recoverNode(node, snr)
+			} else if apiErrors.IsNotFound(err) {
+				//Node doesn't exist, potentially removed by another remediator such as MDR
+				return ctrl.Result{}, r.removeFinalizer(snr)
+			} else {
+				// report an error
+				r.logger.Error(err, "failed to get node", "remediation name", snr.Name)
+				return ctrl.Result{}, err
+			}
+		} else {
+			r.logger.Info("NHC added the timed-out annotation, remediation will be stopped")
+			events.RemediationStoppedByNHC(r.Recorder, snr)
+			return ctrl.Result{}, r.updateConditions(remediationTimeoutByNHC, snr)
 		}
-		r.logger.Info("NHC added the timed-out annotation, remediation will be stopped")
-		events.RemediationStoppedByNHC(r.Recorder, snr)
-		return ctrl.Result{}, r.updateConditions(remediationTimeoutByNHC, snr)
 	}
 
 	if r.getPhase(snr) != fencingCompletedPhase {
