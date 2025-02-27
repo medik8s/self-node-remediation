@@ -178,8 +178,10 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 }
 
 // isConsideredHealthy keeps track of the number of errors reported, and when a certain amount of error occur within a certain
-// time, ask peers if this node is healthy. Returns if the node is considered to be healthy or not.
+// time, ask peers if this node is healthy. Returns if the node is considered to be healthy or not.  It is usable
+// whether this is a control plane node or a worker node
 func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
+
 	isControlPlaneManagerNil := c.controlPlaneManager == nil
 
 	isWorkerNode := isControlPlaneManagerNil || !c.controlPlaneManager.IsControlPlane()
@@ -188,31 +190,52 @@ func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
 		"isControlPlaneManagerNil", isControlPlaneManagerNil,
 		"isWorkerNode", isWorkerNode)
 
-	workerPeersResponse := c.getWorkerPeersResponse()
+	workerPeersResponse := c.getPeersResponse(peers.Worker)
 
 	if isWorkerNode {
-		c.config.Log.Info("isConsideredHealthy: returning result from getWorkerPeersResponse",
-			"workerPeersResponse.IsHealthy", workerPeersResponse.IsHealthy)
-		return workerPeersResponse.IsHealthy
-	} else {
-		canOtherControlPlanesBeReached := c.canOtherControlPlanesBeReached()
-		isControlPlaneHealthy := c.controlPlaneManager.IsControlPlaneHealthy(workerPeersResponse, canOtherControlPlanesBeReached)
-		c.config.Log.Info("isConsideredHealthy: returning result from IsControlPlaneHealthy",
-			"c.canOtherControlPlanesBeReached()", canOtherControlPlanesBeReached,
-			"c.controlPlaneManager.IsControlPlaneHealthy", isControlPlaneHealthy)
-		return isControlPlaneHealthy
+		if workerPeersResponse.IsHealthy {
+			c.config.Log.Info("isConsideredHealthy: I'm a worker node and my peers say I'm healthy",
+				"workerPeersResponse.IsHealthy", workerPeersResponse.IsHealthy)
+			return true
+		}
+
+		controlPlanePeersResponse := c.getPeersResponse(peers.ControlPlane)
+
+		c.config.Log.Info("isConsideredHealthy: since peers think I'm unhealthy, double checking "+
+			"by returning what the control plane nodes think of my state",
+			"controlPlanePeersResponse.IsHealthy", controlPlanePeersResponse.IsHealthy)
+		return controlPlanePeersResponse.IsHealthy
+
 	}
+
+	controlPlanePeersResponse := c.getPeersResponse(peers.ControlPlane)
+
+	c.config.Log.Info("isConsideredHealthy: control planes report my health status",
+		"controlPlanePeersResponse.IsHealthy", controlPlanePeersResponse.IsHealthy)
+
+	isControlPlaneHealthy := c.controlPlaneManager.IsControlPlaneHealthy(controlPlanePeersResponse,
+		c.canOtherControlPlanesBeReached())
+
+	c.config.Log.Info("isConsideredHealthy: we have checked the control plane peer responses and cross "+
+		"checked it against the control plane diagnostics ",
+		"isControlPlaneHealthy", controlPlanePeersResponse.IsHealthy)
+
+	return isControlPlaneHealthy
 
 }
 
-func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
+func (c *ApiConnectivityCheck) getPeersResponse(role peers.Role) peers.Response {
 	c.errorCount++
 	if c.errorCount < c.config.MaxErrorsThreshold {
 		c.config.Log.Info("Ignoring api-server error, error count below threshold", "current count", c.errorCount, "threshold", c.config.MaxErrorsThreshold)
 		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseErrorsThresholdNotReached}
 	}
+	c.config.Log.Info("Error count was above threshold, we will continue and attempt to get the addressess" +
+		" for our peers, I consider myself a WORKER at the moment")
 
-	peersToAsk := c.config.Peers.GetPeersAddresses(peers.Worker)
+	// MES: This gets called even if the current node is a control plane node.  Hopefully
+	//	in an actual environment it is returning actual worker peers
+	peersToAsk := c.config.Peers.GetPeersAddresses(role)
 
 	c.config.Log.Info("Error count exceeds threshold, trying to ask other peer nodes if I'm healthy",
 		"minPeersRequired", c.config.MinPeersForRemediation, "actualNumPeersFound", len(peersToAsk))
