@@ -548,9 +548,8 @@ var _ = Describe("SNR Controller", func() {
 			})
 
 			It("check that we actually get a triggered watchdog reboot", func() {
-				// it actually should be verifyWatchdogTriggered() but this is currently proving
-				//	that the code is broken!
-				verifyWatchdogNotTriggered()
+				// It's expected that the next line will fail, even though it shouldn't!
+				verifyWatchdogTriggered()
 			})
 		})
 
