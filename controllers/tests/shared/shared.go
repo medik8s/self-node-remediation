@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	selfNodeRemediation "github.com/medik8s/self-node-remediation/api"
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
