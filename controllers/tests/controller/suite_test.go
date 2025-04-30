@@ -60,6 +60,7 @@ var (
 	k8sClient                  *shared.K8sClientWrapper
 	fakeRecorder               *record.FakeRecorder
 	snrConfig                  *selfnoderemediationv1alpha1.SelfNodeRemediationConfig
+	apiCheck                   *shared.ApiConnectivityCheckWrapper
 	apiConnectivityCheckConfig *apicheck.ApiConnectivityCheckConfig
 )
 
@@ -149,6 +150,7 @@ var _ = BeforeSuite(func() {
 
 	peerApiServerTimeout := 5 * time.Second
 	peers := peers.New(shared.UnhealthyNodeName, shared.PeerUpdateInterval, k8sClient, ctrl.Log.WithName("peers"), peerApiServerTimeout)
+
 	err = k8sManager.Add(peers)
 	Expect(err).ToNot(HaveOccurred())
 
@@ -161,9 +163,11 @@ var _ = BeforeSuite(func() {
 		Peers:                  peers,
 		Rebooter:               rebooter,
 		Cfg:                    cfg,
-		MinPeersForRemediation: shared.MinPeersForRemediation,
+		MinPeersForRemediation: shared.MinPeersForRemediationConfigDefaultValue,
 	}
-	apiCheck := apicheck.New(apiConnectivityCheckConfig, nil)
+
+	apiCheck = shared.NewApiConnectivityCheckWrapper(apiConnectivityCheckConfig, nil)
+
 	err = k8sManager.Add(apiCheck)
 	Expect(err).ToNot(HaveOccurred())
 

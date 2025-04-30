@@ -27,13 +27,16 @@ import (
 
 type ApiConnectivityCheck struct {
 	client.Reader
-	config                 *ApiConnectivityCheckConfig
-	errorCount             int
-	timeOfLastPeerResponse time.Time
-	clientCreds            credentials.TransportCredentials
-	mutex                  sync.Mutex
-	controlPlaneManager    *controlplane.Manager
+	config                        *ApiConnectivityCheckConfig
+	errorCount                    int
+	timeOfLastPeerResponse        time.Time
+	clientCreds                   credentials.TransportCredentials
+	mutex                         sync.Mutex
+	controlPlaneManager           *controlplane.Manager
+	getHealthStatusFromRemoteFunc GetHealthStatusFromRemoteFunc
 }
+
+type GetHealthStatusFromRemoteFunc func(endpointIp corev1.PodIP, results chan<- selfNodeRemediation.HealthCheckResponseCode)
 
 type ApiConnectivityCheckConfig struct {
 	Log                       logr.Logger
@@ -53,13 +56,69 @@ type ApiConnectivityCheckConfig struct {
 	MinPeersForRemediation    int
 }
 
-func New(config *ApiConnectivityCheckConfig, controlPlaneManager *controlplane.Manager) *ApiConnectivityCheck {
-	return &ApiConnectivityCheck{
+func New(config *ApiConnectivityCheckConfig, controlPlaneManager *controlplane.Manager) (c *ApiConnectivityCheck) {
+	c = &ApiConnectivityCheck{
 		config:                 config,
 		mutex:                  sync.Mutex{},
 		controlPlaneManager:    controlPlaneManager,
 		timeOfLastPeerResponse: time.Now(),
 	}
+
+	c.SetHealthStatusFunc(c.GetDefaultPeerHealthCheckFunc())
+
+	return
+}
+
+func (c *ApiConnectivityCheck) GetDefaultPeerHealthCheckFunc() (fun GetHealthStatusFromRemoteFunc) {
+
+	fun = func(endpointIp corev1.PodIP, results chan<- selfNodeRemediation.HealthCheckResponseCode) {
+		logger := c.config.Log.WithValues("IP", endpointIp.IP)
+		logger.Info("getting health status from peer")
+
+		if err := c.initClientCreds(); err != nil {
+			logger.Error(err, "failed to init client credentials")
+			results <- selfNodeRemediation.RequestFailed
+			return
+		}
+
+		// TODO does this work with IPv6?
+		// MES: Yes it does, we've tested this
+		phClient, err := peerhealth.NewClient(fmt.Sprintf("%v:%v", endpointIp.IP, c.config.PeerHealthPort), c.config.PeerDialTimeout, c.config.Log.WithName("peerhealth client"), c.clientCreds)
+		if err != nil {
+			logger.Error(err, "failed to init grpc client")
+			results <- selfNodeRemediation.RequestFailed
+			return
+		}
+		defer phClient.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), c.config.PeerRequestTimeout)
+		defer cancel()
+
+		resp, err := phClient.IsHealthy(ctx, &peerhealth.HealthRequest{
+			NodeName:    c.config.MyNodeName,
+			MachineName: c.config.MyMachineName,
+		})
+		if err != nil {
+			logger.Error(err, "failed to read health response from peer")
+			results <- selfNodeRemediation.RequestFailed
+			return
+		}
+
+		logger.Info("got response from peer", "status", resp.Status)
+
+		results <- selfNodeRemediation.HealthCheckResponseCode(resp.Status)
+		return
+	}
+
+	return
+}
+
+func (c *ApiConnectivityCheck) GetControlPlaneManager() *controlplane.Manager {
+	return c.controlPlaneManager
+}
+
+func (c *ApiConnectivityCheck) SetControlPlaneManager(manager *controlplane.Manager) {
+	c.controlPlaneManager = manager
 }
 
 func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
@@ -109,27 +168,67 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 }
 
 // isConsideredHealthy keeps track of the number of errors reported, and when a certain amount of error occur within a certain
-// time, ask peers if this node is healthy. Returns if the node is considered to be healthy or not.
+// time, ask peers if this node is healthy. Returns if the node is considered to be healthy or not.  It is usable
+// whether this is a control plane node or a worker node
 func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
-	workerPeersResponse := c.getWorkerPeersResponse()
-	isWorkerNode := c.controlPlaneManager == nil || !c.controlPlaneManager.IsControlPlane()
+
+	isControlPlaneManagerNil := c.controlPlaneManager == nil
+
+	isWorkerNode := isControlPlaneManagerNil || !c.controlPlaneManager.IsControlPlane()
+
+	c.config.Log.Info("isConsideredHealthy called",
+		"isControlPlaneManagerNil", isControlPlaneManagerNil,
+		"isWorkerNode", isWorkerNode)
+
+	workerPeersResponse := c.getPeersResponse(peers.Worker)
+
 	if isWorkerNode {
-		return workerPeersResponse.IsHealthy
-	} else {
-		return c.controlPlaneManager.IsControlPlaneHealthy(workerPeersResponse, c.canOtherControlPlanesBeReached())
+		if workerPeersResponse.IsHealthy {
+			c.config.Log.Info("isConsideredHealthy: I'm a worker node and my peers say I'm healthy",
+				"workerPeersResponse.IsHealthy", workerPeersResponse.IsHealthy)
+			return true
+		}
+
+		controlPlanePeersResponse := c.getPeersResponse(peers.ControlPlane)
+
+		c.config.Log.Info("isConsideredHealthy: since peers think I'm unhealthy, double checking "+
+			"by returning what the control plane nodes think of my state",
+			"controlPlanePeersResponse.IsHealthy", controlPlanePeersResponse.IsHealthy)
+		return controlPlanePeersResponse.IsHealthy
+
 	}
+
+	controlPlanePeersResponse := c.getPeersResponse(peers.ControlPlane)
+
+	c.config.Log.Info("isConsideredHealthy: control planes report my health status",
+		"controlPlanePeersResponse.IsHealthy", controlPlanePeersResponse.IsHealthy)
+
+	isControlPlaneHealthy := c.controlPlaneManager.IsControlPlaneHealthy(controlPlanePeersResponse,
+		c.canOtherControlPlanesBeReached())
+
+	c.config.Log.Info("isConsideredHealthy: we have checkd the control plane peer responses and cross "+
+		"checked it against the control plane diagnostics ",
+		"isControlPlaneHealthy", controlPlanePeersResponse.IsHealthy)
+
+	return isControlPlaneHealthy
 
 }
 
-func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
+func (c *ApiConnectivityCheck) getPeersResponse(role peers.Role) peers.Response {
 	c.errorCount++
 	if c.errorCount < c.config.MaxErrorsThreshold {
 		c.config.Log.Info("Ignoring api-server error, error count below threshold", "current count", c.errorCount, "threshold", c.config.MaxErrorsThreshold)
 		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseErrorsThresholdNotReached}
 	}
+	c.config.Log.Info("Error count was above threshold, we will continue and attempt to get the addressess" +
+		" for our peers, I consider myself a WORKER at the moment")
 
-	c.config.Log.Info("Error count exceeds threshold, trying to ask other nodes if I'm healthy")
-	peersToAsk := c.config.Peers.GetPeersAddresses(peers.Worker)
+	// MES: This gets called even if the current node is a control plane node.  Hopefully
+	//	in an actual environment it is returning actual worker peers
+	peersToAsk := c.config.Peers.GetPeersAddresses(role)
+
+	c.config.Log.Info("Error count exceeds threshold, trying to ask other peer nodes if I'm healthy",
+		"minPeersRequired", c.config.MinPeersForRemediation, "actualNumPeersFound", len(peersToAsk))
 
 	// We check to see if we have at least the number of peers that the user has configured as required.
 	//  If we don't have this many peers (for instance there are zero peers, and the default value is set
@@ -223,8 +322,15 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 }
 
 func (c *ApiConnectivityCheck) canOtherControlPlanesBeReached() bool {
+	c.config.Log.Info("canOtherControlPlanesBeReached", "c.config.Peers",
+		c.config.Peers)
+
 	peersToAsk := c.config.Peers.GetPeersAddresses(peers.ControlPlane)
 	numOfControlPlanePeers := len(peersToAsk)
+
+	c.config.Log.Info("Getting peer control plane addresses", "peersToAsk",
+		peersToAsk, "numOfControlPlanePeers", numOfControlPlanePeers)
+
 	if numOfControlPlanePeers == 0 {
 		c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, other control planes can't be reached")
 		return false
@@ -268,6 +374,8 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeers(addresses []corev1.PodIP
 	nrAddresses := len(addresses)
 	responsesChan := make(chan selfNodeRemediation.HealthCheckResponseCode, nrAddresses)
 
+	c.config.Log.Info("Attempting to get health status from peers", "addresses", addresses)
+
 	for _, address := range addresses {
 		go c.getHealthStatusFromPeer(address, responsesChan)
 	}
@@ -275,44 +383,18 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeers(addresses []corev1.PodIP
 	return c.sumPeersResponses(nrAddresses, responsesChan)
 }
 
-// getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer into the given channel
-func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp corev1.PodIP, results chan<- selfNodeRemediation.HealthCheckResponseCode) {
+func (c *ApiConnectivityCheck) SetHealthStatusFunc(f GetHealthStatusFromRemoteFunc) {
+	c.getHealthStatusFromRemoteFunc = f
+}
 
-	logger := c.config.Log.WithValues("IP", endpointIp.IP)
-	logger.Info("getting health status from peer")
-
-	if err := c.initClientCreds(); err != nil {
-		logger.Error(err, "failed to init client credentials")
-		results <- selfNodeRemediation.RequestFailed
-		return
-	}
-
-	// TODO does this work with IPv6?
-	phClient, err := peerhealth.NewClient(fmt.Sprintf("%v:%v", endpointIp.IP, c.config.PeerHealthPort), c.config.PeerDialTimeout, c.config.Log.WithName("peerhealth client"), c.clientCreds)
-	if err != nil {
-		logger.Error(err, "failed to init grpc client")
-		results <- selfNodeRemediation.RequestFailed
-		return
-	}
-	defer phClient.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), c.config.PeerRequestTimeout)
-	defer cancel()
-
-	resp, err := phClient.IsHealthy(ctx, &peerhealth.HealthRequest{
-		NodeName:    c.config.MyNodeName,
-		MachineName: c.config.MyMachineName,
-	})
-	if err != nil {
-		logger.Error(err, "failed to read health response from peer")
-		results <- selfNodeRemediation.RequestFailed
-		return
-	}
-
-	logger.Info("got response from peer", "status", resp.Status)
-
-	results <- selfNodeRemediation.HealthCheckResponseCode(resp.Status)
+func (c *ApiConnectivityCheck) GetHealthStatusFunc() (f GetHealthStatusFromRemoteFunc) {
+	f = c.getHealthStatusFromRemoteFunc
 	return
+}
+
+// GetHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer into the given channel
+func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp corev1.PodIP, results chan<- selfNodeRemediation.HealthCheckResponseCode) {
+	c.getHealthStatusFromRemoteFunc(endpointIp, results)
 }
 
 func (c *ApiConnectivityCheck) initClientCreds() error {
