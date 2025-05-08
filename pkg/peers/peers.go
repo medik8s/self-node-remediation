@@ -2,6 +2,7 @@ package peers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -11,7 +12,7 @@ import (
 	pkgerrors "github.com/pkg/errors"
 
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -122,7 +123,7 @@ func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selec
 	nodes := v1.NodeList{}
 	// get some nodes, but not ourself
 	if err := p.List(readerCtx, &nodes, client.MatchingLabelsSelector{Selector: getSelector()}); err != nil {
-		if errors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) {
 			// we are the only node at the moment... reset peerList
 			p.workerPeersAddresses = []v1.PodIP{}
 		}
@@ -142,20 +143,34 @@ func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selec
 		return pkgerrors.Wrap(err, "could not get pods")
 	}
 
-	nodesCount := len(nodes.Items)
-	addresses := make([]v1.PodIP, nodesCount)
-	for i, node := range nodes.Items {
+	addresses, err := p.mapNodesToPrimaryPodIPs(nodes, pods)
+	setAddresses(addresses)
+	return err
+}
+
+func (p *Peers) mapNodesToPrimaryPodIPs(nodes v1.NodeList, pods v1.PodList) ([]v1.PodIP, error) {
+	var err error
+	addresses := []v1.PodIP{}
+
+	for _, node := range nodes.Items {
+		found := false
 		for _, pod := range pods.Items {
 			if pod.Spec.NodeName == node.Name {
-				if pod.Status.PodIPs == nil || len(pod.Status.PodIPs) == 0 {
-					return pkgerrors.New(fmt.Sprintf("empty Pod IP for Pod %s on Node %s", pod.Name, node.Name))
+				if len(pod.Status.PodIPs) == 0 || pod.Status.PodIPs[0].IP == "" {
+					err = errors.Join(err, fmt.Errorf("empty IP for Pod %s on Node %s", pod.Name, node.Name))
+				} else {
+					found = true
+					addresses = append(addresses, pod.Status.PodIPs[0])
 				}
-				addresses[i] = pod.Status.PodIPs[0]
+				break
 			}
 		}
+		if !found {
+			err = errors.Join(err, fmt.Errorf("Node %s has no matching Pod", node.Name))
+		}
 	}
-	setAddresses(addresses)
-	return nil
+
+	return addresses, err
 }
 
 func (p *Peers) GetPeersAddresses(role Role) []v1.PodIP {
