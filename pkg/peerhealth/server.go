@@ -112,11 +112,9 @@ func (s *Server) IsHealthy(ctx context.Context, request *HealthRequest) (*Health
 	apiCtx, cancelFunc := context.WithTimeout(ctx, apiServerTimeout)
 	defer cancelFunc()
 
-	// list snrs from all ns
-	// don't use cache, because this also tests API server connectivity!
 	snrs := &v1alpha1.SelfNodeRemediationList{}
-	if err := s.reader.List(apiCtx, snrs); err != nil {
-		s.log.Error(err, "api error, failed to list snrs")
+	if err := s.listWithTimeoutHandling(apiCtx, snrs); err != nil {
+		s.log.Info("failed to list SelfNodeRemediations, returning ApiError", "cause", err.Error())
 		return toResponse(selfNodeRemediationApis.ApiError)
 	}
 
@@ -134,6 +132,28 @@ func (s *Server) IsHealthy(ctx context.Context, request *HealthRequest) (*Health
 	}
 	s.log.Info("no matching SNR found, node is considered healthy", "node", nodeName, "machine", request.MachineName)
 	return toResponse(selfNodeRemediationApis.Healthy)
+}
+
+// listWithTimeoutHandling wraps a reader list method with additional context timeout handling.
+// This is needed because we observed cases when the client code had some delay somewhere, which exceeded the
+// configured timeout, and even the timeout on the caller side, causing unneeded fencing actions.
+func (s *Server) listWithTimeoutHandling(apiCtx context.Context, snrs *v1alpha1.SelfNodeRemediationList) error {
+	// run the list call async
+	var listErr error
+	listDone := make(chan struct{})
+	go func() {
+		// don't use cached client but the reader, because this also tests API server connectivity!
+		listErr = s.reader.List(apiCtx, snrs)
+		close(listDone)
+	}()
+
+	// wait until context expired or list call returned
+	select {
+	case <-apiCtx.Done():
+		return fmt.Errorf("timed out")
+	case <-listDone:
+		return listErr
+	}
 }
 
 func (s *Server) getNode(ctx context.Context, nodeName string) (*corev1.Node, error) {
