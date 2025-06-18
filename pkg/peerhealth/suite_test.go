@@ -3,6 +3,7 @@ package peerhealth
 import (
 	"context"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,7 +33,7 @@ const nodeName = "somenode"
 
 var cfg *rest.Config
 var k8sClient client.Client
-var reader client.Reader
+var reader *ReaderWrapper
 var testEnv *envtest.Environment
 var snrReconciler *controllers.SelfNodeRemediationReconciler
 var cancelFunc context.CancelFunc
@@ -73,8 +74,12 @@ var _ = BeforeSuite(func() {
 	k8sClient = k8sManager.GetClient()
 	Expect(k8sClient).ToNot(BeNil())
 
-	reader = k8sManager.GetAPIReader()
-	Expect(reader).ToNot(BeNil())
+	originalReader := k8sManager.GetAPIReader()
+	Expect(originalReader).ToNot(BeNil())
+
+	reader = &ReaderWrapper{
+		Reader: originalReader,
+	}
 
 	// we need a reconciler for getting last SNR namespace
 	snrReconciler = &controllers.SelfNodeRemediationReconciler{
@@ -101,3 +106,25 @@ var _ = AfterSuite(func() {
 	cancelFunc()
 	Expect(testEnv.Stop()).To(Succeed())
 })
+
+type ReaderWrapper struct {
+	client.Reader
+	mu    sync.RWMutex
+	delay *time.Duration
+	err   error
+}
+
+func (r *ReaderWrapper) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	r.mu.RLock()
+	d, e := r.delay, r.err
+	r.mu.RUnlock()
+
+	if d != nil {
+		time.Sleep(*d)
+	}
+	if e != nil {
+		return e
+	}
+
+	return r.Reader.List(ctx, list, opts...)
+}
