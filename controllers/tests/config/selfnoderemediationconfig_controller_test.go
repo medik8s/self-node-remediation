@@ -233,7 +233,7 @@ var _ = Describe("SNR Config Test", func() {
 			Expect(createdConfig.Spec.MaxApiErrorThreshold).To(Equal(3))
 
 			Expect(createdConfig.Spec.PeerApiServerTimeout.Seconds()).To(BeEquivalentTo(5))
-			Expect(createdConfig.Spec.PeerRequestTimeout.Seconds()).To(BeEquivalentTo(5))
+			Expect(createdConfig.Spec.PeerRequestTimeout.Seconds()).To(BeEquivalentTo(7))
 			Expect(createdConfig.Spec.PeerDialTimeout.Seconds()).To(BeEquivalentTo(5))
 			Expect(createdConfig.Spec.ApiServerTimeout.Seconds()).To(BeEquivalentTo(5))
 			Expect(createdConfig.Spec.ApiCheckInterval.Seconds()).To(BeEquivalentTo(15))

@@ -151,7 +151,7 @@ spec:
                 pattern: ^([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$
                 type: string
               peerRequestTimeout:
-                default: 5s
+                default: 7s
                 description: |-
                   Timeout for each peer request.
                   Valid time units are "ms", "s", "m", "h".

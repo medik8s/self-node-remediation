@@ -49,7 +49,7 @@ var _ = Describe("Checking health using grpc client and server", func() {
 		}
 
 		By("Creating server")
-		phServer, err = NewServer(k8sClient, reader, ctrl.Log.WithName("peerhealth test").WithName("phServer"), 9000, certReader)
+		phServer, err = NewServer(k8sClient, reader, ctrl.Log.WithName("peerhealth test").WithName("phServer"), 9000, certReader, 7*time.Second)
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Starting server")

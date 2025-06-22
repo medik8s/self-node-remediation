@@ -18,7 +18,7 @@ const (
 	peerApiServerTimeoutDefault = 5 * time.Second
 	apiServerTimeoutDefault     = 5 * time.Second
 	peerDialTimeoutDefault      = 5 * time.Second
-	peerRequestTimeoutDefault   = 5 * time.Second
+	peerRequestTimeoutDefault   = 7 * time.Second
 	apiCheckIntervalDefault     = 15 * time.Second
 	peerUpdateIntervalDefault   = 15 * time.Minute
 )
@@ -139,6 +139,42 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 		})
 	})
 
+	Describe("PeerRequestTimeout Safety Validation", func() {
+		var snrc *SelfNodeRemediationConfig
+		BeforeEach(func() {
+			snrc = createTestSelfNodeRemediationConfigCR()
+			snrc.Name = ConfigCRName
+			_ = os.Setenv("DEPLOYMENT_NAMESPACE", snrc.Namespace)
+		})
+		It("should produce warning when PeerRequestTimeout is too low", func() {
+			// Set ApiServerTimeout to 5s and PeerRequestTimeout to 6s (less than 5s + 2s buffer)
+			snrc.Spec.ApiServerTimeout = &metav1.Duration{Duration: 5 * time.Second}
+			snrc.Spec.PeerRequestTimeout = &metav1.Duration{Duration: 6 * time.Second}
+
+			warnings, err := snrc.ValidateCreate()
+			Expect(err).To(BeNil())
+			Expect(len(warnings)).To(Equal(1))
+			Expect(warnings[0]).To(ContainSubstring("PeerRequestTimeout (6s) is less than ApiServerTimeout + MinimumBuffer"))
+		})
+
+		It("should not produce warning when PeerRequestTimeout is safe", func() {
+			// Set ApiServerTimeout to 5s and PeerRequestTimeout to 8s (greater than 5s + 2s buffer)
+			snrc.Spec.ApiServerTimeout = &metav1.Duration{Duration: 5 * time.Second}
+			snrc.Spec.PeerRequestTimeout = &metav1.Duration{Duration: 8 * time.Second}
+
+			warnings, err := snrc.ValidateCreate()
+			Expect(err).To(BeNil())
+			Expect(len(warnings)).To(Equal(0))
+		})
+
+		It("should not produce warning when using default values", func() {
+			// Use default values: ApiServerTimeout=5s, PeerRequestTimeout=7s (which is safe)
+
+			warnings, err := snrc.ValidateCreate()
+			Expect(err).To(BeNil())
+			Expect(len(warnings)).To(Equal(0))
+		})
+	})
 })
 
 func testSingleInvalidField(validationType validationType) {
