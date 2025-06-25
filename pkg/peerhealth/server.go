@@ -154,18 +154,6 @@ func (s *Server) listWithTimeoutHandling(apiCtx context.Context, snrs *v1alpha1.
 	}
 }
 
-func (s *Server) getNode(ctx context.Context, nodeName string) (*corev1.Node, error) {
-	apiCtx, cancelFunc := context.WithTimeout(ctx, s.apiServerTimeout)
-	defer cancelFunc()
-
-	node := &corev1.Node{}
-	if err := s.c.Get(apiCtx, client.ObjectKey{Name: nodeName}, node); err != nil {
-		s.log.Error(err, "api error")
-		return nil, err
-	}
-	return node, nil
-}
-
 func toResponse(status selfNodeRemediationApis.HealthCheckResponseCode) (*HealthResponse, error) {
 	return &HealthResponse{
 		Status: int32(status),

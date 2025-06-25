@@ -212,7 +212,7 @@ func (r *SelfNodeRemediationConfig) validatePeerTimeoutSafety() admission.Warnin
 			"PeerRequestTimeout (%s) is less than ApiServerTimeout + MinimumBuffer (%s + %s = %s). "+
 				"This configuration may lead to race conditions where peer health checks time out "+
 				"before API server checks complete, potentially causing premature remediation. "+
-				"Consider increasing PeerRequestTimeout to at least %s for safer operation.",
+				"Overriding PeerRequestTimeout to %s for safer operation.",
 			peerRequestTimeoutDuration,
 			apiServerTimeoutDuration,
 			MinimumBuffer,
@@ -220,7 +220,7 @@ func (r *SelfNodeRemediationConfig) validatePeerTimeoutSafety() admission.Warnin
 			minimumSafePeerTimeout,
 		)
 		warnings = append(warnings, warningMsg)
-		selfNodeRemediationConfigLog.Info("PeerRequestTimeout safety warning",
+		selfNodeRemediationConfigLog.Info("PeerRequestTimeout safety warning, overriding PeerRequestTimeout to minimumSafeTimeout",
 			"peerRequestTimeout", peerRequestTimeoutDuration,
 			"apiServerTimeout", apiServerTimeoutDuration,
 			"minimumSafeTimeout", minimumSafePeerTimeout)
