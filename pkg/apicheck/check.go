@@ -8,21 +8,29 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/medik8s/common/pkg/events"
 	"google.golang.org/grpc/credentials"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	selfNodeRemediation "github.com/medik8s/self-node-remediation/api"
+	"github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/pkg/certificates"
 	"github.com/medik8s/self-node-remediation/pkg/controlplane"
 	"github.com/medik8s/self-node-remediation/pkg/peerhealth"
 	"github.com/medik8s/self-node-remediation/pkg/peers"
 	"github.com/medik8s/self-node-remediation/pkg/reboot"
 	"github.com/medik8s/self-node-remediation/pkg/utils"
+)
+
+const (
+	eventReasonPeerTimeoutAdjusted = "PeerTimeoutAdjusted"
 )
 
 type ApiConnectivityCheck struct {
@@ -51,6 +59,7 @@ type ApiConnectivityCheckConfig struct {
 	PeerHealthPort            int
 	MaxTimeForNoPeersResponse time.Duration
 	MinPeersForRemediation    int
+	Recorder                  record.EventRecorder
 }
 
 func New(config *ApiConnectivityCheckConfig, controlPlaneManager *controlplane.Manager) *ApiConnectivityCheck {
@@ -275,6 +284,25 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeers(addresses []corev1.PodIP
 	return c.sumPeersResponses(nrAddresses, responsesChan)
 }
 
+// getEffectivePeerRequestTimeout calculates the effective peer request timeout
+// ensuring it's safe relative to the API server timeout by enforcing a minimum buffer
+func (c *ApiConnectivityCheck) getEffectivePeerRequestTimeout() time.Duration {
+	minimumSafeTimeout := c.config.ApiServerTimeout + v1alpha1.MinimumBuffer
+
+	if c.config.PeerRequestTimeout < minimumSafeTimeout {
+		// Log warning about timeout adjustment
+		c.config.Log.Info("PeerRequestTimeout is too low, using adjusted value for safety",
+			"configuredTimeout", c.config.PeerRequestTimeout,
+			"apiServerTimeout", c.config.ApiServerTimeout,
+			"minimumBuffer", v1alpha1.MinimumBuffer,
+			"effectiveTimeout", minimumSafeTimeout)
+		events.WarningEventf(c.config.Recorder, &v1alpha1.SelfNodeRemediationConfig{ObjectMeta: metav1.ObjectMeta{Name: v1alpha1.ConfigCRName}}, eventReasonPeerTimeoutAdjusted, "PeerRequestTimeout (%s) was too low compared to ApiServerTimeout (%s), using safe value (%s) instead", c.config.PeerRequestTimeout, c.config.ApiServerTimeout, minimumSafeTimeout)
+		return minimumSafeTimeout
+	}
+
+	return c.config.PeerRequestTimeout
+}
+
 // getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer into the given channel
 func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp corev1.PodIP, results chan<- selfNodeRemediation.HealthCheckResponseCode) {
 
@@ -296,7 +324,8 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp corev1.PodIP, 
 	}
 	defer phClient.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), c.config.PeerRequestTimeout)
+	effectiveTimeout := c.getEffectivePeerRequestTimeout()
+	ctx, cancel := context.WithTimeout(context.Background(), effectiveTimeout)
 	defer cancel()
 
 	resp, err := phClient.IsHealthy(ctx, &peerhealth.HealthRequest{

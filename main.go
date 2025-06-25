@@ -344,6 +344,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		PeerRequestTimeout:        peerRequestTimeout,
 		PeerHealthPort:            peerHealthDefaultPort,
 		MaxTimeForNoPeersResponse: reboot.MaxTimeForNoPeersResponse,
+		Recorder:                  mgr.GetEventRecorderFor("ApiConnectivityCheck"),
 	}
 
 	controlPlaneManager := controlplane.NewManager(myNodeName, mgr.GetClient())
@@ -377,7 +378,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 
 	setupLog.Info("init grpc server")
 	// TODO make port configurable?
-	server, err := peerhealth.NewServer(mgr.GetClient(), mgr.GetAPIReader(), ctrl.Log.WithName("peerhealth").WithName("server"), peerHealthDefaultPort, certReader)
+	server, err := peerhealth.NewServer(mgr.GetClient(), mgr.GetAPIReader(), ctrl.Log.WithName("peerhealth").WithName("server"), peerHealthDefaultPort, certReader, apiServerTimeout)
 	if err != nil {
 		setupLog.Error(err, "failed to init grpc server")
 		os.Exit(1)
