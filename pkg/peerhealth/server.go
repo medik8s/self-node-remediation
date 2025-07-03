@@ -21,10 +21,6 @@ import (
 
 const (
 	connectionTimeout = 5 * time.Second
-	//IMPORTANT! this MUST be less than PeerRequestTimeout in apicheck
-	//The difference between them should allow some time for sending the request over the network
-	//todo enforce this
-	apiServerTimeout = 3 * time.Second
 )
 
 var (
@@ -42,21 +38,23 @@ var (
 
 type Server struct {
 	UnimplementedPeerHealthServer
-	c          client.Client
-	reader     client.Reader
-	log        logr.Logger
-	certReader certificates.CertStorageReader
-	port       int
+	c                client.Client
+	reader           client.Reader
+	log              logr.Logger
+	certReader       certificates.CertStorageReader
+	port             int
+	apiServerTimeout time.Duration
 }
 
 // NewServer returns a new Server
-func NewServer(c client.Client, reader client.Reader, log logr.Logger, port int, certReader certificates.CertStorageReader) (*Server, error) {
+func NewServer(c client.Client, reader client.Reader, log logr.Logger, port int, certReader certificates.CertStorageReader, apiServerTimeout time.Duration) (*Server, error) {
 	return &Server{
-		c:          c,
-		reader:     reader,
-		log:        log,
-		certReader: certReader,
-		port:       port,
+		c:                c,
+		reader:           reader,
+		log:              log,
+		certReader:       certReader,
+		port:             port,
+		apiServerTimeout: apiServerTimeout,
 	}, nil
 }
 
@@ -109,7 +107,7 @@ func (s *Server) IsHealthy(ctx context.Context, request *HealthRequest) (*Health
 		return nil, fmt.Errorf("empty node name in HealthRequest")
 	}
 
-	apiCtx, cancelFunc := context.WithTimeout(ctx, apiServerTimeout)
+	apiCtx, cancelFunc := context.WithTimeout(ctx, s.apiServerTimeout)
 	defer cancelFunc()
 
 	snrs := &v1alpha1.SelfNodeRemediationList{}
@@ -154,18 +152,6 @@ func (s *Server) listWithTimeoutHandling(apiCtx context.Context, snrs *v1alpha1.
 	case <-listDone:
 		return listErr
 	}
-}
-
-func (s *Server) getNode(ctx context.Context, nodeName string) (*corev1.Node, error) {
-	apiCtx, cancelFunc := context.WithTimeout(ctx, apiServerTimeout)
-	defer cancelFunc()
-
-	node := &corev1.Node{}
-	if err := s.c.Get(apiCtx, client.ObjectKey{Name: nodeName}, node); err != nil {
-		s.log.Error(err, "api error")
-		return nil, err
-	}
-	return node, nil
 }
 
 func toResponse(status selfNodeRemediationApis.HealthCheckResponseCode) (*HealthResponse, error) {

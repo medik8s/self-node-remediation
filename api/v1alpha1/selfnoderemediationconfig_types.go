@@ -94,7 +94,7 @@ type SelfNodeRemediationConfigSpec struct {
 
 	// Timeout for each peer request.
 	// Valid time units are "ms", "s", "m", "h".
-	// +kubebuilder:default:="5s"
+	// +kubebuilder:default:="7s"
 	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
 	// +kubebuilder:validation:Type:=string
 	// +optional

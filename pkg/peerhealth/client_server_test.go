@@ -23,8 +23,9 @@ var _ = Describe("Checking health using grpc client and server", func() {
 	var phServer *Server
 	var cancel context.CancelFunc
 	var phClient *Client
+	var apiServerTimeout = 5 * time.Second
 
-	BeforeEach(func() {
+	JustBeforeEach(func() {
 
 		By("creating test node")
 		node := &v1.Node{
@@ -49,7 +50,7 @@ var _ = Describe("Checking health using grpc client and server", func() {
 		}
 
 		By("Creating server")
-		phServer, err = NewServer(k8sClient, reader, ctrl.Log.WithName("peerhealth test").WithName("phServer"), 9000, certReader)
+		phServer, err = NewServer(k8sClient, reader, ctrl.Log.WithName("peerhealth test").WithName("phServer"), 9000, certReader, apiServerTimeout)
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Starting server")
@@ -132,15 +133,18 @@ var _ = Describe("Checking health using grpc client and server", func() {
 
 		BeforeEach(func() {
 			reader.delay = &apiCallDelay
+			apiServerTimeout = 3 * time.Second
+
 		})
 
 		AfterEach(func() {
 			reader.delay = nil
+			apiServerTimeout = 5 * time.Second
 		})
 
 		It("should return API error", func() {
 			By("calling isHealthy")
-			// The health server code has a hardcoded timeout of 3s for the API call!
+			// The health server code has a timeout of 3s for the API call!
 			// When we add a delay of > 3s to the API call, that 3s timeout needs to be respected,
 			// to not exceed the peerRequestTimeout (5s) of the client.
 			ctx, cancel := context.WithTimeout(context.Background(), peerRequestTimeout)

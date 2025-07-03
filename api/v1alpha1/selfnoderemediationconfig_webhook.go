@@ -49,6 +49,10 @@ const (
 	minDurPeerRequestTimeout   = 10 * time.Millisecond
 	minDurApiCheckInterval     = 1 * time.Second
 	minDurPeerUpdateInterval   = 10 * time.Second
+
+	// MinimumBuffer is the minimum buffer time between APIServerTimeout and PeerRequestTimeout
+	// It is required to make sure there is enough time for network communication between the peers in case the API Server is out
+	MinimumBuffer = 2 * time.Second
 )
 
 type field struct {
@@ -74,7 +78,9 @@ var _ webhook.Validator = &SelfNodeRemediationConfig{}
 func (r *SelfNodeRemediationConfig) ValidateCreate() (warning admission.Warnings, err error) {
 	selfNodeRemediationConfigLog.Info("validate create", "name", r.Name)
 
-	return admission.Warnings{}, errors.NewAggregate([]error{
+	warnings := r.validatePeerTimeoutSafety()
+
+	return warnings, errors.NewAggregate([]error{
 		r.validateTimes(),
 		r.validateCustomTolerations(),
 		r.validateSingleton(),
@@ -86,7 +92,9 @@ func (r *SelfNodeRemediationConfig) ValidateCreate() (warning admission.Warnings
 func (r *SelfNodeRemediationConfig) ValidateUpdate(_ runtime.Object) (warning admission.Warnings, err error) {
 	selfNodeRemediationConfigLog.Info("validate update", "name", r.Name)
 
-	return admission.Warnings{}, errors.NewAggregate([]error{
+	warnings := r.validatePeerTimeoutSafety()
+
+	return warnings, errors.NewAggregate([]error{
 		r.validateTimes(),
 		r.validateCustomTolerations(),
 	})
@@ -182,6 +190,43 @@ func validateToleration(toleration v1.Toleration) error {
 		}
 	}
 	return nil
+}
+
+// validatePeerTimeoutSafety checks if PeerRequestTimeout is safe relative to ApiServerTimeout
+// and returns warnings if the configuration might be unsafe
+func (r *SelfNodeRemediationConfig) validatePeerTimeoutSafety() admission.Warnings {
+	var warnings admission.Warnings
+
+	spec := r.Spec
+	if spec.PeerRequestTimeout == nil || spec.ApiServerTimeout == nil {
+		// Use defaults if not specified
+		return warnings
+	}
+
+	peerRequestTimeoutDuration := spec.PeerRequestTimeout.Duration
+	apiServerTimeoutDuration := spec.ApiServerTimeout.Duration
+	minimumSafePeerTimeout := apiServerTimeoutDuration + MinimumBuffer
+
+	if peerRequestTimeoutDuration < minimumSafePeerTimeout {
+		warningMsg := fmt.Sprintf(
+			"PeerRequestTimeout (%s) is less than ApiServerTimeout + MinimumBuffer (%s + %s = %s). "+
+				"This configuration may lead to race conditions where peer health checks time out "+
+				"before API server checks complete, potentially causing premature remediation. "+
+				"Overriding PeerRequestTimeout to %s for safer operation.",
+			peerRequestTimeoutDuration,
+			apiServerTimeoutDuration,
+			MinimumBuffer,
+			minimumSafePeerTimeout,
+			minimumSafePeerTimeout,
+		)
+		warnings = append(warnings, warningMsg)
+		selfNodeRemediationConfigLog.Info("PeerRequestTimeout safety warning, overriding PeerRequestTimeout to minimumSafeTimeout",
+			"peerRequestTimeout", peerRequestTimeoutDuration,
+			"apiServerTimeout", apiServerTimeoutDuration,
+			"minimumSafeTimeout", minimumSafePeerTimeout)
+	}
+
+	return warnings
 }
 
 func (r *SelfNodeRemediationConfig) validateSingleton() error {
