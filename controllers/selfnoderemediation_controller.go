@@ -44,24 +44,26 @@ import (
 )
 
 const (
-	SNRFinalizer            = "self-node-remediation.medik8s.io/snr-finalizer"
-	nhcTimeOutAnnotation    = "remediation.medik8s.io/nhc-timed-out"
-	excludeRemediationLabel = "remediation.medik8s.io/exclude-from-remediation"
+	SNRFinalizer                    = "self-node-remediation.medik8s.io/snr-finalizer"
+	nhcTimeOutAnnotation            = "remediation.medik8s.io/nhc-timed-out"
+	excludeRemediationLabel         = "remediation.medik8s.io/exclude-from-remediation"
+	outOfServiceTimestampAnnotation = "remediation.medik8s.io/oos-timestamp"
 
 	eventReasonRemediationSkipped = "RemediationSkipped"
 
 	// remediation
-	eventReasonAddFinalizer              = "AddFinalizer"
-	eventReasonMarkUnschedulable         = "MarkUnschedulable"
-	eventReasonAddNoExecute              = "AddNoExecute"
-	eventReasonAddOutOfService           = "AddOutOfService"
-	eventReasonUpdateTimeAssumedRebooted = "UpdateTimeAssumedRebooted"
-	eventReasonDeleteResources           = "DeleteResources"
-	eventReasonMarkSchedulable           = "MarkNodeSchedulable"
-	eventReasonRemoveFinalizer           = "RemoveFinalizer"
-	eventReasonRemoveNoExecute           = "RemoveNoExecuteTaint"
-	eventReasonRemoveOutOfService        = "RemoveOutOfService"
-	eventReasonNodeReboot                = "NodeReboot"
+	eventReasonAddFinalizer                 = "AddFinalizer"
+	eventReasonMarkUnschedulable            = "MarkUnschedulable"
+	eventReasonAddNoExecute                 = "AddNoExecute"
+	eventReasonAddOutOfService              = "AddOutOfService"
+	eventReasonUpdateTimeAssumedRebooted    = "UpdateTimeAssumedRebooted"
+	eventReasonDeleteResources              = "DeleteResources"
+	eventReasonMarkSchedulable              = "MarkNodeSchedulable"
+	eventReasonRemoveFinalizer              = "RemoveFinalizer"
+	eventReasonRemoveNoExecute              = "RemoveNoExecuteTaint"
+	eventReasonRemoveOutOfService           = "RemoveOutOfService"
+	eventReasonNodeReboot                   = "NodeReboot"
+	eventReasonOutOfServiceTimestampExpired = "OutOfServiceTimestampExpired"
 )
 
 var (
@@ -81,6 +83,9 @@ var (
 		Value:  "nodeshutdown",
 		Effect: v1.TaintEffectNoExecute,
 	}
+
+	// OutOfServiceTimeoutDuration - time after which out-of-service taint is automatically removed
+	OutOfServiceTimeoutDuration = 1 * time.Minute
 )
 
 type conditionReason string
@@ -422,6 +427,16 @@ func (r *SelfNodeRemediationReconciler) remediateWithOutOfServiceTaint(ctx conte
 func (r *SelfNodeRemediationReconciler) useOutOfServiceTaint(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (time.Duration, error) {
 	if err := r.addOutOfServiceTaint(node); err != nil {
 		return 0, err
+	}
+
+	isTaintRemoved, err := r.checkAndHandleExpiredOutOfServiceTaint(node)
+	if err != nil {
+		r.logger.Error(err, "Failed to check/handle expired out-of-service taint", "node name", node.Name)
+		return 0, err
+	}
+
+	if isTaintRemoved {
+		return 0, nil
 	}
 
 	// We can not control to delete node resources by the "out-of-service" taint
@@ -839,12 +854,19 @@ func (r *SelfNodeRemediationReconciler) addOutOfServiceTaint(node *v1.Node) erro
 	now := metav1.Now()
 	taint.TimeAdded = &now
 	node.Spec.Taints = append(node.Spec.Taints, taint)
+
+	// Add out-of-service timestamp annotation
+	if node.Annotations == nil {
+		node.Annotations = make(map[string]string)
+	}
+	node.Annotations[outOfServiceTimestampAnnotation] = now.Format(time.RFC3339)
+
 	if err := r.Client.Patch(context.Background(), node, patch); err != nil {
-		r.logger.Error(err, "Failed to add out-of-service taint on node", "node name", node.Name)
+		r.logger.Error(err, "Failed to add out-of-service taint and timestamp annotation on node", "node name", node.Name)
 		return err
 	}
 	events.NormalEvent(r.Recorder, node, eventReasonAddOutOfService, "Remediation process - add out-of-service taint to unhealthy node")
-	r.logger.Info("out-of-service taint added", "new taints", node.Spec.Taints)
+	r.logger.Info("out-of-service taint and timestamp annotation added", "new taints", node.Spec.Taints, "timestamp", now.Format(time.RFC3339))
 	return nil
 }
 
@@ -861,13 +883,65 @@ func (r *SelfNodeRemediationReconciler) removeOutOfServiceTaint(node *v1.Node) e
 	} else {
 		node.Spec.Taints = taints
 	}
+
+	delete(node.Annotations, outOfServiceTimestampAnnotation)
+
 	if err := r.Client.Patch(context.Background(), node, patch); err != nil {
-		r.logger.Error(err, "Failed to remove taint from node,", "node name", node.Name, "taint key", OutOfServiceTaint.Key, "taint effect", OutOfServiceTaint.Effect)
+		r.logger.Error(err, "Failed to remove taint and timestamp annotation from node,", "node name", node.Name, "taint key", OutOfServiceTaint.Key, "taint effect", OutOfServiceTaint.Effect)
 		return err
 	}
 	events.NormalEvent(r.Recorder, node, eventReasonRemoveOutOfService, "Remediation process - remove out-of-service taint from node")
-	r.logger.Info("out-of-service taint removed", "new taints", node.Spec.Taints)
+	r.logger.Info("out-of-service taint and timestamp annotation removed", "new taints", node.Spec.Taints)
 	return nil
+}
+
+// checkAndHandleExpiredOutOfServiceTaint checks if the out-of-service taint has been on the node for longer than OutOfServiceTimeoutDuration
+// and removes it if expired
+func (r *SelfNodeRemediationReconciler) checkAndHandleExpiredOutOfServiceTaint(node *v1.Node) (bool, error) {
+	// Check if node has the timestamp annotation
+	if node.Annotations == nil {
+		return false, nil
+	}
+
+	timestampStr, exists := node.Annotations[outOfServiceTimestampAnnotation]
+	if !exists {
+		r.logger.Info("out-of-service taint exists but no timestamp annotation found", "node name", node.Name)
+		return false, nil
+	}
+
+	// Parse the timestamp
+	timestamp, err := time.Parse(time.RFC3339, timestampStr)
+	if err != nil {
+		r.logger.Error(err, "Failed to parse out-of-service timestamp annotation", "node name", node.Name, "timestamp", timestampStr)
+		return false, err
+	}
+
+	// Check if the timeout has expired
+	if time.Since(timestamp) >= OutOfServiceTimeoutDuration {
+		r.logger.Info("out-of-service taint timeout expired, removing taint and annotation",
+			"node name", node.Name,
+			"timestamp", timestampStr,
+			"elapsed", time.Since(timestamp),
+			"timeout", OutOfServiceTimeoutDuration)
+
+		// Remove the out-of-service taint and annotation
+		if err := r.removeOutOfServiceTaint(node); err != nil {
+			return false, err
+		}
+
+		// Emit an event about the timeout expiration
+		events.WarningEvent(r.Recorder, node, eventReasonOutOfServiceTimestampExpired,
+			"Out-of-service taint automatically removed due to timeout expiration")
+
+		return true, nil
+	}
+
+	r.logger.Info("out-of-service taint timeout not yet expired",
+		"node name", node.Name,
+		"elapsed", time.Since(timestamp),
+		"timeout", OutOfServiceTimeoutDuration)
+
+	return false, nil
 }
 
 func (r *SelfNodeRemediationReconciler) isResourceDeletionCompleted(node *v1.Node) bool {

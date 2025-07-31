@@ -352,6 +352,94 @@ var _ = Describe("SNR Controller", func() {
 
 					verifySNRDoesNotExists(snr)
 				})
+
+			It("should automatically remove out-of-service taint after timeout when workloads are not deleted", func() {
+				// Temporarily set a much shorter timeout for testing (instead of 1 minute)
+				originalTimeout := controllers.OutOfServiceTimeoutDuration
+				controllers.OutOfServiceTimeoutDuration = 3 * time.Second
+				DeferCleanup(func() {
+					controllers.OutOfServiceTimeoutDuration = originalTimeout
+				})
+
+				createSNR(snr, remediationStrategy)
+
+				node := verifyNodeIsUnschedulable()
+				addUnschedulableTaint(node)
+
+				verifyTypeConditions(snr, metav1.ConditionTrue, metav1.ConditionUnknown, "RemediationStarted")
+
+				// Create terminating pod but DON'T delete it - this simulates workloads stuck in terminating state
+				createTerminatingPod()
+
+				verifyTimeHasBeenRebootedExists(snr)
+				verifyWatchdogTriggered()
+				verifyFinalizerExists(snr)
+				verifyNoExecuteTaintExist()
+				verifyOutOfServiceTaintExist()
+
+				// Verify timestamp annotation was added
+				nodeKey := types.NamespacedName{Name: shared.UnhealthyNodeName}
+				updatedNode := &v1.Node{}
+				Eventually(func() bool {
+					err := k8sClient.Get(context.Background(), nodeKey, updatedNode)
+					if err != nil {
+						return false
+					}
+					if updatedNode.Annotations == nil {
+						return false
+					}
+					timestampStr, exists := updatedNode.Annotations["remediation.medik8s.io/oos-timestamp"]
+					if !exists || timestampStr == "" {
+						return false
+					}
+					// Verify timestamp is valid RFC3339 format
+					_, err = time.Parse(time.RFC3339, timestampStr)
+					return err == nil
+				}, 10*time.Second, 250*time.Millisecond).Should(BeTrue(), "out-of-service timestamp annotation should exist and be valid")
+
+				verifyEvent("Normal", "AddOutOfService", "Remediation process - add out-of-service taint to unhealthy node")
+
+				// Wait for less than timeout (1 second) and verify taint still exists
+				time.Sleep(1 * time.Second)
+				verifyOutOfServiceTaintExist()
+
+				// Wait for timeout to expire (3 seconds) and verify taint is automatically removed
+				Eventually(func() bool {
+					err := k8sClient.Get(context.Background(), nodeKey, updatedNode)
+					if err != nil {
+						return false
+					}
+					return !utils.TaintExists(updatedNode.Spec.Taints, &v1.Taint{
+						Key:    "node.kubernetes.io/out-of-service",
+						Value:  "nodeshutdown",
+						Effect: v1.TaintEffectNoExecute,
+					})
+				}, 10*time.Second, 250*time.Millisecond).Should(BeTrue(), "out-of-service taint should be automatically removed after 3 second timeout")
+
+				// Verify timestamp annotation was also removed
+				Eventually(func() bool {
+					err := k8sClient.Get(context.Background(), nodeKey, updatedNode)
+					if err != nil {
+						return false
+					}
+					if updatedNode.Annotations == nil {
+						return true
+					}
+					_, exists := updatedNode.Annotations["remediation.medik8s.io/oos-timestamp"]
+					return !exists
+				}, 10*time.Second, 250*time.Millisecond).Should(BeTrue(), "out-of-service timestamp annotation should be removed")
+
+				// Verify warning event was emitted for timeout expiration
+				verifyEvent("Warning", "OutOfServiceTimestampExpired", "Out-of-service taint automatically removed due to timeout expiration")
+
+				// Clean up: manually delete the terminating pod and SNR to complete the test
+				deleteTerminatingPod()
+				deleteSNR(snr)
+				verifyNodeIsSchedulable()
+				removeUnschedulableTaint()
+				verifyNoExecuteTaintRemoved()
+				verifySNRDoesNotExists(snr)
+			})
 		})
 
 		Context("Remediation has a Machine Owner Ref", func() {
