@@ -380,25 +380,10 @@ var _ = Describe("SNR Controller", func() {
 				// Verify timestamp annotation was added
 				nodeKey := types.NamespacedName{Name: shared.UnhealthyNodeName}
 				updatedNode := &v1.Node{}
-				Eventually(func() bool {
-					err := k8sClient.Get(context.Background(), nodeKey, updatedNode)
-					if err != nil {
-						return false
-					}
-					if updatedNode.Annotations == nil {
-						return false
-					}
-					timestampStr, exists := updatedNode.Annotations["remediation.medik8s.io/oos-timestamp"]
-					if !exists || timestampStr == "" {
-						return false
-					}
-					// Verify timestamp is valid RFC3339 format
-					_, err = time.Parse(time.RFC3339, timestampStr)
-					return err == nil
-				}, 10*time.Second, 250*time.Millisecond).Should(BeTrue(), "out-of-service timestamp annotation should exist and be valid")
-
 				verifyEvent("Normal", "AddOutOfService", "Remediation process - add out-of-service taint to unhealthy node")
 
+				// Simulate NHC trying to delete SNR because the node is healthy
+				deleteSNR(snr)
 				// Wait for less than timeout (1 second) and verify taint still exists
 				time.Sleep(1 * time.Second)
 				verifyOutOfServiceTaintExist()
@@ -416,25 +401,11 @@ var _ = Describe("SNR Controller", func() {
 					})
 				}, 10*time.Second, 250*time.Millisecond).Should(BeTrue(), "out-of-service taint should be automatically removed after 3 second timeout")
 
-				// Verify timestamp annotation was also removed
-				Eventually(func() bool {
-					err := k8sClient.Get(context.Background(), nodeKey, updatedNode)
-					if err != nil {
-						return false
-					}
-					if updatedNode.Annotations == nil {
-						return true
-					}
-					_, exists := updatedNode.Annotations["remediation.medik8s.io/oos-timestamp"]
-					return !exists
-				}, 10*time.Second, 250*time.Millisecond).Should(BeTrue(), "out-of-service timestamp annotation should be removed")
-
 				// Verify warning event was emitted for timeout expiration
-				verifyEvent("Warning", "OutOfServiceTimestampExpired", "Out-of-service taint automatically removed due to timeout expiration")
+				verifyEvent("Warning", "OutOfServiceTimestampExpired", "Out-of-service taint automatically removed due to timeout expiration on a healthy node")
 
 				// Clean up: manually delete the terminating pod and SNR to complete the test
 				deleteTerminatingPod()
-				deleteSNR(snr)
 				verifyNodeIsSchedulable()
 				removeUnschedulableTaint()
 				verifyNoExecuteTaintRemoved()
