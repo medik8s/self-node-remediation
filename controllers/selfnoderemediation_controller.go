@@ -51,17 +51,18 @@ const (
 	eventReasonRemediationSkipped = "RemediationSkipped"
 
 	// remediation
-	eventReasonAddFinalizer              = "AddFinalizer"
-	eventReasonMarkUnschedulable         = "MarkUnschedulable"
-	eventReasonAddNoExecute              = "AddNoExecute"
-	eventReasonAddOutOfService           = "AddOutOfService"
-	eventReasonUpdateTimeAssumedRebooted = "UpdateTimeAssumedRebooted"
-	eventReasonDeleteResources           = "DeleteResources"
-	eventReasonMarkSchedulable           = "MarkNodeSchedulable"
-	eventReasonRemoveFinalizer           = "RemoveFinalizer"
-	eventReasonRemoveNoExecute           = "RemoveNoExecuteTaint"
-	eventReasonRemoveOutOfService        = "RemoveOutOfService"
-	eventReasonNodeReboot                = "NodeReboot"
+	eventReasonAddFinalizer                 = "AddFinalizer"
+	eventReasonMarkUnschedulable            = "MarkUnschedulable"
+	eventReasonAddNoExecute                 = "AddNoExecute"
+	eventReasonAddOutOfService              = "AddOutOfService"
+	eventReasonUpdateTimeAssumedRebooted    = "UpdateTimeAssumedRebooted"
+	eventReasonDeleteResources              = "DeleteResources"
+	eventReasonMarkSchedulable              = "MarkNodeSchedulable"
+	eventReasonRemoveFinalizer              = "RemoveFinalizer"
+	eventReasonRemoveNoExecute              = "RemoveNoExecuteTaint"
+	eventReasonRemoveOutOfService           = "RemoveOutOfService"
+	eventReasonNodeReboot                   = "NodeReboot"
+	eventReasonOutOfServiceTimestampExpired = "OutOfServiceTimestampExpired"
 )
 
 var (
@@ -81,6 +82,9 @@ var (
 		Value:  "nodeshutdown",
 		Effect: v1.TaintEffectNoExecute,
 	}
+
+	// OutOfServiceTimeoutDuration - time after which out-of-service taint is automatically removed
+	OutOfServiceTimeoutDuration = 1 * time.Minute
 )
 
 type conditionReason string
@@ -430,9 +434,18 @@ func (r *SelfNodeRemediationReconciler) useOutOfServiceTaint(node *v1.Node, snr 
 		isExpired, timeLeft := r.isResourceDeletionExpired(snr)
 		if !isExpired {
 			return timeLeft, nil
+		} else if snr.GetDeletionTimestamp() != nil { // Time expired and node is healthy
+			err := r.removeOutOfServiceTaint(node)
+			if err != nil {
+				return 0, err
+			}
+			// Emit an event about the timeout expiration
+			events.WarningEvent(r.Recorder, node, eventReasonOutOfServiceTimestampExpired,
+				"Out-of-service taint automatically removed due to timeout expiration on a healthy node")
+			return 0, nil
+		} else { // if the timer is expired, but the node is still unhealthy exponential backoff is triggered
+			return 0, errors.New("Not ready to delete out-of-service taint")
 		}
-		// if the timer is expired, exponential backoff is triggered
-		return 0, errors.New("Not ready to delete out-of-service taint")
 	}
 
 	if err := r.removeOutOfServiceTaint(node); err != nil {
@@ -902,7 +915,7 @@ func (r *SelfNodeRemediationReconciler) isPodTerminating(pod *v1.Pod) bool {
 }
 
 func (r *SelfNodeRemediationReconciler) isResourceDeletionExpired(snr *v1alpha1.SelfNodeRemediation) (bool, time.Duration) {
-	waitTime := snr.Status.TimeAssumedRebooted.Add(300 * time.Second)
+	waitTime := snr.Status.TimeAssumedRebooted.Add(OutOfServiceTimeoutDuration)
 
 	if waitTime.After(time.Now()) {
 		return false, 5 * time.Second
