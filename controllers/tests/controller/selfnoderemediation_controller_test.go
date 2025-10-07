@@ -1269,10 +1269,15 @@ func configureUnhealthyNodeAsControlNode() {
 func configureSimulatedPeerResponses(simulateResponses bool) {
 	By("Start simulating peer responses", func() {
 		orgValue := apiCheck.ShouldSimulatePeerResponses
+		orgResponses := apiCheck.SnapshotSimulatedPeerResponses()
 		apiCheck.ShouldSimulatePeerResponses = simulateResponses
+		if simulateResponses {
+			apiCheck.ClearSimulatedPeerResponses()
+		}
 
 		DeferCleanup(func() {
 			apiCheck.ShouldSimulatePeerResponses = orgValue
+			apiCheck.RestoreSimulatedPeerResponses(orgResponses)
 		})
 	})
 }
@@ -1357,20 +1362,12 @@ func addNodes(nodes []newNodeConfig) {
 			for _, pod := range np.pods {
 				By(fmt.Sprintf("Create pod '%s' under node '%s'", pod.name, np.nodeName), func() {
 					_ = createGenericSelfNodeRemediationPod(createdNode, pod.name)
-					apiCheck.SimulatePeerResponses = append(apiCheck.SimulatePeerResponses, pod.simulatedResponse)
+					apiCheck.AppendSimulatedPeerResponse(pod.simulatedResponse)
 				})
 
 			}
 
 		}
-
-		DeferCleanup(func() {
-			By("Removing the additional peer nodes when all relevant tests are complete", func() {
-				Expect(k8sClient.Delete(context.Background(), getNode(shared.Peer2NodeName))).To(Succeed())
-				Expect(k8sClient.Delete(context.Background(), getNode(shared.Peer3NodeName))).To(Succeed())
-			})
-			return
-		})
 
 	})
 }

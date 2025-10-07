@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -57,11 +58,11 @@ type K8sClientWrapper struct {
 }
 
 type ApiConnectivityCheckWrapper struct {
-	apicheck.ApiConnectivityCheck
+	*apicheck.ApiConnectivityCheck
 	ShouldSimulatePeerResponses bool
 
-	// store responses that we should override for any peer responses
-	SimulatePeerResponses []selfNodeRemediation.HealthCheckResponseCode
+	responsesMu            sync.Mutex
+	simulatedPeerResponses []selfNodeRemediation.HealthCheckResponseCode
 }
 
 func (kcw *K8sClientWrapper) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) (err error) {
@@ -107,27 +108,73 @@ func GetRandomIpAddress() (randomIP string) {
 }
 
 func NewApiConnectivityCheckWrapper(ck *apicheck.ApiConnectivityCheckConfig, controlPlaneManager *controlplane.Manager) (ckw *ApiConnectivityCheckWrapper) {
+	inner := apicheck.New(ck, controlPlaneManager)
 	ckw = &ApiConnectivityCheckWrapper{
-		ApiConnectivityCheck:        *apicheck.New(ck, controlPlaneManager),
+		ApiConnectivityCheck:        inner,
 		ShouldSimulatePeerResponses: false,
-		SimulatePeerResponses:       []selfNodeRemediation.HealthCheckResponseCode{},
+		simulatedPeerResponses:      []selfNodeRemediation.HealthCheckResponseCode{},
 	}
 
-	ckw.ApiConnectivityCheck.SetHealthStatusFunc(func(endpointIp corev1.PodIP, results chan<- selfNodeRemediation.HealthCheckResponseCode) {
-		switch {
-		case ckw.ShouldSimulatePeerResponses:
-			for _, code := range ckw.SimulatePeerResponses {
-				results <- code
-			}
-
+	inner.SetHealthStatusFunc(func(endpointIp corev1.PodIP, results chan<- selfNodeRemediation.HealthCheckResponseCode) {
+		if ckw.ShouldSimulatePeerResponses {
+			results <- ckw.nextSimulatedPeerResponse()
 			return
-		default:
-			ckw.ApiConnectivityCheck.GetDefaultPeerHealthCheckFunc()(endpointIp, results)
-			break
 		}
+
+		ckw.GetDefaultPeerHealthCheckFunc()(endpointIp, results)
 	})
 
 	return
+}
+
+func (ckw *ApiConnectivityCheckWrapper) nextSimulatedPeerResponse() selfNodeRemediation.HealthCheckResponseCode {
+	ckw.responsesMu.Lock()
+	defer ckw.responsesMu.Unlock()
+
+	if len(ckw.simulatedPeerResponses) == 0 {
+		return selfNodeRemediation.RequestFailed
+	}
+
+	code := ckw.simulatedPeerResponses[0]
+	if len(ckw.simulatedPeerResponses) > 1 {
+		ckw.simulatedPeerResponses = append([]selfNodeRemediation.HealthCheckResponseCode{}, ckw.simulatedPeerResponses[1:]...)
+	}
+
+	return code
+}
+
+func (ckw *ApiConnectivityCheckWrapper) AppendSimulatedPeerResponse(code selfNodeRemediation.HealthCheckResponseCode) {
+	ckw.responsesMu.Lock()
+	defer ckw.responsesMu.Unlock()
+	ckw.simulatedPeerResponses = append(ckw.simulatedPeerResponses, code)
+}
+
+func (ckw *ApiConnectivityCheckWrapper) ClearSimulatedPeerResponses() {
+	ckw.responsesMu.Lock()
+	defer ckw.responsesMu.Unlock()
+	ckw.simulatedPeerResponses = nil
+}
+
+func (ckw *ApiConnectivityCheckWrapper) SnapshotSimulatedPeerResponses() []selfNodeRemediation.HealthCheckResponseCode {
+	ckw.responsesMu.Lock()
+	defer ckw.responsesMu.Unlock()
+	if len(ckw.simulatedPeerResponses) == 0 {
+		return nil
+	}
+	snapshot := make([]selfNodeRemediation.HealthCheckResponseCode, len(ckw.simulatedPeerResponses))
+	copy(snapshot, ckw.simulatedPeerResponses)
+	return snapshot
+}
+
+func (ckw *ApiConnectivityCheckWrapper) RestoreSimulatedPeerResponses(codes []selfNodeRemediation.HealthCheckResponseCode) {
+	ckw.responsesMu.Lock()
+	defer ckw.responsesMu.Unlock()
+	if len(codes) == 0 {
+		ckw.simulatedPeerResponses = nil
+		return
+	}
+	ckw.simulatedPeerResponses = make([]selfNodeRemediation.HealthCheckResponseCode, len(codes))
+	copy(ckw.simulatedPeerResponses, codes)
 }
 
 func GenerateTestConfig() *selfnoderemediationv1alpha1.SelfNodeRemediationConfig {

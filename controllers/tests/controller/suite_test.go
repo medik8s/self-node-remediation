@@ -168,6 +168,9 @@ var _ = BeforeSuite(func() {
 
 	apiCheck = shared.NewApiConnectivityCheckWrapper(apiConnectivityCheckConfig, nil)
 
+	// default to simulation so the ApiConnectivityCheck doesn't try to dial peers before tests install handlers
+	apiCheck.ShouldSimulatePeerResponses = true
+
 	err = k8sManager.Add(apiCheck)
 	Expect(err).ToNot(HaveOccurred())
 

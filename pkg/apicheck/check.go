@@ -230,15 +230,22 @@ func (c *ApiConnectivityCheck) getPeersResponse(role peers.Role) peers.Response 
 		c.config.Log.Info("Ignoring api-server error, error count below threshold", "current count", c.errorCount, "threshold", c.config.MaxErrorsThreshold)
 		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseErrorsThresholdNotReached}
 	}
-	c.config.Log.Info("Error count was above threshold, we will continue and attempt to get the addressess" +
-		" for our peers, I consider myself a WORKER at the moment")
+	roleName := "worker"
+	if role == peers.ControlPlane {
+		roleName = "control-plane"
+	}
 
-	// MES: This gets called even if the current node is a control plane node.  Hopefully
-	//	in an actual environment it is returning actual worker peers
+	c.config.Log.Info("Error count was above threshold, attempting to collect peer addresses",
+		"role", roleName)
+
+	// MES: This gets called even if the current node is a control plane node. Hopefully
+	// in an actual environment it is returning actual worker peers when the role is worker.
 	peersToAsk := c.config.Peers.GetPeersAddresses(role)
 
-	c.config.Log.Info("Error count exceeds threshold, trying to ask other peer nodes if I'm healthy",
-		"minPeersRequired", c.config.MinPeersForRemediation, "actualNumPeersFound", len(peersToAsk))
+	c.config.Log.Info("Error count exceeds threshold, querying peer nodes for health",
+		"role", roleName,
+		"minPeersRequired", c.config.MinPeersForRemediation,
+		"actualNumPeersFound", len(peersToAsk))
 
 	// We check to see if we have at least the number of peers that the user has configured as required.
 	//  If we don't have this many peers (for instance there are zero peers, and the default value is set
