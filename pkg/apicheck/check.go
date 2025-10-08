@@ -280,6 +280,9 @@ func (c *ApiConnectivityCheck) evaluateWorker(now time.Time) controlplane.Evalua
 	}
 
 	if !summary.responded || !summary.hadMinimum {
+		if !summary.responded && c.config.MinPeersForRemediation == 0 {
+			return controlplane.EvaluationIsolation
+		}
 		if c.peerTimeoutExceeded(peers.Worker, now) {
 			return controlplane.EvaluationIsolation
 		}
@@ -409,6 +412,8 @@ func (c *ApiConnectivityCheck) gatherPeerResponses(role peers.Role, now time.Tim
 	} else {
 		c.recordPeerSilence(role, now)
 	}
+
+	c.config.Log.Info("peer summary", "role", role, "total", summary.totalPeers(), "healthy", summary.healthy, "unhealthy", summary.unhealthy, "apiErrors", summary.apiErrors, "failures", summary.failures, "responded", summary.responded, "hadMinimum", summary.hadMinimum)
 
 	return summary
 }

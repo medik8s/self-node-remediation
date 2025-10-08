@@ -67,6 +67,7 @@ type ApiConnectivityCheckWrapper struct {
 	peersOverride            PeersOverrideFunc
 	workerLastResponse       time.Time
 	controlPlaneLastResponse time.Time
+	baselineResponses        []selfNodeRemediation.HealthCheckResponseCode
 }
 
 // PeersOverrideFunc allows tests to supply synthetic peer address lists without
@@ -184,6 +185,33 @@ func (ckw *ApiConnectivityCheckWrapper) RestoreSimulatedPeerResponses(codes []se
 	}
 	ckw.simulatedPeerResponses = make([]selfNodeRemediation.HealthCheckResponseCode, len(codes))
 	copy(ckw.simulatedPeerResponses, codes)
+}
+
+func (ckw *ApiConnectivityCheckWrapper) RememberSimulatedPeerResponses() {
+	ckw.responsesMu.Lock()
+	defer ckw.responsesMu.Unlock()
+	if len(ckw.simulatedPeerResponses) == 0 {
+		ckw.baselineResponses = nil
+		return
+	}
+	ckw.baselineResponses = make([]selfNodeRemediation.HealthCheckResponseCode, len(ckw.simulatedPeerResponses))
+	copy(ckw.baselineResponses, ckw.simulatedPeerResponses)
+}
+
+func (ckw *ApiConnectivityCheckWrapper) RestoreBaselineSimulatedResponses() {
+	ckw.responsesMu.Lock()
+	defer ckw.responsesMu.Unlock()
+	if len(ckw.baselineResponses) == 0 {
+		return
+	}
+	ckw.simulatedPeerResponses = make([]selfNodeRemediation.HealthCheckResponseCode, len(ckw.baselineResponses))
+	copy(ckw.simulatedPeerResponses, ckw.baselineResponses)
+}
+
+func (ckw *ApiConnectivityCheckWrapper) ClearBaselineSimulatedResponses() {
+	ckw.responsesMu.Lock()
+	defer ckw.responsesMu.Unlock()
+	ckw.baselineResponses = nil
 }
 
 // SetPeersOverride registers a custom provider for peer address lists.

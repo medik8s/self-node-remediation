@@ -579,6 +579,9 @@ var _ = Describe("SNR Controller", func() {
 			})
 
 			Context("no peer found", func() {
+				BeforeEach(func() {
+					clearSimulatedPeerResponses()
+				})
 				It("Verify that watchdog is not triggered", func() {
 					verifyWatchdogNotTriggered()
 				})
@@ -1298,6 +1301,7 @@ func configureSimulatedPeerResponses(simulateResponses bool) {
 		DeferCleanup(func() {
 			apiCheck.ShouldSimulatePeerResponses = orgValue
 			apiCheck.RestoreSimulatedPeerResponses(orgResponses)
+			apiCheck.RememberSimulatedPeerResponses()
 			if !simulateResponses {
 				apiCheck.SetPeersOverride(nil)
 			}
@@ -1400,6 +1404,8 @@ func addNodes(nodes []newNodeConfig) {
 
 		}
 
+		apiCheck.RememberSimulatedPeerResponses()
+
 	})
 }
 
@@ -1407,6 +1413,19 @@ func resetWatchdogTimer() {
 	By("Resetting watchdog timer", func() {
 		dummyDog.Reset()
 		apiCheck.ResetPeerTimers()
+		if apiCheck.ShouldSimulatePeerResponses {
+			apiCheck.RestoreBaselineSimulatedResponses()
+			apiCheck.RememberSimulatedPeerResponses()
+		} else {
+			apiCheck.ClearBaselineSimulatedResponses()
+		}
+	})
+}
+
+func clearSimulatedPeerResponses() {
+	By("Clearing simulated peer responses", func() {
+		apiCheck.ClearSimulatedPeerResponses()
+		apiCheck.ClearBaselineSimulatedResponses()
 	})
 }
 
