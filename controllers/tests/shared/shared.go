@@ -189,8 +189,16 @@ func (ckw *ApiConnectivityCheckWrapper) RestoreSimulatedPeerResponses(codes []se
 // SetPeersOverride registers a custom provider for peer address lists.
 func (ckw *ApiConnectivityCheckWrapper) SetPeersOverride(fn PeersOverrideFunc) {
 	ckw.responsesMu.Lock()
-	defer ckw.responsesMu.Unlock()
 	ckw.peersOverride = fn
+	ckw.responsesMu.Unlock()
+
+	var wrapped apicheck.PeersOverrideFunc
+	if fn != nil {
+		wrapped = func(role peers.Role) []corev1.PodIP {
+			return fn(role)
+		}
+	}
+	ckw.ApiConnectivityCheck.SetPeersOverride(wrapped)
 }
 
 // ClearPeersOverride removes any previously configured peer provider.

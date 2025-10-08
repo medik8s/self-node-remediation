@@ -3,6 +3,7 @@ package apicheck
 import (
 	"reflect"
 	"testing"
+	"time"
 	"unsafe"
 
 	corev1 "k8s.io/api/core/v1"
@@ -30,17 +31,22 @@ func TestWorkerEscalatesWhenControlPlanePeersUnavailable(t *testing.T) {
 		Log:                    logf.Log.WithName("test"),
 		MyNodeName:             "worker-1",
 		MyMachineName:          "machine-1",
+		CheckInterval:          50 * time.Millisecond,
+		FailureWindow:          50 * time.Millisecond,
+		PeerQuorumTimeout:      100 * time.Millisecond,
 		MaxErrorsThreshold:     1,
 		Peers:                  peerStore,
 		MinPeersForRemediation: 1,
 	}
 
-	check := &ApiConnectivityCheck{config: cfg}
+	check := New(cfg, nil)
 	check.SetHealthStatusFunc(func(_ corev1.PodIP, results chan<- selfnode.HealthCheckResponseCode) {
 		results <- selfnode.Unhealthy
 	})
 
-	check.errorCount = cfg.MaxErrorsThreshold
+	tracker := check.ensureFailureTracker()
+	tracker.RecordFailure(time.Now().Add(-cfg.FailureWindow))
+	tracker.RecordFailure(time.Now().Add(-cfg.FailureWindow / 2))
 
 	if healthy := check.isConsideredHealthy(); healthy {
 		t.Fatalf("expected worker to treat lack of control-plane peers as unhealthy")

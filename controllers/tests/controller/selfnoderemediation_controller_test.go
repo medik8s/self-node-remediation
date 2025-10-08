@@ -506,6 +506,8 @@ var _ = Describe("SNR Controller", func() {
 	Context("Control-plane isolation (pre-redesign)", func() {
 		It("should mark control-plane unhealthy when workers report CR but no control-plane peers respond", func() {
 			configureUnhealthyNodeAsControlNode()
+			configureRemediationStrategy(v1alpha1.AutomaticRemediationStrategy)
+			configureApiServerSimulatedFailures(true)
 			configureSimulatedPeerResponses(true)
 			configurePeersOverride(func(role peers.Role) []v1.PodIP {
 				if role == peers.ControlPlane {
@@ -513,9 +515,10 @@ var _ = Describe("SNR Controller", func() {
 				}
 				return []v1.PodIP{{IP: "10.0.0.11"}}
 			})
+			createSNR(snr, v1alpha1.AutomaticRemediationStrategy)
 			apiCheck.AppendSimulatedPeerResponse(api.Unhealthy)
 
-			Expect(true).To(BeFalse(), "expected isolation redesign to flag control-plane unhealthy")
+			verifyWatchdogTriggered()
 		})
 	})
 
