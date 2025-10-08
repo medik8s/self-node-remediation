@@ -23,6 +23,7 @@ import (
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/pkg/apicheck"
 	"github.com/medik8s/self-node-remediation/pkg/controlplane"
+	"github.com/medik8s/self-node-remediation/pkg/peers"
 	"github.com/medik8s/self-node-remediation/pkg/reboot"
 )
 
@@ -61,9 +62,17 @@ type ApiConnectivityCheckWrapper struct {
 	*apicheck.ApiConnectivityCheck
 	ShouldSimulatePeerResponses bool
 
-	responsesMu            sync.Mutex
-	simulatedPeerResponses []selfNodeRemediation.HealthCheckResponseCode
+	responsesMu              sync.Mutex
+	simulatedPeerResponses   []selfNodeRemediation.HealthCheckResponseCode
+	peersOverride            PeersOverrideFunc
+	workerLastResponse       time.Time
+	controlPlaneLastResponse time.Time
 }
+
+// PeersOverrideFunc allows tests to supply synthetic peer address lists without
+// altering the production wiring. Phase 0 only stores the function; upcoming
+// phases decide how the ApiConnectivityCheck consumes it.
+type PeersOverrideFunc func(role peers.Role) []corev1.PodIP
 
 func (kcw *K8sClientWrapper) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) (err error) {
 	switch {
@@ -175,6 +184,53 @@ func (ckw *ApiConnectivityCheckWrapper) RestoreSimulatedPeerResponses(codes []se
 	}
 	ckw.simulatedPeerResponses = make([]selfNodeRemediation.HealthCheckResponseCode, len(codes))
 	copy(ckw.simulatedPeerResponses, codes)
+}
+
+// SetPeersOverride registers a custom provider for peer address lists.
+func (ckw *ApiConnectivityCheckWrapper) SetPeersOverride(fn PeersOverrideFunc) {
+	ckw.responsesMu.Lock()
+	defer ckw.responsesMu.Unlock()
+	ckw.peersOverride = fn
+}
+
+// ClearPeersOverride removes any previously configured peer provider.
+func (ckw *ApiConnectivityCheckWrapper) ClearPeersOverride() {
+	ckw.SetPeersOverride(nil)
+}
+
+// PeersOverride exposes the currently configured override, if any.
+func (ckw *ApiConnectivityCheckWrapper) PeersOverride() PeersOverrideFunc {
+	ckw.responsesMu.Lock()
+	defer ckw.responsesMu.Unlock()
+	return ckw.peersOverride
+}
+
+// RecordWorkerPeerResponse updates the last time a worker-role peer responded.
+func (ckw *ApiConnectivityCheckWrapper) RecordWorkerPeerResponse(t time.Time) {
+	ckw.responsesMu.Lock()
+	defer ckw.responsesMu.Unlock()
+	ckw.workerLastResponse = t
+}
+
+// WorkerPeerLastResponse returns the timestamp captured via RecordWorkerPeerResponse.
+func (ckw *ApiConnectivityCheckWrapper) WorkerPeerLastResponse() time.Time {
+	ckw.responsesMu.Lock()
+	defer ckw.responsesMu.Unlock()
+	return ckw.workerLastResponse
+}
+
+// RecordControlPlanePeerResponse updates the last time a control-plane peer responded.
+func (ckw *ApiConnectivityCheckWrapper) RecordControlPlanePeerResponse(t time.Time) {
+	ckw.responsesMu.Lock()
+	defer ckw.responsesMu.Unlock()
+	ckw.controlPlaneLastResponse = t
+}
+
+// ControlPlanePeerLastResponse returns the timestamp captured via RecordControlPlanePeerResponse.
+func (ckw *ApiConnectivityCheckWrapper) ControlPlanePeerLastResponse() time.Time {
+	ckw.responsesMu.Lock()
+	defer ckw.responsesMu.Unlock()
+	return ckw.controlPlaneLastResponse
 }
 
 func GenerateTestConfig() *selfnoderemediationv1alpha1.SelfNodeRemediationConfig {
