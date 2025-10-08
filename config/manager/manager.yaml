@@ -22,16 +22,14 @@ spec:
       labels:
         control-plane: controller-manager
     spec:
-      affinity:
-        podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-          - labelSelector:
-              matchExpressions:
-              - key: control-plane
-                operator: In
-                values:
-                - controller-manager
-            topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: "kubernetes.io/hostname"
+          whenUnsatisfiable: "DoNotSchedule"
+          labelSelector:
+            matchLabels:
+              control-plane: controller-manager
+              self-node-remediation-operator: ""
       securityContext:
         runAsNonRoot: false
       priorityClassName: system-cluster-critical

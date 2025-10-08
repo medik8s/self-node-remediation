@@ -337,16 +337,6 @@ spec:
                 control-plane: controller-manager
                 self-node-remediation-operator: ""
             spec:
-              affinity:
-                podAntiAffinity:
-                  requiredDuringSchedulingIgnoredDuringExecution:
-                  - labelSelector:
-                      matchExpressions:
-                      - key: control-plane
-                        operator: In
-                        values:
-                        - controller-manager
-                    topologyKey: kubernetes.io/hostname
               containers:
               - args:
                 - --health-probe-bind-address=:8081
@@ -418,6 +408,14 @@ spec:
                 runAsNonRoot: false
               serviceAccountName: self-node-remediation-controller-manager
               terminationGracePeriodSeconds: 10
+              topologySpreadConstraints:
+              - labelSelector:
+                  matchLabels:
+                    control-plane: controller-manager
+                    self-node-remediation-operator: ""
+                maxSkew: 1
+                topologyKey: kubernetes.io/hostname
+                whenUnsatisfiable: DoNotSchedule
       permissions:
       - rules:
         - apiGroups:
