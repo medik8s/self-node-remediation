@@ -28,6 +28,7 @@ import (
 	"github.com/medik8s/self-node-remediation/controllers"
 	"github.com/medik8s/self-node-remediation/controllers/tests/shared"
 	"github.com/medik8s/self-node-remediation/pkg/controlplane"
+	"github.com/medik8s/self-node-remediation/pkg/peers"
 	"github.com/medik8s/self-node-remediation/pkg/utils"
 	"github.com/medik8s/self-node-remediation/pkg/watchdog"
 )
@@ -499,6 +500,22 @@ var _ = Describe("SNR Controller", func() {
 				})
 			})
 
+		})
+	})
+
+	Context("Control-plane isolation (pre-redesign)", func() {
+		It("should mark control-plane unhealthy when workers report CR but no control-plane peers respond", func() {
+			configureUnhealthyNodeAsControlNode()
+			configureSimulatedPeerResponses(true)
+			configurePeersOverride(func(role peers.Role) []v1.PodIP {
+				if role == peers.ControlPlane {
+					return nil
+				}
+				return []v1.PodIP{{IP: "10.0.0.11"}}
+			})
+			apiCheck.AppendSimulatedPeerResponse(api.Unhealthy)
+
+			Expect(true).To(BeFalse(), "expected isolation redesign to flag control-plane unhealthy")
 		})
 	})
 
@@ -1278,7 +1295,16 @@ func configureSimulatedPeerResponses(simulateResponses bool) {
 		DeferCleanup(func() {
 			apiCheck.ShouldSimulatePeerResponses = orgValue
 			apiCheck.RestoreSimulatedPeerResponses(orgResponses)
+			if !simulateResponses {
+				apiCheck.SetPeersOverride(nil)
+			}
 		})
+	})
+}
+
+func configurePeersOverride(fn shared.PeersOverrideFunc) {
+	By("Configure peer override", func() {
+		apiCheck.SetPeersOverride(fn)
 	})
 }
 
