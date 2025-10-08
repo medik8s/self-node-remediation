@@ -241,6 +241,10 @@ func (ckw *ApiConnectivityCheckWrapper) ControlPlanePeerLastResponse() time.Time
 	return ckw.controlPlaneLastResponse
 }
 
+func (ckw *ApiConnectivityCheckWrapper) ResetPeerTimers() {
+	ckw.ApiConnectivityCheck.ResetPeerTimers()
+}
+
 func GenerateTestConfig() *selfnoderemediationv1alpha1.SelfNodeRemediationConfig {
 	return &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{
 		TypeMeta: metav1.TypeMeta{

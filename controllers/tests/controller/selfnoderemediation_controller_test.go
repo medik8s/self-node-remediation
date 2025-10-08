@@ -1315,11 +1315,13 @@ func configureApiServerSimulatedFailures(simulateResponses bool) {
 	By("Configure k8s client to simulate API server failures", func() {
 		orgValue := k8sClient.ShouldSimulateFailure
 		k8sClient.ShouldSimulateFailure = simulateResponses
+		apiCheck.ResetPeerTimers()
 
 		DeferCleanup(func() {
 			By(fmt.Sprintf("Restore k8s client config value for API server failure simulation to %t",
 				orgValue), func() {
 				k8sClient.ShouldSimulateFailure = orgValue
+				apiCheck.ResetPeerTimers()
 			})
 
 		})
@@ -1404,6 +1406,7 @@ func addNodes(nodes []newNodeConfig) {
 func resetWatchdogTimer() {
 	By("Resetting watchdog timer", func() {
 		dummyDog.Reset()
+		apiCheck.ResetPeerTimers()
 	})
 }
 

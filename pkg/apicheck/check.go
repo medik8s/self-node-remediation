@@ -41,6 +41,8 @@ type ApiConnectivityCheck struct {
 	failureTracker                *FailureTracker
 	workerLastPeerResponse        time.Time
 	controlPlaneLastPeerResponse  time.Time
+	workerPeerSilenceSince        time.Time
+	controlPlanePeerSilenceSince  time.Time
 	clientCreds                   credentials.TransportCredentials
 	mutex                         sync.Mutex
 	controlPlaneManager           *controlplane.Manager
@@ -73,12 +75,10 @@ type ApiConnectivityCheckConfig struct {
 
 func New(config *ApiConnectivityCheckConfig, controlPlaneManager *controlplane.Manager) (c *ApiConnectivityCheck) {
 	c = &ApiConnectivityCheck{
-		config:                       config,
-		mutex:                        sync.Mutex{},
-		controlPlaneManager:          controlPlaneManager,
-		failureTracker:               NewFailureTracker(),
-		workerLastPeerResponse:       time.Now(),
-		controlPlaneLastPeerResponse: time.Now(),
+		config:              config,
+		mutex:               sync.Mutex{},
+		controlPlaneManager: controlPlaneManager,
+		failureTracker:      NewFailureTracker(),
 	}
 
 	c.SetHealthStatusFunc(c.GetDefaultPeerHealthCheckFunc())
@@ -254,6 +254,9 @@ func (c *ApiConnectivityCheck) evaluateWorker(now time.Time) controlplane.Evalua
 	summary := c.gatherPeerResponses(peers.Worker, now)
 
 	if summary.totalPeers() == 0 {
+		if c.config.MinPeersForRemediation == 0 {
+			return controlplane.EvaluationIsolation
+		}
 		if c.peerTimeoutExceeded(peers.Worker, now) {
 			return controlplane.EvaluationIsolation
 		}
@@ -380,6 +383,7 @@ func (c *ApiConnectivityCheck) gatherPeerResponses(role peers.Role, now time.Tim
 	}
 
 	if len(addresses) == 0 {
+		c.recordPeerSilence(role, now)
 		return summary
 	}
 
@@ -402,6 +406,8 @@ func (c *ApiConnectivityCheck) gatherPeerResponses(role peers.Role, now time.Tim
 
 	if summary.responded {
 		c.recordPeerActivity(role, now)
+	} else {
+		c.recordPeerSilence(role, now)
 	}
 
 	return summary
@@ -413,11 +419,13 @@ func (c *ApiConnectivityCheck) listPeers(role peers.Role) []corev1.PodIP {
 	c.mutex.Unlock()
 
 	if override != nil {
-		if custom := override(role); custom != nil {
-			copySlice := make([]corev1.PodIP, len(custom))
-			copy(copySlice, custom)
-			return copySlice
+		custom := override(role)
+		if len(custom) == 0 {
+			return nil
 		}
+		copySlice := make([]corev1.PodIP, len(custom))
+		copy(copySlice, custom)
+		return copySlice
 	}
 
 	if c.config == nil || c.config.Peers == nil {
@@ -430,9 +438,30 @@ func (c *ApiConnectivityCheck) listPeers(role peers.Role) []corev1.PodIP {
 func (c *ApiConnectivityCheck) recordPeerActivity(role peers.Role, now time.Time) {
 	if role == peers.Worker {
 		c.workerLastPeerResponse = now
+		c.workerPeerSilenceSince = time.Time{}
 	} else {
 		c.controlPlaneLastPeerResponse = now
+		c.controlPlanePeerSilenceSince = time.Time{}
 	}
+}
+
+func (c *ApiConnectivityCheck) recordPeerSilence(role peers.Role, now time.Time) {
+	if role == peers.Worker {
+		if c.workerPeerSilenceSince.IsZero() {
+			c.workerPeerSilenceSince = now
+		}
+	} else {
+		if c.controlPlanePeerSilenceSince.IsZero() {
+			c.controlPlanePeerSilenceSince = now
+		}
+	}
+}
+
+func (c *ApiConnectivityCheck) ResetPeerTimers() {
+	c.workerLastPeerResponse = time.Time{}
+	c.workerPeerSilenceSince = time.Time{}
+	c.controlPlaneLastPeerResponse = time.Time{}
+	c.controlPlanePeerSilenceSince = time.Time{}
 }
 
 func (c *ApiConnectivityCheck) outcomeIsHealthyForWorker(outcome controlplane.EvaluationOutcome) bool {
@@ -496,18 +525,18 @@ func (c *ApiConnectivityCheck) peerTimeoutExceeded(role peers.Role, now time.Tim
 		return false
 	}
 
-	var last time.Time
+	var silenceSince time.Time
 	if role == peers.Worker {
-		last = c.workerLastPeerResponse
+		silenceSince = c.workerPeerSilenceSince
 	} else {
-		last = c.controlPlaneLastPeerResponse
+		silenceSince = c.controlPlanePeerSilenceSince
 	}
 
-	if last.IsZero() {
+	if silenceSince.IsZero() {
 		return false
 	}
 
-	return now.Sub(last) >= deadline
+	return now.Sub(silenceSince) >= deadline
 }
 
 func (c *ApiConnectivityCheck) popPeerIPs(peersIPs *[]corev1.PodIP, count int) []corev1.PodIP {
