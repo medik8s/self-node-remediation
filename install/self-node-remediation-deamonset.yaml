@@ -52,8 +52,6 @@ spec:
                 fieldPath: metadata.namespace
           - name: WATCHDOG_PATH
             value: {{.WatchdogPath}}
-          - name: TIME_TO_ASSUME_NODE_REBOOTED
-            value: {{.TimeToAssumeNodeRebooted}}
           - name: PEER_API_SERVER_TIMEOUT
             value: "{{.PeerApiServerTimeout}}"
           - name: API_CHECK_INTERVAL
@@ -74,6 +72,8 @@ spec:
             value: {{.EndpointHealthCheckUrl}}
           - name: HOST_PORT
             value: "{{.HostPort}}"
+          - name: MIN_PEERS_FOR_REMEDIATION
+            value: "{{.MinPeersForRemediation}}"
         image: {{.Image}}
         imagePullPolicy: Always
         volumeMounts:

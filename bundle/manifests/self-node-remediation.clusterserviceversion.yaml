@@ -43,7 +43,7 @@ metadata:
     olm.skipRange: '>=0.4.0'
     operatorframework.io/suggested-namespace: openshift-workload-availability
     operatorframework.io/suggested-namespace-template: '{"kind":"Namespace","apiVersion":"v1","metadata":{"name":"openshift-workload-availability","annotations":{"openshift.io/node-selector":""}}}'
-    operators.operatorframework.io/builder: operator-sdk-v1.32.0
+    operators.operatorframework.io/builder: operator-sdk-v1.33.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v3
     repository: https://github.com/medik8s/self-node-remediation
     support: Medik8s
@@ -390,6 +390,29 @@ spec:
                     memory: 110Mi
                 securityContext:
                   allowPrivilegeEscalation: false
+              - args:
+                - --secure-listen-address=0.0.0.0:8443
+                - --http2-disable
+                - --upstream=http://127.0.0.1:8080/
+                - --logtostderr=true
+                - --v=0
+                image: quay.io/brancz/kube-rbac-proxy:v0.15.0
+                name: kube-rbac-proxy
+                ports:
+                - containerPort: 8443
+                  name: https
+                resources:
+                  limits:
+                    cpu: 500m
+                    memory: 128Mi
+                  requests:
+                    cpu: 5m
+                    memory: 64Mi
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop:
+                    - ALL
               priorityClassName: system-cluster-critical
               securityContext:
                 runAsNonRoot: false
@@ -450,9 +473,28 @@ spec:
   provider:
     name: Medik8s
     url: https://www.medik8s.io/
-  replaces: self-node-remediation.v0.0.1
   version: 0.0.1
   webhookdefinitions:
+  - admissionReviewVersions:
+    - v1
+    containerPort: 443
+    deploymentName: self-node-remediation-controller-manager
+    failurePolicy: Fail
+    generateName: mselfnoderemediationtemplate.kb.io
+    rules:
+    - apiGroups:
+      - self-node-remediation.medik8s.io
+      apiVersions:
+      - v1alpha1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - selfnoderemediationtemplates
+    sideEffects: None
+    targetPort: 9443
+    type: MutatingAdmissionWebhook
+    webhookPath: /mutate-self-node-remediation-medik8s-io-v1alpha1-selfnoderemediationtemplate
   - admissionReviewVersions:
     - v1
     containerPort: 443
@@ -487,6 +529,7 @@ spec:
       operations:
       - CREATE
       - UPDATE
+      - DELETE
       resources:
       - selfnoderemediationconfigs
     sideEffects: None

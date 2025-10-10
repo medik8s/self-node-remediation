@@ -25,13 +25,13 @@ func New(c client.Client, log logr.Logger) *ConfigInitializer {
 	}
 }
 
-func (configInitializer *ConfigInitializer) Start(ctx context.Context) error {
-	return NewConfigIfNotExist(configInitializer.client)
+func (c *ConfigInitializer) Start(ctx context.Context) error {
+	return c.newConfigIfNotExist(ctx)
 }
 
 // NewConfigIfNotExist creates a new SelfNodeRemediationConfig object
 // to initialize the rest of the deployment objects creation.
-func NewConfigIfNotExist(c client.Client) error {
+func (c *ConfigInitializer) newConfigIfNotExist(ctx context.Context) error {
 	ns, err := utils.GetDeploymentNamespace()
 	if err != nil {
 		return errors.Wrap(err, "unable to get the deployment namespace")
@@ -40,7 +40,7 @@ func NewConfigIfNotExist(c client.Client) error {
 	config := selfnoderemediationv1alpha1.NewDefaultSelfNodeRemediationConfig()
 	config.SetNamespace(ns)
 
-	err = c.Create(context.Background(), &config, &client.CreateOptions{})
+	err = c.client.Create(ctx, &config, &client.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
 		return errors.Wrap(err, "failed to create a default self node remediation config CR")
 	}

@@ -10,11 +10,8 @@ import (
 	"google.golang.org/grpc"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	selfNodeRemediationApis "github.com/medik8s/self-node-remediation/api"
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
@@ -24,10 +21,6 @@ import (
 
 const (
 	connectionTimeout = 5 * time.Second
-	//IMPORTANT! this MUST be less than PeerRequestTimeout in apicheck
-	//The difference between them should allow some time for sending the request over the network
-	//todo enforce this
-	apiServerTimeout = 3 * time.Second
 )
 
 var (
@@ -45,28 +38,23 @@ var (
 
 type Server struct {
 	UnimplementedPeerHealthServer
-	client     dynamic.Interface
-	snr        *controllers.SelfNodeRemediationReconciler
-	log        logr.Logger
-	certReader certificates.CertStorageReader
-	port       int
+	c                client.Client
+	reader           client.Reader
+	log              logr.Logger
+	certReader       certificates.CertStorageReader
+	port             int
+	apiServerTimeout time.Duration
 }
 
 // NewServer returns a new Server
-func NewServer(snr *controllers.SelfNodeRemediationReconciler, conf *rest.Config, log logr.Logger, port int, certReader certificates.CertStorageReader) (*Server, error) {
-
-	// create dynamic client
-	c, err := dynamic.NewForConfig(conf)
-	if err != nil {
-		return nil, err
-	}
-
+func NewServer(c client.Client, reader client.Reader, log logr.Logger, port int, certReader certificates.CertStorageReader, apiServerTimeout time.Duration) (*Server, error) {
 	return &Server{
-		client:     c,
-		snr:        snr,
-		log:        log,
-		certReader: certReader,
-		port:       port,
+		c:                c,
+		reader:           reader,
+		log:              log,
+		certReader:       certReader,
+		port:             port,
+		apiServerTimeout: apiServerTimeout,
 	}, nil
 }
 
@@ -111,46 +99,59 @@ func (s *Server) Start(ctx context.Context) error {
 }
 
 // IsHealthy checks if the given node is healthy
-func (s Server) IsHealthy(ctx context.Context, request *HealthRequest) (*HealthResponse, error) {
+func (s *Server) IsHealthy(ctx context.Context, request *HealthRequest) (*HealthResponse, error) {
+	s.log.Info("checking health for peer", "node", request.GetNodeName(), "machine", request.GetMachineName())
 
 	nodeName := request.GetNodeName()
 	if nodeName == "" {
 		return nil, fmt.Errorf("empty node name in HealthRequest")
 	}
 
-	apiCtx, cancelFunc := context.WithTimeout(ctx, apiServerTimeout)
+	apiCtx, cancelFunc := context.WithTimeout(ctx, s.apiServerTimeout)
 	defer cancelFunc()
 
-	//fetch all snrs from all ns
 	snrs := &v1alpha1.SelfNodeRemediationList{}
-	if err := s.snr.List(apiCtx, snrs); err != nil {
-		s.log.Error(err, "api error failed to fetch snrs")
+	if err := s.listWithTimeoutHandling(apiCtx, snrs); err != nil {
+		s.log.Info("failed to list SelfNodeRemediations, returning ApiError", "cause", err.Error())
 		return toResponse(selfNodeRemediationApis.ApiError)
 	}
 
-	//return healthy only if all of snrs are considered healthy for that node
-	for _, snr := range snrs.Items {
-		isOwnedByNHC := controllers.IsOwnedByNHC(&snr)
-		if isOwnedByNHC && snr.Name == nodeName {
-			return toResponse(selfNodeRemediationApis.Unhealthy)
-
-		} else if !isOwnedByNHC && snr.Name == request.MachineName {
+	// return healthy only if no snr matches that node
+	for i := range snrs.Items {
+		snrMatches, _, err := controllers.IsSNRMatching(ctx, s.c, &snrs.Items[i], nodeName, request.GetMachineName(), s.log)
+		if err != nil {
+			s.log.Error(err, "failed to check if SNR matches node")
+			continue
+		}
+		if snrMatches {
+			s.log.Info("found matching SNR, node is unhealthy", "node", nodeName, "machine", request.MachineName)
 			return toResponse(selfNodeRemediationApis.Unhealthy)
 		}
 	}
+	s.log.Info("no matching SNR found, node is considered healthy", "node", nodeName, "machine", request.MachineName)
 	return toResponse(selfNodeRemediationApis.Healthy)
 }
 
-func (s Server) getNode(ctx context.Context, nodeName string) (*unstructured.Unstructured, error) {
-	apiCtx, cancelFunc := context.WithTimeout(ctx, apiServerTimeout)
-	defer cancelFunc()
+// listWithTimeoutHandling wraps a reader list method with additional context timeout handling.
+// This is needed because we observed cases when the client code had some delay somewhere, which exceeded the
+// configured timeout, and even the timeout on the caller side, causing unneeded fencing actions.
+func (s *Server) listWithTimeoutHandling(apiCtx context.Context, snrs *v1alpha1.SelfNodeRemediationList) error {
+	// run the list call async
+	var listErr error
+	listDone := make(chan struct{})
+	go func() {
+		// don't use cached client but the reader, because this also tests API server connectivity!
+		listErr = s.reader.List(apiCtx, snrs)
+		close(listDone)
+	}()
 
-	node, err := s.client.Resource(nodeRes).Namespace("").Get(apiCtx, nodeName, metav1.GetOptions{})
-	if err != nil {
-		s.log.Error(err, "api error")
-		return nil, err
+	// wait until context expired or list call returned
+	select {
+	case <-apiCtx.Done():
+		return fmt.Errorf("timed out")
+	case <-listDone:
+		return listErr
 	}
-	return node, nil
 }
 
 func toResponse(status selfNodeRemediationApis.HealthCheckResponseCode) (*HealthResponse, error) {

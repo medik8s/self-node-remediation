@@ -8,20 +8,29 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/medik8s/common/pkg/events"
 	"google.golang.org/grpc/credentials"
 
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	selfNodeRemediation "github.com/medik8s/self-node-remediation/api"
+	"github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/pkg/certificates"
 	"github.com/medik8s/self-node-remediation/pkg/controlplane"
 	"github.com/medik8s/self-node-remediation/pkg/peerhealth"
 	"github.com/medik8s/self-node-remediation/pkg/peers"
 	"github.com/medik8s/self-node-remediation/pkg/reboot"
+	"github.com/medik8s/self-node-remediation/pkg/utils"
+)
+
+const (
+	eventReasonPeerTimeoutAdjusted = "PeerTimeoutAdjusted"
 )
 
 type ApiConnectivityCheck struct {
@@ -49,6 +58,8 @@ type ApiConnectivityCheckConfig struct {
 	PeerRequestTimeout        time.Duration
 	PeerHealthPort            int
 	MaxTimeForNoPeersResponse time.Duration
+	MinPeersForRemediation    int
+	Recorder                  record.EventRecorder
 }
 
 func New(config *ApiConnectivityCheckConfig, controlPlaneManager *controlplane.Manager) *ApiConnectivityCheck {
@@ -68,7 +79,7 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 	}
 	restClient := cs.RESTClient()
 
-	go wait.UntilWithContext(ctx, func(ctx context.Context) {
+	wait.UntilWithContext(ctx, func(ctx context.Context) {
 
 		readerCtx, cancel := context.WithTimeout(ctx, c.config.ApiServerTimeout)
 		defer cancel()
@@ -85,7 +96,7 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 			}
 		}
 		if failure != "" {
-			c.config.Log.Error(fmt.Errorf(failure), "failed to check api server")
+			c.config.Log.Info(fmt.Sprintf("failed to check api server: %s", failure))
 			if isHealthy := c.isConsideredHealthy(); !isHealthy {
 				// we have a problem on this node
 				c.config.Log.Error(err, "we are unhealthy, triggering a reboot")
@@ -93,7 +104,7 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 					c.config.Log.Error(err, "failed to trigger reboot")
 				}
 			} else {
-				c.config.Log.Error(err, "peers did not confirm that we are unhealthy, ignoring error")
+				c.config.Log.Info("peers did not confirm that we are unhealthy, ignoring error")
 			}
 			return
 		}
@@ -103,9 +114,6 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 
 	}, c.config.CheckInterval)
 
-	c.config.Log.Info("api connectivity check started")
-
-	<-ctx.Done()
 	return nil
 }
 
@@ -130,117 +138,142 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 	}
 
 	c.config.Log.Info("Error count exceeds threshold, trying to ask other nodes if I'm healthy")
-	nodesToAsk := c.config.Peers.GetPeersAddresses(peers.Worker)
-	if nodesToAsk == nil || len(nodesToAsk) == 0 {
-		c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, nothing we can do, so consider the node being healthy")
-		//todo maybe we need to check if this happens too much and reboot
+	peersToAsk := c.config.Peers.GetPeersAddresses(peers.Worker)
+
+	// We check to see if we have at least the number of peers that the user has configured as required.
+	//  If we don't have this many peers (for instance there are zero peers, and the default value is set
+	//  which requires at least one peer), we don't want to remediate. In this case we have some confusion
+	//  and don't want to remediate a node when we shouldn't.  Note: It would be unusual for MinPeersForRemediation
+	//  to be greater than 1 unless the environment has specific requirements.
+	if len(peersToAsk) < c.config.MinPeersForRemediation {
+		c.config.Log.Info("Ignoring api-server error as we have an insufficient number of peers found, "+
+			"so we aren't going to attempt to contact any to check for a SelfNodeRemediation CR"+
+			" - we will consider it as if there was no CR present & as healthy.", "minPeersRequired",
+			c.config.MinPeersForRemediation, "actualNumPeersFound", len(peersToAsk))
+
+		// TODO: maybe we need to check if this happens too much and reboot
 		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseNoPeersWereFound}
 	}
 
+	// If we make it here and there are no peers, we can't proceed because we need at least one peer
+	//  to check.  So it doesn't make sense to continue on - we'll mark as unhealthy and exit fast
+	if len(peersToAsk) == 0 {
+		c.config.Log.Info("Marking node as unhealthy due to being isolated.  We don't have any peers to ask "+
+			"and MinPeersForRemediation must be greater than zero", "minPeersRequired",
+			c.config.MinPeersForRemediation, "actualNumPeersFound", len(peersToAsk))
+		return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecauseNodeIsIsolated}
+	}
+
 	apiErrorsResponsesSum := 0
-	nrAllNodes := len(nodesToAsk)
-	// nodesToAsk is being reduced in every iteration, iterate until no nodes left to ask
-	for i := 0; len(nodesToAsk) > 0; i++ {
+	nrAllPeers := len(peersToAsk)
+	// peersToAsk is being reduced at every iteration, iterate until no peers left to ask
+	for i := 0; len(peersToAsk) > 0; i++ {
 
-		// start asking a few nodes only in first iteration to cover the case we get a healthy / unhealthy result
-		nodesBatchCount := reboot.MinNodesNumberInBatch
-		if i > 0 {
-			// after that ask 10% of the cluster each time to check the api problem case
-			nodesBatchCount = len(nodesToAsk) / reboot.MaxBatchesAfterFirst
-			if nodesBatchCount < reboot.MinNodesNumberInBatch {
-				nodesBatchCount = reboot.MinNodesNumberInBatch
-			}
-		}
-
-		// but do not ask more than we have
-		if len(nodesToAsk) < nodesBatchCount {
-			nodesBatchCount = len(nodesToAsk)
-		}
-
-		chosenNodesAddresses := c.popNodes(&nodesToAsk, nodesBatchCount)
-		healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenNodesAddresses)
+		batchSize := utils.GetNextBatchSize(nrAllPeers, len(peersToAsk))
+		chosenPeersIPs := c.popPeerIPs(&peersToAsk, batchSize)
+		healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenPeersIPs)
 		if healthyResponses+unhealthyResponses+apiErrorsResponses > 0 {
 			c.timeOfLastPeerResponse = time.Now()
 		}
+		c.config.Log.Info("Aggregate peer health responses", "healthyResponses", healthyResponses,
+			"unhealthyResponses", unhealthyResponses, "apiErrorsResponses", apiErrorsResponses)
 
 		if healthyResponses > 0 {
-			c.config.Log.Info("Peer told me I'm healthy.")
+			c.config.Log.Info("There is at least one peer who thinks this node healthy, so we'll respond "+
+				"with a healthy status", "healthyResponses", healthyResponses, "reason",
+				"peers.HealthyBecauseCRNotFound")
 			c.errorCount = 0
 			return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseCRNotFound}
 		}
 
 		if unhealthyResponses > 0 {
-			c.config.Log.Info("Peer told me I'm unhealthy!")
+			c.config.Log.Info("I got at least one peer who thinks I'm unhealthy, so we'll respond "+
+				"with unhealthy", "unhealthyResponses", unhealthyResponses, "reason",
+				"peers.UnHealthyBecausePeersResponse")
 			return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecausePeersResponse}
 		}
 
 		if apiErrorsResponses > 0 {
-			c.config.Log.Info("Peer can't access the api-server")
+			c.config.Log.Info("If you see this, I didn't get any healthy or unhealthy peer responses, "+
+				"instead they told me they can't access the API server either", "apiErrorsResponses",
+				apiErrorsResponses)
 			apiErrorsResponsesSum += apiErrorsResponses
-			//todo consider using [m|n]hc.spec.maxUnhealthy instead of 50%
-			if apiErrorsResponsesSum > nrAllNodes/2 { //already reached more than 50% of the nodes and all of them returned api error
-				//assuming this is a control plane failure as others can't access api-server as well
-				c.config.Log.Info("More than 50% of the nodes couldn't access the api-server, assuming this is a control plane failure")
+			// TODO: consider using [m|n]hc.spec.maxUnhealthy instead of 50%
+			if apiErrorsResponsesSum > nrAllPeers/2 { // already reached more than 50% of the peers and all of them returned api error
+				// assuming this is a control plane failure as others can't access api-server as well
+				c.config.Log.Info("More than 50% of the nodes couldn't access the api-server, assuming "+
+					"this is a control plane failure, so we are going to return healthy in that case",
+					"reason", "HealthyBecauseMostPeersCantAccessAPIServer")
 				return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseMostPeersCantAccessAPIServer}
 			}
 		}
 
 	}
 
+	c.config.Log.Info("We have attempted communication with all known peers, and haven't gotten either: " +
+		"a peer that believes we are healthy, a peer that believes we are unhealthy, or we haven't decided that " +
+		"there is a control plane failure")
+
 	//we asked all peers
 	now := time.Now()
+	// MaxTimeForNoPeersResponse check prevents the node from being considered unhealthy in case of short network outages
 	if now.After(c.timeOfLastPeerResponse.Add(c.config.MaxTimeForNoPeersResponse)) {
-		c.config.Log.Error(fmt.Errorf("failed health check"), "Failed to get health status peers. Assuming unhealthy")
+		c.config.Log.Error(fmt.Errorf("failed health check"), "Failed to get health status peers. "+
+			"Assuming unhealthy", "reason", "UnHealthyBecauseNodeIsIsolated")
 		return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecauseNodeIsIsolated}
 	} else {
-		c.config.Log.Info("Ignoring no peers response error, time is below threshold for no peers response", "time without peers response (seconds)", now.Sub(c.timeOfLastPeerResponse).Seconds(), "threshold (seconds)", c.config.MaxTimeForNoPeersResponse.Seconds())
+		c.config.Log.Info("Ignoring no peers response error, time is below threshold for no peers response",
+			"time without peers response (seconds)", now.Sub(c.timeOfLastPeerResponse).Seconds(),
+			"threshold (seconds)", c.config.MaxTimeForNoPeersResponse.Seconds(),
+			"reason", "HealthyBecauseNoPeersResponseNotReachedTimeout")
 		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseNoPeersResponseNotReachedTimeout}
 	}
 
 }
 
 func (c *ApiConnectivityCheck) canOtherControlPlanesBeReached() bool {
-	nodesToAsk := c.config.Peers.GetPeersAddresses(peers.ControlPlane)
-	numOfControlPlanePeers := len(nodesToAsk)
+	peersToAsk := c.config.Peers.GetPeersAddresses(peers.ControlPlane)
+	numOfControlPlanePeers := len(peersToAsk)
 	if numOfControlPlanePeers == 0 {
 		c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, other control planes can't be reached")
 		return false
 	}
 
-	chosenNodesAddresses := c.popNodes(&nodesToAsk, numOfControlPlanePeers)
-	healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenNodesAddresses)
+	chosenPeersIPs := c.popPeerIPs(&peersToAsk, numOfControlPlanePeers)
+	healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenPeersIPs)
 
 	// Any response is an indication of communication with a peer
 	return (healthyResponses + unhealthyResponses + apiErrorsResponses) > 0
 }
 
-func (c *ApiConnectivityCheck) popNodes(nodes *[][]v1.NodeAddress, count int) []string {
-	nrOfNodes := len(*nodes)
-	if nrOfNodes == 0 {
-		return []string{}
+func (c *ApiConnectivityCheck) popPeerIPs(peersIPs *[]corev1.PodIP, count int) []corev1.PodIP {
+	nrOfPeers := len(*peersIPs)
+	if nrOfPeers == 0 {
+		return []corev1.PodIP{}
 	}
 
-	if count > nrOfNodes {
-		count = nrOfNodes
+	if count > nrOfPeers {
+		count = nrOfPeers
 	}
 
-	//todo maybe we should pick nodes randomly rather than relying on the order returned from api-server
-	addresses := make([]string, count)
+	// TODO: maybe we should pick nodes randomly rather than relying on the order returned from api-server
+	selectedIPs := make([]corev1.PodIP, count)
 	for i := 0; i < count; i++ {
-		nodeAddresses := (*nodes)[i]
-		if len(nodeAddresses) == 0 || nodeAddresses[0].Address == "" {
-			c.config.Log.Info("ignoring node without IP address")
+		ip := (*peersIPs)[i]
+		if ip.IP == "" {
+			// This should not happen, but keeping it for good measure.
+			c.config.Log.Info("ignoring peers without IP address")
 			continue
 		}
-		addresses[i] = nodeAddresses[0].Address //todo node might have multiple addresses or none
+		selectedIPs[i] = ip
 	}
 
-	*nodes = (*nodes)[count:] //remove popped nodes from the list
+	*peersIPs = (*peersIPs)[count:] //remove popped nodes from the list
 
-	return addresses
+	return selectedIPs
 }
 
-func (c *ApiConnectivityCheck) getHealthStatusFromPeers(addresses []string) (int, int, int, int) {
+func (c *ApiConnectivityCheck) getHealthStatusFromPeers(addresses []corev1.PodIP) (int, int, int, int) {
 	nrAddresses := len(addresses)
 	responsesChan := make(chan selfNodeRemediation.HealthCheckResponseCode, nrAddresses)
 
@@ -251,10 +284,29 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeers(addresses []string) (int
 	return c.sumPeersResponses(nrAddresses, responsesChan)
 }
 
-// getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer into the given channel
-func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, results chan<- selfNodeRemediation.HealthCheckResponseCode) {
+// getEffectivePeerRequestTimeout calculates the effective peer request timeout
+// ensuring it's safe relative to the API server timeout by enforcing a minimum buffer
+func (c *ApiConnectivityCheck) getEffectivePeerRequestTimeout() time.Duration {
+	minimumSafeTimeout := c.config.ApiServerTimeout + v1alpha1.MinimumBuffer
 
-	logger := c.config.Log.WithValues("IP", endpointIp)
+	if c.config.PeerRequestTimeout < minimumSafeTimeout {
+		// Log warning about timeout adjustment
+		c.config.Log.Info("PeerRequestTimeout is too low, using adjusted value for safety",
+			"configuredTimeout", c.config.PeerRequestTimeout,
+			"apiServerTimeout", c.config.ApiServerTimeout,
+			"minimumBuffer", v1alpha1.MinimumBuffer,
+			"effectiveTimeout", minimumSafeTimeout)
+		events.WarningEventf(c.config.Recorder, &v1alpha1.SelfNodeRemediationConfig{ObjectMeta: metav1.ObjectMeta{Name: v1alpha1.ConfigCRName}}, eventReasonPeerTimeoutAdjusted, "PeerRequestTimeout (%s) was too low compared to ApiServerTimeout (%s), using safe value (%s) instead", c.config.PeerRequestTimeout, c.config.ApiServerTimeout, minimumSafeTimeout)
+		return minimumSafeTimeout
+	}
+
+	return c.config.PeerRequestTimeout
+}
+
+// getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer into the given channel
+func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp corev1.PodIP, results chan<- selfNodeRemediation.HealthCheckResponseCode) {
+
+	logger := c.config.Log.WithValues("IP", endpointIp.IP)
 	logger.Info("getting health status from peer")
 
 	if err := c.initClientCreds(); err != nil {
@@ -264,7 +316,7 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, result
 	}
 
 	// TODO does this work with IPv6?
-	phClient, err := peerhealth.NewClient(fmt.Sprintf("%v:%v", endpointIp, c.config.PeerHealthPort), c.config.PeerDialTimeout, c.config.Log.WithName("peerhealth client"), c.clientCreds)
+	phClient, err := peerhealth.NewClient(fmt.Sprintf("%v:%v", endpointIp.IP, c.config.PeerHealthPort), c.config.PeerDialTimeout, c.config.Log.WithName("peerhealth client"), c.clientCreds)
 	if err != nil {
 		logger.Error(err, "failed to init grpc client")
 		results <- selfNodeRemediation.RequestFailed
@@ -272,7 +324,8 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp string, result
 	}
 	defer phClient.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), c.config.PeerRequestTimeout)
+	effectiveTimeout := c.getEffectivePeerRequestTimeout()
+	ctx, cancel := context.WithTimeout(context.Background(), effectiveTimeout)
 	defer cancel()
 
 	resp, err := phClient.IsHealthy(ctx, &peerhealth.HealthRequest{

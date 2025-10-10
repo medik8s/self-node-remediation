@@ -3,6 +3,7 @@ package peerhealth
 import (
 	"context"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,7 +22,6 @@ import (
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/controllers"
-	"github.com/medik8s/self-node-remediation/controllers/tests/shared"
 )
 
 func TestPeerHealth(t *testing.T) {
@@ -33,6 +33,7 @@ const nodeName = "somenode"
 
 var cfg *rest.Config
 var k8sClient client.Client
+var reader *ReaderWrapper
 var testEnv *envtest.Environment
 var snrReconciler *controllers.SelfNodeRemediationReconciler
 var cancelFunc context.CancelFunc
@@ -73,13 +74,19 @@ var _ = BeforeSuite(func() {
 	k8sClient = k8sManager.GetClient()
 	Expect(k8sClient).ToNot(BeNil())
 
+	originalReader := k8sManager.GetAPIReader()
+	Expect(originalReader).ToNot(BeNil())
+
+	reader = &ReaderWrapper{
+		Reader: originalReader,
+	}
+
 	// we need a reconciler for getting last SNR namespace
 	snrReconciler = &controllers.SelfNodeRemediationReconciler{
-		Client:             k8sClient,
-		Log:                ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
-		MyNodeName:         nodeName,
-		SafeTimeCalculator: &shared.MockCalculator{MockTimeToAssumeNodeRebooted: time.Minute * 3, IsAgentVar: true},
-		Recorder:           record.NewFakeRecorder(1000),
+		Client:     k8sClient,
+		Log:        ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
+		MyNodeName: nodeName,
+		Recorder:   record.NewFakeRecorder(1000),
 	}
 	err = snrReconciler.SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
@@ -99,3 +106,25 @@ var _ = AfterSuite(func() {
 	cancelFunc()
 	Expect(testEnv.Stop()).To(Succeed())
 })
+
+type ReaderWrapper struct {
+	client.Reader
+	mu    sync.RWMutex
+	delay *time.Duration
+	err   error
+}
+
+func (r *ReaderWrapper) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	r.mu.RLock()
+	d, e := r.delay, r.err
+	r.mu.RUnlock()
+
+	if d != nil {
+		time.Sleep(*d)
+	}
+	if e != nil {
+		return e
+	}
+
+	return r.Reader.List(ctx, list, opts...)
+}

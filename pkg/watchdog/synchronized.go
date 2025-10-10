@@ -65,22 +65,7 @@ func (swd *synchronizedWatchdog) Start(ctx context.Context) error {
 	swd.log.Info("watchdog started")
 	swd.mutex.Unlock()
 
-	feedCtx, cancel := context.WithCancel(context.Background())
-	swd.stop = cancel
-	// feed until stopped
-	go wait.NonSlidingUntilWithContext(feedCtx, func(feedCtx context.Context) {
-		swd.mutex.Lock()
-		defer swd.mutex.Unlock()
-		// prevent feeding of a disarmed watchdog in case the context isn't cancelled yet
-		if swd.status != Armed {
-			return
-		}
-		if err := swd.impl.feed(); err != nil {
-			swd.log.Error(err, "failed to feed watchdog!")
-		} else {
-			swd.lastFoodTime = time.Now()
-		}
-	}, swd.timeout/3)
+	swd.startFeeding()
 
 	<-ctx.Done()
 
@@ -98,6 +83,25 @@ func (swd *synchronizedWatchdog) Start(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (swd *synchronizedWatchdog) startFeeding() {
+	feedCtx, cancel := context.WithCancel(context.Background())
+	swd.stop = cancel
+	// feed until stopped
+	go wait.NonSlidingUntilWithContext(feedCtx, func(feedCtx context.Context) {
+		swd.mutex.Lock()
+		defer swd.mutex.Unlock()
+		// prevent feeding of a disarmed watchdog in case the context isn't cancelled yet
+		if swd.status != Armed {
+			return
+		}
+		if err := swd.impl.feed(); err != nil {
+			swd.log.Error(err, "failed to feed watchdog!")
+		} else {
+			swd.lastFoodTime = time.Now()
+		}
+	}, swd.timeout/3)
 }
 
 func (swd *synchronizedWatchdog) Stop() {

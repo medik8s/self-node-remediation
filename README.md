@@ -20,7 +20,7 @@ https://www.medik8s.io/
 ## Project State
 The operator is available in [operator hub](https://operatorhub.io/operator/self-node-remediation)
 
-Should be installed together with [Node Health Check Operator](https://operatorhub.io/operator/node-healthcheck-operator)
+Self Node Remediation works best together with [Node Health Check Operator](https://operatorhub.io/operator/node-healthcheck-operator)
 
 ## Help
 Feel free to join our google group to get more info - https://groups.google.com/g/medik8s

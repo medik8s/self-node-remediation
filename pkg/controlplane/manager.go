@@ -61,17 +61,34 @@ func (manager *Manager) IsControlPlaneHealthy(workerPeerResponse peers.Response,
 	switch workerPeerResponse.Reason {
 	//reported unhealthy by worker peers
 	case peers.UnHealthyBecausePeersResponse:
+		manager.log.Info("We are deciding the control plane is not healthy because the peer response was UnHealthyBecausePeersResponse")
 		return false
 	case peers.UnHealthyBecauseNodeIsIsolated:
+		manager.log.Info("While trying to determine if the control plane is healthy, the peer response was "+
+			"UnHealthyBecauseNodeIsIsolated, so we are returning true if we could reach other control plane nodes",
+			"canOtherControlPlanesBeReached", canOtherControlPlanesBeReached)
 		return canOtherControlPlanesBeReached
 	//reported healthy by worker peers
 	case peers.HealthyBecauseErrorsThresholdNotReached, peers.HealthyBecauseCRNotFound, peers.HealthyBecauseNoPeersResponseNotReachedTimeout:
+		manager.log.Info("We are deciding that the control plane is healthy because either: "+
+			"HealthyBecauseErrorsThresholdNotReached "+
+			", HealthyBecauseCRNotFound,  or HealthyBecauseNoPeersResponseNotReachedTimeout",
+			"reason", workerPeerResponse.Reason)
 		return true
 	//controlPlane node has connection to most workers, we assume it's not isolated (or at least that the controlPlane node that does not have worker peers quorum will reboot)
 	case peers.HealthyBecauseMostPeersCantAccessAPIServer:
-		return manager.isDiagnosticsPassed()
+		didDiagnosticsPass := manager.isDiagnosticsPassed()
+		manager.log.Info("The peers couldn't access the API server, so we are returning whether "+
+			"diagnostics passed", "didDiagnosticsPass", didDiagnosticsPass)
+		return didDiagnosticsPass
 	case peers.HealthyBecauseNoPeersWereFound:
-		return manager.isDiagnosticsPassed() && canOtherControlPlanesBeReached
+		didDiagnosticsPass := manager.isDiagnosticsPassed()
+
+		manager.log.Info("We couldn't find any peers so we are returning didDiagnosticsPass && "+
+			"canOtherControlPlanesBeReached", "didDiagnosticsPass", didDiagnosticsPass,
+			"canOtherControlPlanesBeReached", canOtherControlPlanesBeReached)
+
+		return didDiagnosticsPass && canOtherControlPlanesBeReached
 
 	default:
 		errorText := "node is considered unhealthy by worker peers for an unknown reason"

@@ -2,6 +2,7 @@ package peerhealth
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -22,8 +23,9 @@ var _ = Describe("Checking health using grpc client and server", func() {
 	var phServer *Server
 	var cancel context.CancelFunc
 	var phClient *Client
+	var apiServerTimeout = 5 * time.Second
 
-	BeforeEach(func() {
+	JustBeforeEach(func() {
 
 		By("creating test node")
 		node := &v1.Node{
@@ -48,7 +50,7 @@ var _ = Describe("Checking health using grpc client and server", func() {
 		}
 
 		By("Creating server")
-		phServer, err = NewServer(snrReconciler, cfg, ctrl.Log.WithName("peerhealth test").WithName("phServer"), 9000, certReader)
+		phServer, err = NewServer(k8sClient, reader, ctrl.Log.WithName("peerhealth test").WithName("phServer"), 9000, certReader, apiServerTimeout)
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Starting server")
@@ -78,7 +80,7 @@ var _ = Describe("Checking health using grpc client and server", func() {
 
 			By("calling isHealthy")
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer (cancel)()
+			defer cancel()
 			resp, err := phClient.IsHealthy(ctx, &HealthRequest{
 				NodeName: nodeName,
 			})
@@ -110,7 +112,7 @@ var _ = Describe("Checking health using grpc client and server", func() {
 
 			By("calling isHealthy")
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer (cancel)()
+			defer cancel()
 			Eventually(func() bool {
 				resp, err := phClient.IsHealthy(ctx, &HealthRequest{
 					NodeName: nodeName,
@@ -122,4 +124,63 @@ var _ = Describe("Checking health using grpc client and server", func() {
 
 	})
 
+	Describe("with a peer running into API timeout", func() {
+
+		var (
+			apiCallDelay       = 7 * time.Second
+			peerRequestTimeout = 5 * time.Second // must be lower than apiCallDelay for this test!
+		)
+
+		BeforeEach(func() {
+			reader.delay = &apiCallDelay
+			apiServerTimeout = 3 * time.Second
+
+		})
+
+		AfterEach(func() {
+			reader.delay = nil
+			apiServerTimeout = 5 * time.Second
+		})
+
+		It("should return API error", func() {
+			By("calling isHealthy")
+			// The health server code has a timeout of 3s for the API call!
+			// When we add a delay of > 3s to the API call, that 3s timeout needs to be respected,
+			// to not exceed the peerRequestTimeout (5s) of the client.
+			ctx, cancel := context.WithTimeout(context.Background(), peerRequestTimeout)
+			defer cancel()
+			resp, err := phClient.IsHealthy(ctx, &HealthRequest{
+				NodeName: nodeName,
+			})
+
+			// wait for having more logs from async server code
+			time.Sleep(10 * time.Second)
+
+			Expect(err).ToNot(HaveOccurred())
+			Expect(api.HealthCheckResponseCode(resp.Status)).To(Equal(api.ApiError))
+		})
+
+	})
+
+	Describe("with a peer running into API error", func() {
+
+		BeforeEach(func() {
+			reader.err = fmt.Errorf("some API error")
+		})
+
+		AfterEach(func() {
+			reader.err = nil
+		})
+
+		It("should return API error", func() {
+			By("calling isHealthy")
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			resp, err := phClient.IsHealthy(ctx, &HealthRequest{
+				NodeName: nodeName,
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(api.HealthCheckResponseCode(resp.Status)).To(Equal(api.ApiError))
+		})
+	})
 })

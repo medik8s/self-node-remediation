@@ -7,6 +7,7 @@ import (
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/onsi/gomega/format"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -37,6 +38,10 @@ func TestE2E(t *testing.T) {
 }
 
 var _ = BeforeSuite(func(ctx SpecContext) {
+
+	// don't limit log length
+	format.MaxLength = 0
+
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 	logger = logf.Log
 

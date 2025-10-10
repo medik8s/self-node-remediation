@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
 	"go.uber.org/zap/zapcore"
 
@@ -45,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	machinev1beta1 "github.com/openshift/api/machine/v1beta1"
 
@@ -111,6 +113,18 @@ func main() {
 
 	printVersion()
 
+	// TLS options for metric and webhook servers:
+	// disable HTTP/2 for mitigating relevant CVEs unless configured otherwise
+	var tlsOpts []func(*tls.Config)
+	if !enableHTTP2 {
+		tlsOpts = append(tlsOpts, func(c *tls.Config) {
+			c.NextProtos = []string{"http/1.1"}
+		})
+		setupLog.Info("HTTP/2 for metrics and webhook server disabled")
+	} else {
+		setupLog.Info("HTTP/2 for metrics and webhook server enabled")
+	}
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
 		// HEADS UP: once controller runtime is updated and this changes to metrics.Options{},
@@ -120,18 +134,19 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "547f6cb6.medik8s.io",
+		WebhookServer:          getWebhookServer(tlsOpts, setupLog),
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
 
-	if err := utils.InitOutOfServiceTaintFlags(mgr.GetConfig()); err != nil {
+	if err := utils.InitOutOfServiceTaintFlagsWithRetry(context.Background(), mgr.GetConfig()); err != nil {
 		setupLog.Error(err, "unable to verify out-of-service taint support. out-of-service taint isn't supported")
 	}
 
 	if isManager {
-		initSelfNodeRemediationManager(mgr, enableHTTP2)
+		initSelfNodeRemediationManager(mgr)
 	} else {
 		initSelfNodeRemediationAgent(mgr)
 	}
@@ -154,10 +169,8 @@ func main() {
 	}
 }
 
-func initSelfNodeRemediationManager(mgr manager.Manager, enableHTTP2 bool) {
+func initSelfNodeRemediationManager(mgr manager.Manager) {
 	setupLog.Info("Starting as a manager that installs the daemonset")
-
-	configureWebhookServer(mgr, enableHTTP2)
 
 	if err := (&selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "SelfNodeRemediationConfig")
@@ -180,20 +193,18 @@ func initSelfNodeRemediationManager(mgr manager.Manager, enableHTTP2 bool) {
 		os.Exit(1)
 	}
 
-	safeRebootCalc := reboot.NewManagerSafeTimeCalculator(mgr.GetClient(), selfnoderemediationv1alpha1.DefaultSafeToAssumeNodeRebootTimeout*time.Second)
-	if err = mgr.Add(safeRebootCalc); err != nil {
-		setupLog.Error(err, "failed to add safe reboot time calculator to the manager")
-		os.Exit(1)
-	}
+	calculator := reboot.NewCalculator(
+		mgr.GetClient(),
+		ctrl.Log.WithName("rebootDurationCalculator"),
+	)
 
 	if err := (&controllers.SelfNodeRemediationConfigReconciler{
-		Client:                    mgr.GetClient(),
-		Log:                       ctrl.Log.WithName("controllers").WithName("SelfNodeRemediationConfig"),
-		Scheme:                    mgr.GetScheme(),
-		InstallFileFolder:         "./install",
-		DefaultPpcCreator:         snrconfighelper.NewConfigIfNotExist,
-		Namespace:                 ns,
-		ManagerSafeTimeCalculator: safeRebootCalc,
+		Client:                   mgr.GetClient(),
+		Log:                      ctrl.Log.WithName("controllers").WithName("SelfNodeRemediationConfig"),
+		Scheme:                   mgr.GetScheme(),
+		InstallFileFolder:        "./install",
+		Namespace:                ns,
+		RebootDurationCalculator: calculator,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SelfNodeRemediationConfig")
 		os.Exit(1)
@@ -217,16 +228,16 @@ func initSelfNodeRemediationManager(mgr manager.Manager, enableHTTP2 bool) {
 			"env var name", nodeNameEnvVar)
 	}
 
-	restoreNodeAfter := 90 * time.Second
 	snrReconciler := &controllers.SelfNodeRemediationReconciler{
-		Client:             mgr.GetClient(),
-		Log:                ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
-		Scheme:             mgr.GetScheme(),
-		Recorder:           mgr.GetEventRecorderFor("SelfNodeRemediation"),
-		Rebooter:           nil,
-		MyNodeName:         myNodeName,
-		RestoreNodeAfter:   restoreNodeAfter,
-		SafeTimeCalculator: safeRebootCalc,
+		Client:                   mgr.GetClient(),
+		Log:                      ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
+		Scheme:                   mgr.GetScheme(),
+		Recorder:                 mgr.GetEventRecorderFor("SelfNodeRemediation"),
+		Rebooter:                 nil,
+		RebootDurationCalculator: calculator,
+		MyNodeName:               myNodeName,
+		MyNamespace:              ns,
+		IsAgent:                  false,
 	}
 
 	if err = snrReconciler.SetupWithManager(mgr); err != nil {
@@ -267,21 +278,23 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
-	wasWatchdogInitiated := false
 	wd, err := watchdog.NewLinux(ctrl.Log.WithName("watchdog"))
 	if err != nil {
 		setupLog.Error(err, "failed to init watchdog, using soft reboot")
 	}
 
+	wasWatchdogInitiated := false
+	watchdogTimeout := time.Duration(0)
 	if wd != nil {
 		if err = mgr.Add(wd); err != nil {
 			setupLog.Error(err, "failed to add watchdog to the manager")
 			os.Exit(1)
 		}
 		wasWatchdogInitiated = true
+		watchdogTimeout = wd.GetTimeout()
 	}
 
-	if err = utils.UpdateNodeWithIsRebootCapableAnnotation(wasWatchdogInitiated, myNodeName, mgr); err != nil {
+	if err = utils.UpdateNodeAnnotations(wasWatchdogInitiated, watchdogTimeout, myNodeName, mgr); err != nil {
 		setupLog.Error(err, "failed to update node's annotation", "annotation", utils.IsRebootCapableAnnotation)
 		os.Exit(1)
 	}
@@ -302,14 +315,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	apiServerTimeout := getDurEnvVarOrDie("API_SERVER_TIMEOUT")       //timeout for each api-connectivity check
 	peerDialTimeout := getDurEnvVarOrDie("PEER_DIAL_TIMEOUT")         //timeout for establishing connection to peer
 	peerRequestTimeout := getDurEnvVarOrDie("PEER_REQUEST_TIMEOUT")   //timeout for each peer request
-	timeToAssumeNodeRebootedInSeconds := getIntEnvVarOrDie("TIME_TO_ASSUME_NODE_REBOOTED")
 	peerHealthDefaultPort := getIntEnvVarOrDie("HOST_PORT")
-
-	safeRebootCalc := reboot.NewAgentSafeTimeCalculator(mgr.GetClient(), wd, maxErrorThreshold, apiCheckInterval, apiServerTimeout, peerDialTimeout, peerRequestTimeout, time.Duration(timeToAssumeNodeRebootedInSeconds)*time.Second)
-	if err = mgr.Add(safeRebootCalc); err != nil {
-		setupLog.Error(err, "failed to add safe reboot time calculator to the manager")
-		os.Exit(1)
-	}
 
 	// it's fine when the watchdog is nil!
 	rebooter := reboot.NewWatchdogRebooter(wd, ctrl.Log.WithName("rebooter"))
@@ -338,6 +344,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		PeerRequestTimeout:        peerRequestTimeout,
 		PeerHealthPort:            peerHealthDefaultPort,
 		MaxTimeForNoPeersResponse: reboot.MaxTimeForNoPeersResponse,
+		Recorder:                  mgr.GetEventRecorderFor("ApiConnectivityCheck"),
 	}
 
 	controlPlaneManager := controlplane.NewManager(myNodeName, mgr.GetClient())
@@ -353,16 +360,15 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
-	restoreNodeAfter := 90 * time.Second
 	snrReconciler := &controllers.SelfNodeRemediationReconciler{
-		Client:             mgr.GetClient(),
-		Log:                ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
-		Scheme:             mgr.GetScheme(),
-		Recorder:           mgr.GetEventRecorderFor("SelfNodeRemediation"),
-		Rebooter:           rebooter,
-		MyNodeName:         myNodeName,
-		RestoreNodeAfter:   restoreNodeAfter,
-		SafeTimeCalculator: safeRebootCalc,
+		Client:      mgr.GetClient(),
+		Log:         ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
+		Scheme:      mgr.GetScheme(),
+		Recorder:    mgr.GetEventRecorderFor("SelfNodeRemediation"),
+		Rebooter:    rebooter,
+		MyNodeName:  myNodeName,
+		MyNamespace: ns,
+		IsAgent:     true,
 	}
 
 	if err = snrReconciler.SetupWithManager(mgr); err != nil {
@@ -372,7 +378,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 
 	setupLog.Info("init grpc server")
 	// TODO make port configurable?
-	server, err := peerhealth.NewServer(snrReconciler, mgr.GetConfig(), ctrl.Log.WithName("peerhealth").WithName("server"), peerHealthDefaultPort, certReader)
+	server, err := peerhealth.NewServer(mgr.GetClient(), mgr.GetAPIReader(), ctrl.Log.WithName("peerhealth").WithName("server"), peerHealthDefaultPort, certReader, apiServerTimeout)
 	if err != nil {
 		setupLog.Error(err, "failed to init grpc server")
 		os.Exit(1)
@@ -398,11 +404,14 @@ func getMachineName(reader client.Reader, myNodeName string) (string, error) {
 	return "", nil
 }
 
-func configureWebhookServer(mgr ctrl.Manager, enableHTTP2 bool) {
+func getWebhookServer(tlsOpts []func(*tls.Config), log logr.Logger) webhook.Server {
 
-	server := mgr.GetWebhookServer()
+	options := webhook.Options{
+		Port:    9443,
+		TLSOpts: tlsOpts,
+	}
 
-	// check for OLM injected certs
+	// check if OLM injected certs
 	certs := []string{filepath.Join(WebhookCertDir, WebhookCertName), filepath.Join(WebhookCertDir, WebhookKeyName)}
 	certsInjected := true
 	for _, fname := range certs {
@@ -412,25 +421,14 @@ func configureWebhookServer(mgr ctrl.Manager, enableHTTP2 bool) {
 		}
 	}
 	if certsInjected {
-		server.CertDir = WebhookCertDir
-		server.CertName = WebhookCertName
-		server.KeyName = WebhookKeyName
+		options.CertDir = WebhookCertDir
+		options.CertName = WebhookCertName
+		options.KeyName = WebhookKeyName
 	} else {
-		setupLog.Info("OLM injected certs for webhooks not found")
+		log.Info("OLM injected certs for webhooks not found")
 	}
 
-	// disable http/2 for mitigating relevant CVEs
-	if !enableHTTP2 {
-		server.TLSOpts = append(server.TLSOpts,
-			func(c *tls.Config) {
-				c.NextProtos = []string{"http/1.1"}
-			},
-		)
-		setupLog.Info("HTTP/2 for webhooks disabled")
-	} else {
-		setupLog.Info("HTTP/2 for webhooks enabled")
-	}
-
+	return webhook.NewServer(options)
 }
 
 func printVersion() {

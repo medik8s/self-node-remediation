@@ -28,12 +28,16 @@ import (
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/pkg/apply"
@@ -49,12 +53,11 @@ const (
 // SelfNodeRemediationConfigReconciler reconciles a SelfNodeRemediationConfig object
 type SelfNodeRemediationConfigReconciler struct {
 	client.Client
-	Log                       logr.Logger
-	Scheme                    *runtime.Scheme
-	InstallFileFolder         string
-	DefaultPpcCreator         func(c client.Client) error
-	Namespace                 string
-	ManagerSafeTimeCalculator reboot.SafeTimeCalculator
+	Log                      logr.Logger
+	Scheme                   *runtime.Scheme
+	InstallFileFolder        string
+	Namespace                string
+	RebootDurationCalculator reboot.Calculator
 }
 
 //+kubebuilder:rbac:groups=self-node-remediation.medik8s.io,resources=selfnoderemediationconfigs,verbs=get;list;watch;create;update;patch;delete
@@ -87,6 +90,8 @@ func (r *SelfNodeRemediationConfigReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, err
 	}
 
+	r.RebootDurationCalculator.SetConfig(config)
+
 	if err := r.syncCerts(config); err != nil {
 		logger.Error(err, "error syncing certs")
 		return ctrl.Result{}, err
@@ -100,16 +105,29 @@ func (r *SelfNodeRemediationConfigReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, err
 	}
 
-	//sync manager reconciler
-	r.ManagerSafeTimeCalculator.SetTimeToAssumeNodeRebooted(time.Duration(config.Spec.SafeTimeToAssumeNodeRebootedSeconds) * time.Second)
+	if err := r.setCRsEnabledStatus(ctx); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *SelfNodeRemediationConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	generationChangePredicate := predicate.GenerationChangedPredicate{}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}).
-		Owns(&v1.DaemonSet{}).
+		Owns(&v1.DaemonSet{}, builder.WithPredicates(
+			// only
+			predicate.Funcs{
+				// skip reconcile for status only changes
+				UpdateFunc: func(ev event.UpdateEvent) bool {
+					return generationChangePredicate.Update(ev)
+				},
+				// we want to recreate the DS in case someone deletes it
+				DeleteFunc: func(_ event.DeleteEvent) bool { return true },
+			}),
+		).
 		Complete(r)
 }
 
@@ -135,14 +153,8 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 	data.Data["PeerRequestTimeout"] = snrConfig.Spec.PeerRequestTimeout.Nanoseconds()
 	data.Data["MaxApiErrorThreshold"] = snrConfig.Spec.MaxApiErrorThreshold
 	data.Data["EndpointHealthCheckUrl"] = snrConfig.Spec.EndpointHealthCheckUrl
+	data.Data["MinPeersForRemediation"] = snrConfig.Spec.MinPeersForRemediation
 	data.Data["HostPort"] = snrConfig.Spec.HostPort
-
-	safeTimeToAssumeNodeRebootedSeconds := snrConfig.Spec.SafeTimeToAssumeNodeRebootedSeconds
-	if safeTimeToAssumeNodeRebootedSeconds == 0 {
-		safeTimeToAssumeNodeRebootedSeconds = selfnoderemediationv1alpha1.DefaultSafeToAssumeNodeRebootTimeout
-	}
-	data.Data["TimeToAssumeNodeRebooted"] = fmt.Sprintf("\"%d\"", safeTimeToAssumeNodeRebootedSeconds)
-
 	data.Data["IsSoftwareRebootEnabled"] = fmt.Sprintf("\"%t\"", snrConfig.Spec.IsSoftwareRebootEnabled)
 
 	objs, err := render.Dir(r.InstallFileFolder, &data)
@@ -295,4 +307,25 @@ func (r *SelfNodeRemediationConfigReconciler) removeOldDsOnOperatorUpdate(ctx co
 	r.Log.Info("snr update old daemonset deleted")
 	return nil
 
+}
+
+func (r *SelfNodeRemediationConfigReconciler) setCRsEnabledStatus(ctx context.Context) error {
+	crs := selfnoderemediationv1alpha1.SelfNodeRemediationList{}
+	if err := r.List(ctx, &crs); err != nil {
+		r.Log.Error(err, "Failed to list self node remediation CRs")
+		return err
+	}
+
+	for _, cr := range crs.Items {
+		//is disabled
+		if meta.IsStatusConditionTrue(cr.Status.Conditions, string(selfnoderemediationv1alpha1.DisabledConditionType)) {
+			//since config was created snr is now enabled, so we can remove the disabled status condition
+			meta.RemoveStatusCondition(&cr.Status.Conditions, string(selfnoderemediationv1alpha1.DisabledConditionType))
+			if err := r.Status().Update(ctx, &cr); err != nil {
+				r.Log.Error(err, "Failed to update self node remediation CR status")
+				return err
+			}
+		}
+	}
+	return nil
 }

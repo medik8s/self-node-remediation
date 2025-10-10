@@ -16,7 +16,19 @@ spec:
         - "--http2-disable"
         - "--upstream=http://127.0.0.1:8080/"
         - "--logtostderr=true"
-        - "--v=10"
+        - "--v=0"
         ports:
         - containerPort: 8443
           name: https
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+        resources:
+          limits:
+            cpu: 500m
+            memory: 128Mi
+          requests:
+            cpu: 5m
+            memory: 64Mi
