@@ -16,12 +16,20 @@ spec:
   selector:
     matchLabels:
       control-plane: controller-manager
-  replicas: 1
+  replicas: 2
   template:
     metadata:
       labels:
         control-plane: controller-manager
     spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: "kubernetes.io/hostname"
+          whenUnsatisfiable: "DoNotSchedule"
+          labelSelector:
+            matchLabels:
+              control-plane: controller-manager
+              self-node-remediation-operator: ""
       securityContext:
         runAsNonRoot: false
       priorityClassName: system-cluster-critical

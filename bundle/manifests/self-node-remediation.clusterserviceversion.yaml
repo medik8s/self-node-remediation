@@ -325,7 +325,7 @@ spec:
           self-node-remediation-operator: ""
         name: self-node-remediation-controller-manager
         spec:
-          replicas: 1
+          replicas: 2
           selector:
             matchLabels:
               control-plane: controller-manager
@@ -408,6 +408,14 @@ spec:
                 runAsNonRoot: false
               serviceAccountName: self-node-remediation-controller-manager
               terminationGracePeriodSeconds: 10
+              topologySpreadConstraints:
+              - labelSelector:
+                  matchLabels:
+                    control-plane: controller-manager
+                    self-node-remediation-operator: ""
+                maxSkew: 1
+                topologyKey: kubernetes.io/hostname
+                whenUnsatisfiable: DoNotSchedule
       permissions:
       - rules:
         - apiGroups:
