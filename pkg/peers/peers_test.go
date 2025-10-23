@@ -1,13 +1,20 @@
 package peers
 
 import (
+	"context"
+	"errors"
 	"reflect"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func TestMapNodesToPrimaryPodIPs(t *testing.T) {
@@ -241,6 +248,436 @@ func TestMapNodesToPrimaryPodIPs(t *testing.T) {
 					break // No need to check further if one is found
 				}
 			}
+		})
+	}
+}
+
+// mockReaderWithPeers is a mock implementation that returns specific nodes and pods for testing
+type mockReaderWithPeers struct {
+	client.Reader
+	getCallCount  atomic.Int32
+	listCallCount atomic.Int32
+	nodes         []v1.Node
+	pods          []v1.Pod
+}
+
+func (m *mockReaderWithPeers) Get(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption) error {
+	m.getCallCount.Add(1)
+
+	// Return the own node on the first Get call (for initialization in Start)
+	if node, ok := obj.(*v1.Node); ok {
+		node.Name = "test-node"
+		node.Labels = map[string]string{
+			hostnameLabelName:                       "test-hostname",
+			"node-role.kubernetes.io/control-plane": "",
+		}
+		return nil
+	}
+
+	return errors.New("mock get error")
+}
+
+func (m *mockReaderWithPeers) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	m.listCallCount.Add(1)
+
+	switch l := list.(type) {
+	case *v1.NodeList:
+		// Filter nodes based on the selector
+		if len(opts) > 0 {
+			if selector, ok := opts[0].(client.MatchingLabelsSelector); ok {
+				var filteredNodes []v1.Node
+				for _, node := range m.nodes {
+					if selector.Selector.Matches(labels.Set(node.Labels)) {
+						filteredNodes = append(filteredNodes, node)
+					}
+				}
+				l.Items = filteredNodes
+			} else {
+				l.Items = m.nodes
+			}
+		} else {
+			l.Items = m.nodes
+		}
+	case *v1.PodList:
+		l.Items = m.pods
+	}
+
+	return nil
+}
+
+// TestStartVerifiesPeerAddresses tests that Start correctly populates workerPeersAddresses
+// and controlPlanePeersAddresses, handling missing pods and pods with empty IPs, and errors
+// aren't returned by Start()
+func TestStartVerifiesPeerAddresses(t *testing.T) {
+	testCases := []struct {
+		name                          string
+		nodes                         []v1.Node
+		pods                          []v1.Pod
+		expectedWorkerPeerCount       int
+		expectedControlPlanePeerCount int
+		expectedWorkerIPs             []string
+		expectedControlPlaneIPs       []string
+		description                   string
+	}{
+		{
+			name: "All worker nodes have valid pods",
+			nodes: []v1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "worker-1",
+						Labels: map[string]string{
+							hostnameLabelName:                "worker-1",
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "worker-2",
+						Labels: map[string]string{
+							hostnameLabelName:                "worker-2",
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+				},
+			},
+			pods: []v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "snr-pod-1",
+						Labels: map[string]string{
+							"app.kubernetes.io/name":      "self-node-remediation",
+							"app.kubernetes.io/component": "agent",
+						},
+					},
+					Spec:   v1.PodSpec{NodeName: "worker-1"},
+					Status: v1.PodStatus{PodIPs: []v1.PodIP{{IP: "10.0.1.1"}}},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "snr-pod-2",
+						Labels: map[string]string{
+							"app.kubernetes.io/name":      "self-node-remediation",
+							"app.kubernetes.io/component": "agent",
+						},
+					},
+					Spec:   v1.PodSpec{NodeName: "worker-2"},
+					Status: v1.PodStatus{PodIPs: []v1.PodIP{{IP: "10.0.1.2"}}},
+				},
+			},
+			expectedWorkerPeerCount:       2,
+			expectedControlPlanePeerCount: 0,
+			expectedWorkerIPs:             []string{"10.0.1.1", "10.0.1.2"},
+			expectedControlPlaneIPs:       []string{},
+			description:                   "All worker nodes should have their IPs populated",
+		},
+		{
+			name: "Worker node missing pod",
+			nodes: []v1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "worker-1",
+						Labels: map[string]string{
+							hostnameLabelName:                "worker-1",
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "worker-2",
+						Labels: map[string]string{
+							hostnameLabelName:                "worker-2",
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+				},
+			},
+			pods: []v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "snr-pod-1",
+						Labels: map[string]string{
+							"app.kubernetes.io/name":      "self-node-remediation",
+							"app.kubernetes.io/component": "agent",
+						},
+					},
+					Spec:   v1.PodSpec{NodeName: "worker-1"},
+					Status: v1.PodStatus{PodIPs: []v1.PodIP{{IP: "10.0.1.1"}}},
+				},
+				// worker-2 has no matching pod
+			},
+			expectedWorkerPeerCount:       1,
+			expectedControlPlanePeerCount: 0,
+			expectedWorkerIPs:             []string{"10.0.1.1"},
+			expectedControlPlaneIPs:       []string{},
+			description:                   "Only worker-1 should have its IP, worker-2 is missing",
+		},
+		{
+			name: "Worker pod with empty IP",
+			nodes: []v1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "worker-1",
+						Labels: map[string]string{
+							hostnameLabelName:                "worker-1",
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "worker-2",
+						Labels: map[string]string{
+							hostnameLabelName:                "worker-2",
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+				},
+			},
+			pods: []v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "snr-pod-1",
+						Labels: map[string]string{
+							"app.kubernetes.io/name":      "self-node-remediation",
+							"app.kubernetes.io/component": "agent",
+						},
+					},
+					Spec:   v1.PodSpec{NodeName: "worker-1"},
+					Status: v1.PodStatus{PodIPs: []v1.PodIP{{IP: "10.0.1.1"}}},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "snr-pod-2",
+						Labels: map[string]string{
+							"app.kubernetes.io/name":      "self-node-remediation",
+							"app.kubernetes.io/component": "agent",
+						},
+					},
+					Spec:   v1.PodSpec{NodeName: "worker-2"},
+					Status: v1.PodStatus{PodIPs: []v1.PodIP{{IP: ""}}}, // Empty IP
+				},
+			},
+			expectedWorkerPeerCount:       1,
+			expectedControlPlanePeerCount: 0,
+			expectedWorkerIPs:             []string{"10.0.1.1"},
+			expectedControlPlaneIPs:       []string{},
+			description:                   "Only worker-1 should be included, worker-2 has empty IP",
+		},
+		{
+			name: "Mixed worker and control plane nodes",
+			nodes: []v1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "worker-1",
+						Labels: map[string]string{
+							hostnameLabelName:                "worker-1",
+							"node-role.kubernetes.io/worker": "",
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cp-1",
+						Labels: map[string]string{
+							hostnameLabelName:                       "cp-1",
+							"node-role.kubernetes.io/control-plane": "",
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cp-2",
+						Labels: map[string]string{
+							hostnameLabelName:                       "cp-2",
+							"node-role.kubernetes.io/control-plane": "",
+						},
+					},
+				},
+			},
+			pods: []v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "snr-pod-worker-1",
+						Labels: map[string]string{
+							"app.kubernetes.io/name":      "self-node-remediation",
+							"app.kubernetes.io/component": "agent",
+						},
+					},
+					Spec:   v1.PodSpec{NodeName: "worker-1"},
+					Status: v1.PodStatus{PodIPs: []v1.PodIP{{IP: "10.0.1.1"}}},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "snr-pod-cp-1",
+						Labels: map[string]string{
+							"app.kubernetes.io/name":      "self-node-remediation",
+							"app.kubernetes.io/component": "agent",
+						},
+					},
+					Spec:   v1.PodSpec{NodeName: "cp-1"},
+					Status: v1.PodStatus{PodIPs: []v1.PodIP{{IP: "10.0.2.1"}}},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "snr-pod-cp-2",
+						Labels: map[string]string{
+							"app.kubernetes.io/name":      "self-node-remediation",
+							"app.kubernetes.io/component": "agent",
+						},
+					},
+					Spec:   v1.PodSpec{NodeName: "cp-2"},
+					Status: v1.PodStatus{PodIPs: []v1.PodIP{{IP: "10.0.2.2"}}},
+				},
+			},
+			expectedWorkerPeerCount:       1,
+			expectedControlPlanePeerCount: 2,
+			expectedWorkerIPs:             []string{"10.0.1.1"},
+			expectedControlPlaneIPs:       []string{"10.0.2.1", "10.0.2.2"},
+			description:                   "Should separate worker and control plane peers correctly",
+		},
+		{
+			name: "Control plane node with missing pod and empty IP",
+			nodes: []v1.Node{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cp-1",
+						Labels: map[string]string{
+							hostnameLabelName:                       "cp-1",
+							"node-role.kubernetes.io/control-plane": "",
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cp-2",
+						Labels: map[string]string{
+							hostnameLabelName:                       "cp-2",
+							"node-role.kubernetes.io/control-plane": "",
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cp-3",
+						Labels: map[string]string{
+							hostnameLabelName:                       "cp-3",
+							"node-role.kubernetes.io/control-plane": "",
+						},
+					},
+				},
+			},
+			pods: []v1.Pod{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "snr-pod-cp-1",
+						Labels: map[string]string{
+							"app.kubernetes.io/name":      "self-node-remediation",
+							"app.kubernetes.io/component": "agent",
+						},
+					},
+					Spec:   v1.PodSpec{NodeName: "cp-1"},
+					Status: v1.PodStatus{PodIPs: []v1.PodIP{{IP: "10.0.2.1"}}},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "snr-pod-cp-2",
+						Labels: map[string]string{
+							"app.kubernetes.io/name":      "self-node-remediation",
+							"app.kubernetes.io/component": "agent",
+						},
+					},
+					Spec:   v1.PodSpec{NodeName: "cp-2"},
+					Status: v1.PodStatus{PodIPs: []v1.PodIP{{IP: ""}}}, // Empty IP
+				},
+				// cp-3 has no pod
+			},
+			expectedWorkerPeerCount:       0,
+			expectedControlPlanePeerCount: 1,
+			expectedWorkerIPs:             []string{},
+			expectedControlPlaneIPs:       []string{"10.0.2.1"},
+			description:                   "Only cp-1 should be included (cp-2 has empty IP, cp-3 missing pod)",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create a mock reader with the test data
+			mockReader := &mockReaderWithPeers{
+				nodes: tc.nodes,
+				pods:  tc.pods,
+			}
+
+			p := New(
+				"test-node",
+				50*time.Millisecond,
+				mockReader,
+				logr.Discard(),
+				5*time.Second,
+			)
+
+			// Run Start for a short time to allow peer updates
+			ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+			defer cancel()
+
+			err := p.Start(ctx)
+			if err != nil {
+				t.Errorf("Start() returned an error when it should not: %v", err)
+			}
+
+			// Give it a moment to populate the addresses
+			time.Sleep(100 * time.Millisecond)
+
+			// Get the peer addresses
+			workerAddresses := p.GetPeersAddresses(Worker)
+			controlPlaneAddresses := p.GetPeersAddresses(ControlPlane)
+
+			// Verify worker peer count
+			if len(workerAddresses) != tc.expectedWorkerPeerCount {
+				t.Errorf("Expected %d worker peers, got %d. Addresses: %v",
+					tc.expectedWorkerPeerCount, len(workerAddresses), workerAddresses)
+			}
+
+			// Verify control plane peer count
+			if len(controlPlaneAddresses) != tc.expectedControlPlanePeerCount {
+				t.Errorf("Expected %d control plane peers, got %d. Addresses: %v",
+					tc.expectedControlPlanePeerCount, len(controlPlaneAddresses), controlPlaneAddresses)
+			}
+
+			// Verify worker IPs
+			workerIPs := make([]string, len(workerAddresses))
+			for i, addr := range workerAddresses {
+				workerIPs[i] = addr.IP
+			}
+			if !reflect.DeepEqual(workerIPs, tc.expectedWorkerIPs) {
+				t.Errorf("Worker IPs mismatch. Expected: %v, Got: %v", tc.expectedWorkerIPs, workerIPs)
+			}
+
+			// Verify control plane IPs
+			cpIPs := make([]string, len(controlPlaneAddresses))
+			for i, addr := range controlPlaneAddresses {
+				cpIPs[i] = addr.IP
+			}
+			if !reflect.DeepEqual(cpIPs, tc.expectedControlPlaneIPs) {
+				t.Errorf("Control plane IPs mismatch. Expected: %v, Got: %v", tc.expectedControlPlaneIPs, cpIPs)
+			}
+
+			// Verify no empty IPs in the results
+			for _, addr := range workerAddresses {
+				if addr.IP == "" {
+					t.Errorf("Worker addresses contain empty IP: %v", workerAddresses)
+					break
+				}
+			}
+			for _, addr := range controlPlaneAddresses {
+				if addr.IP == "" {
+					t.Errorf("Control plane addresses contain empty IP: %v", controlPlaneAddresses)
+					break
+				}
+			}
+
+			t.Logf("Test passed: %s", tc.description)
 		})
 	}
 }
