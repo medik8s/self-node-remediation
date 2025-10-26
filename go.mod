@@ -8,7 +8,7 @@ require (
 	github.com/medik8s/common v1.17.0
 	github.com/onsi/ginkgo/v2 v2.26.0
 	github.com/onsi/gomega v1.38.2
-	github.com/openshift/api v0.0.0-20230414143018-3367bc7e6ac7 // release-4.13
+	github.com/openshift/api v0.0.0-20240729140855-0a58f8c30a8c // release-4.15
 	github.com/pkg/errors v0.9.1
 	go.uber.org/zap v1.27.0
 	golang.org/x/sys v0.37.0
@@ -18,7 +18,7 @@ require (
 	k8s.io/apiextensions-apiserver v0.34.1
 	k8s.io/apimachinery v0.34.1
 	k8s.io/client-go v0.34.1
-	k8s.io/utils v0.0.0-20250604170112-4c0f3b243397
+	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4
 	sigs.k8s.io/controller-runtime v0.19.7
 )
 
