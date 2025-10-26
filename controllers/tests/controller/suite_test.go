@@ -170,30 +170,36 @@ var _ = BeforeSuite(func() {
 
 	fakeRecorder = record.NewFakeRecorder(1000)
 	// reconciler for unhealthy node
-	err = (&controllers.SelfNodeRemediationReconciler{
-		Client:                   k8sClient,
-		Log:                      ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("unhealthy node"),
-		Rebooter:                 rebooter,
-		RebootDurationCalculator: nil,
-		MyNodeName:               shared.UnhealthyNodeName,
-		MyNamespace:              shared.Namespace,
-		Recorder:                 fakeRecorder,
-		IsAgent:                  true,
-	}).SetupWithManager(k8sManager)
+	err = ctrl.NewControllerManagedBy(k8sManager).
+		For(&selfnoderemediationv1alpha1.SelfNodeRemediation{}).
+		Named("controller-test-unhealthy-node").
+		Complete(&controllers.SelfNodeRemediationReconciler{
+			Client:                   k8sClient,
+			Log:                      ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("unhealthy node"),
+			Rebooter:                 rebooter,
+			RebootDurationCalculator: nil,
+			MyNodeName:               shared.UnhealthyNodeName,
+			MyNamespace:              shared.Namespace,
+			Recorder:                 fakeRecorder,
+			IsAgent:                  true,
+		})
 	Expect(err).ToNot(HaveOccurred())
 
 	// reconciler for manager running on peer node
-	err = (&controllers.SelfNodeRemediationReconciler{
-		Client:                   k8sClient,
-		Log:                      ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("manager node"),
-		MyNodeName:               shared.PeerNodeName,
-		MyNamespace:              shared.Namespace,
-		Rebooter:                 nil,
-		RebootDurationCalculator: shared.MockRebootDurationCalculator{},
-		Recorder:                 fakeRecorder,
-		IsAgent:                  false,
-	}).SetupWithManager(k8sManager)
-		Expect(err).ToNot(HaveOccurred())
+	err = ctrl.NewControllerManagedBy(k8sManager).
+		For(&selfnoderemediationv1alpha1.SelfNodeRemediation{}).
+		Named("controller-test-manager-node").
+		Complete(&controllers.SelfNodeRemediationReconciler{
+			Client:                   k8sClient,
+			Log:                      ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("manager node"),
+			MyNodeName:               shared.PeerNodeName,
+			MyNamespace:              shared.Namespace,
+			Rebooter:                 nil,
+			RebootDurationCalculator: shared.MockRebootDurationCalculator{},
+			Recorder:                 fakeRecorder,
+			IsAgent:                  false,
+		})
+	Expect(err).ToNot(HaveOccurred())
 
 	var ctx context.Context
 	ctx, cancelFunc = context.WithCancel(ctrl.SetupSignalHandler())

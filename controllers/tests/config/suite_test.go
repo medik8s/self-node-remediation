@@ -137,19 +137,25 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	// reconciler for unhealthy node
-	err = (&controllers.SelfNodeRemediationReconciler{
-		Client:     k8sClient,
-		Log:        ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("unhealthy node"),
-		MyNodeName: shared.UnhealthyNodeName,
-	}).SetupWithManager(k8sManager)
+	err = ctrl.NewControllerManagedBy(k8sManager).
+		For(&selfnoderemediationv1alpha1.SelfNodeRemediation{}).
+		Named("config-test-unhealthy-node").
+		Complete(&controllers.SelfNodeRemediationReconciler{
+			Client:     k8sClient,
+			Log:        ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("unhealthy node"),
+			MyNodeName: shared.UnhealthyNodeName,
+		})
 	Expect(err).ToNot(HaveOccurred())
 
 	// reconciler for peer node
-	err = (&controllers.SelfNodeRemediationReconciler{
-		Client:     k8sClient,
-		Log:        ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
-		MyNodeName: shared.PeerNodeName,
-	}).SetupWithManager(k8sManager)
+	err = ctrl.NewControllerManagedBy(k8sManager).
+		For(&selfnoderemediationv1alpha1.SelfNodeRemediation{}).
+		Named("config-test-peer-node").
+		Complete(&controllers.SelfNodeRemediationReconciler{
+			Client:     k8sClient,
+			Log:        ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
+			MyNodeName: shared.PeerNodeName,
+		})
 	Expect(err).ToNot(HaveOccurred())
 
 	// reconciler for manager on peer node
@@ -158,7 +164,10 @@ var _ = BeforeSuite(func() {
 		Log:        ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("manager node"),
 		MyNodeName: shared.PeerNodeName,
 	}
-	err = managerReconciler.SetupWithManager(k8sManager)
+	err = ctrl.NewControllerManagedBy(k8sManager).
+		For(&selfnoderemediationv1alpha1.SelfNodeRemediation{}).
+		Named("config-test-manager-node").
+		Complete(managerReconciler)
 	Expect(err).ToNot(HaveOccurred())
 
 	var ctx context.Context
