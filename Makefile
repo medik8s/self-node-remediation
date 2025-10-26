@@ -5,7 +5,7 @@ SHELL := /bin/bash
 CONTROLLER_GEN_VERSION = v0.19.0
 
 # GO_VERSION refers to the version of Golang to be downloaded when running dockerized version
-GO_VERSION = 1.23
+GO_VERSION = 1.24
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary, align with k8s.io/client-go in go.mod
 ENVTEST_K8S_VERSION = 1.34

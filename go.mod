@@ -1,25 +1,25 @@
 module github.com/medik8s/self-node-remediation
 
-go 1.23.0
+go 1.24.4
 
 require (
-	github.com/go-logr/logr v1.4.2
-	github.com/go-ping/ping v1.1.0
+	github.com/go-logr/logr v1.4.3
+	github.com/go-ping/ping v1.2.0
 	github.com/medik8s/common v1.17.0
-	github.com/onsi/ginkgo/v2 v2.22.0
-	github.com/onsi/gomega v1.34.2
+	github.com/onsi/ginkgo/v2 v2.26.0
+	github.com/onsi/gomega v1.38.2
 	github.com/openshift/api v0.0.0-20230414143018-3367bc7e6ac7 // release-4.13
 	github.com/pkg/errors v0.9.1
-	go.uber.org/zap v1.24.0
-	golang.org/x/sys v0.28.0
-	google.golang.org/grpc v1.56.3
-	google.golang.org/protobuf v1.34.1
-	k8s.io/api v0.27.2
-	k8s.io/apiextensions-apiserver v0.27.2
-	k8s.io/apimachinery v0.27.2
-	k8s.io/client-go v0.27.2
-	k8s.io/utils v0.0.0-20230313181309-38a27ef9d749
-	sigs.k8s.io/controller-runtime v0.15.0
+	go.uber.org/zap v1.27.0
+	golang.org/x/sys v0.37.0
+	google.golang.org/grpc v1.76.0
+	google.golang.org/protobuf v1.36.10
+	k8s.io/api v0.34.1
+	k8s.io/apiextensions-apiserver v0.34.1
+	k8s.io/apimachinery v0.34.1
+	k8s.io/client-go v0.34.1
+	k8s.io/utils v0.0.0-20250604170112-4c0f3b243397
+	sigs.k8s.io/controller-runtime v0.19.7
 )
 
 require (
