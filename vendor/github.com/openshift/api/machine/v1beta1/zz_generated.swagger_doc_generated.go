@@ -30,6 +30,7 @@ var map_AWSMachineProviderConfig = map[string]string{
 	"blockDevices":           "BlockDevices is the set of block device mapping associated to this instance, block device without a name will be used as a root device and only one device without a name is allowed https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/block-device-mapping-concepts.html",
 	"spotMarketOptions":      "SpotMarketOptions allows users to configure instances to be run using AWS Spot instances.",
 	"metadataServiceOptions": "MetadataServiceOptions allows users to configure instance metadata service interaction options. If nothing specified, default AWS IMDS settings will be applied. https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_InstanceMetadataOptionsRequest.html",
+	"placementGroupName":     "PlacementGroupName specifies the name of the placement group in which to launch the instance. The placement group must already be created and may use any placement strategy. When omitted, no placement group is used when creating the EC2 instance.",
 }
 
 func (AWSMachineProviderConfig) SwaggerDoc() map[string]string {
@@ -178,34 +179,35 @@ func (AzureDiagnostics) SwaggerDoc() map[string]string {
 }
 
 var map_AzureMachineProviderSpec = map[string]string{
-	"":                          "AzureMachineProviderSpec is the type that will be embedded in a Machine.Spec.ProviderSpec field for an Azure virtual machine. It is used by the Azure machine actuator to create a single Machine. Required parameters such as location that are not specified by this configuration, will be defaulted by the actuator. Compatibility level 2: Stable within a major release for a minimum of 9 months or 3 minor releases (whichever is longer).",
-	"userDataSecret":            "UserDataSecret contains a local reference to a secret that contains the UserData to apply to the instance",
-	"credentialsSecret":         "CredentialsSecret is a reference to the secret with Azure credentials.",
-	"location":                  "Location is the region to use to create the instance",
-	"vmSize":                    "VMSize is the size of the VM to create.",
-	"image":                     "Image is the OS image to use to create the instance.",
-	"osDisk":                    "OSDisk represents the parameters for creating the OS disk.",
-	"dataDisks":                 "DataDisk specifies the parameters that are used to add one or more data disks to the machine.",
-	"sshPublicKey":              "SSHPublicKey is the public key to use to SSH to the virtual machine.",
-	"publicIP":                  "PublicIP if true a public IP will be used",
-	"tags":                      "Tags is a list of tags to apply to the machine.",
-	"securityGroup":             "Network Security Group that needs to be attached to the machine's interface. No security group will be attached if empty.",
-	"applicationSecurityGroups": "Application Security Groups that need to be attached to the machine's interface. No application security groups will be attached if zero-length.",
-	"subnet":                    "Subnet to use for this instance",
-	"publicLoadBalancer":        "PublicLoadBalancer to use for this instance",
-	"internalLoadBalancer":      "InternalLoadBalancerName to use for this instance",
-	"natRule":                   "NatRule to set inbound NAT rule of the load balancer",
-	"managedIdentity":           "ManagedIdentity to set managed identity name",
-	"vnet":                      "Vnet to set virtual network name",
-	"zone":                      "Availability Zone for the virtual machine. If nil, the virtual machine should be deployed to no zone",
-	"networkResourceGroup":      "NetworkResourceGroup is the resource group for the virtual machine's network",
-	"resourceGroup":             "ResourceGroup is the resource group for the virtual machine",
-	"spotVMOptions":             "SpotVMOptions allows the ability to specify the Machine should use a Spot VM",
-	"securityProfile":           "SecurityProfile specifies the Security profile settings for a virtual machine.",
-	"ultraSSDCapability":        "UltraSSDCapability enables or disables Azure UltraSSD capability for a virtual machine. This can be used to allow/disallow binding of Azure UltraSSD to the Machine both as Data Disks or via Persistent Volumes. This Azure feature is subject to a specific scope and certain limitations. More informations on this can be found in the official Azure documentation for Ultra Disks: (https://docs.microsoft.com/en-us/azure/virtual-machines/disks-enable-ultra-ssd?tabs=azure-portal#ga-scope-and-limitations).\n\nWhen omitted, if at least one Data Disk of type UltraSSD is specified, the platform will automatically enable the capability. If a Perisistent Volume backed by an UltraSSD is bound to a Pod on the Machine, when this field is ommitted, the platform will *not* automatically enable the capability (unless already enabled by the presence of an UltraSSD as Data Disk). This may manifest in the Pod being stuck in `ContainerCreating` phase. This defaulting behaviour may be subject to change in future.\n\nWhen set to \"Enabled\", if the capability is available for the Machine based on the scope and limitations described above, the capability will be set on the Machine. This will thus allow UltraSSD both as Data Disks and Persistent Volumes. If set to \"Enabled\" when the capability can't be available due to scope and limitations, the Machine will go into \"Failed\" state.\n\nWhen set to \"Disabled\", UltraSSDs will not be allowed either as Data Disks nor as Persistent Volumes. In this case if any UltraSSDs are specified as Data Disks on a Machine, the Machine will go into a \"Failed\" state. If instead any UltraSSDs are backing the volumes (via Persistent Volumes) of any Pods scheduled on a Node which is backed by the Machine, the Pod may get stuck in `ContainerCreating` phase.",
-	"acceleratedNetworking":     "AcceleratedNetworking enables or disables Azure accelerated networking feature. Set to false by default. If true, then this will depend on whether the requested VMSize is supported. If set to true with an unsupported VMSize, Azure will return an error.",
-	"availabilitySet":           "AvailabilitySet specifies the availability set to use for this instance. Availability set should be precreated, before using this field.",
-	"diagnostics":               "Diagnostics configures the diagnostics settings for the virtual machine. This allows you to configure boot diagnostics such as capturing serial output from the virtual machine on boot. This is useful for debugging software based launch issues.",
+	"":                           "AzureMachineProviderSpec is the type that will be embedded in a Machine.Spec.ProviderSpec field for an Azure virtual machine. It is used by the Azure machine actuator to create a single Machine. Required parameters such as location that are not specified by this configuration, will be defaulted by the actuator. Compatibility level 2: Stable within a major release for a minimum of 9 months or 3 minor releases (whichever is longer).",
+	"userDataSecret":             "UserDataSecret contains a local reference to a secret that contains the UserData to apply to the instance",
+	"credentialsSecret":          "CredentialsSecret is a reference to the secret with Azure credentials.",
+	"location":                   "Location is the region to use to create the instance",
+	"vmSize":                     "VMSize is the size of the VM to create.",
+	"image":                      "Image is the OS image to use to create the instance.",
+	"osDisk":                     "OSDisk represents the parameters for creating the OS disk.",
+	"dataDisks":                  "DataDisk specifies the parameters that are used to add one or more data disks to the machine.",
+	"sshPublicKey":               "SSHPublicKey is the public key to use to SSH to the virtual machine.",
+	"publicIP":                   "PublicIP if true a public IP will be used",
+	"tags":                       "Tags is a list of tags to apply to the machine.",
+	"securityGroup":              "Network Security Group that needs to be attached to the machine's interface. No security group will be attached if empty.",
+	"applicationSecurityGroups":  "Application Security Groups that need to be attached to the machine's interface. No application security groups will be attached if zero-length.",
+	"subnet":                     "Subnet to use for this instance",
+	"publicLoadBalancer":         "PublicLoadBalancer to use for this instance",
+	"internalLoadBalancer":       "InternalLoadBalancerName to use for this instance",
+	"natRule":                    "NatRule to set inbound NAT rule of the load balancer",
+	"managedIdentity":            "ManagedIdentity to set managed identity name",
+	"vnet":                       "Vnet to set virtual network name",
+	"zone":                       "Availability Zone for the virtual machine. If nil, the virtual machine should be deployed to no zone",
+	"networkResourceGroup":       "NetworkResourceGroup is the resource group for the virtual machine's network",
+	"resourceGroup":              "ResourceGroup is the resource group for the virtual machine",
+	"spotVMOptions":              "SpotVMOptions allows the ability to specify the Machine should use a Spot VM",
+	"securityProfile":            "SecurityProfile specifies the Security profile settings for a virtual machine.",
+	"ultraSSDCapability":         "UltraSSDCapability enables or disables Azure UltraSSD capability for a virtual machine. This can be used to allow/disallow binding of Azure UltraSSD to the Machine both as Data Disks or via Persistent Volumes. This Azure feature is subject to a specific scope and certain limitations. More informations on this can be found in the official Azure documentation for Ultra Disks: (https://docs.microsoft.com/en-us/azure/virtual-machines/disks-enable-ultra-ssd?tabs=azure-portal#ga-scope-and-limitations).\n\nWhen omitted, if at least one Data Disk of type UltraSSD is specified, the platform will automatically enable the capability. If a Perisistent Volume backed by an UltraSSD is bound to a Pod on the Machine, when this field is ommitted, the platform will *not* automatically enable the capability (unless already enabled by the presence of an UltraSSD as Data Disk). This may manifest in the Pod being stuck in `ContainerCreating` phase. This defaulting behaviour may be subject to change in future.\n\nWhen set to \"Enabled\", if the capability is available for the Machine based on the scope and limitations described above, the capability will be set on the Machine. This will thus allow UltraSSD both as Data Disks and Persistent Volumes. If set to \"Enabled\" when the capability can't be available due to scope and limitations, the Machine will go into \"Failed\" state.\n\nWhen set to \"Disabled\", UltraSSDs will not be allowed either as Data Disks nor as Persistent Volumes. In this case if any UltraSSDs are specified as Data Disks on a Machine, the Machine will go into a \"Failed\" state. If instead any UltraSSDs are backing the volumes (via Persistent Volumes) of any Pods scheduled on a Node which is backed by the Machine, the Pod may get stuck in `ContainerCreating` phase.",
+	"acceleratedNetworking":      "AcceleratedNetworking enables or disables Azure accelerated networking feature. Set to false by default. If true, then this will depend on whether the requested VMSize is supported. If set to true with an unsupported VMSize, Azure will return an error.",
+	"availabilitySet":            "AvailabilitySet specifies the availability set to use for this instance. Availability set should be precreated, before using this field.",
+	"diagnostics":                "Diagnostics configures the diagnostics settings for the virtual machine. This allows you to configure boot diagnostics such as capturing serial output from the virtual machine on boot. This is useful for debugging software based launch issues.",
+	"capacityReservationGroupID": "capacityReservationGroupID specifies the capacity reservation group resource id that should be used for allocating the virtual machine. The field size should be greater than 0 and the field input must start with '/'. The input for capacityReservationGroupID must be similar to '/subscriptions/{subscriptionId}/resourceGroups/{resourceGroupName}/providers/Microsoft.Compute/capacityReservationGroups/{capacityReservationGroupName}'. The keys which are used should be among 'subscriptions', 'providers' and 'resourcegroups' followed by valid ID or names respectively.",
 }
 
 func (AzureMachineProviderSpec) SwaggerDoc() map[string]string {
@@ -221,6 +223,15 @@ var map_AzureMachineProviderStatus = map[string]string{
 
 func (AzureMachineProviderStatus) SwaggerDoc() map[string]string {
 	return map_AzureMachineProviderStatus
+}
+
+var map_ConfidentialVM = map[string]string{
+	"":             "ConfidentialVM defines the UEFI settings for the virtual machine.",
+	"uefiSettings": "uefiSettings specifies the security settings like secure boot and vTPM used while creating the virtual machine.",
+}
+
+func (ConfidentialVM) SwaggerDoc() map[string]string {
+	return map_ConfidentialVM
 }
 
 var map_DataDisk = map[string]string{
@@ -295,6 +306,7 @@ var map_OSDiskManagedDiskParameters = map[string]string{
 	"":                   "OSDiskManagedDiskParameters is the parameters of a OSDisk managed disk.",
 	"storageAccountType": "StorageAccountType is the storage account type to use. Possible values include \"Standard_LRS\", \"Premium_LRS\".",
 	"diskEncryptionSet":  "DiskEncryptionSet is the disk encryption set properties",
+	"securityProfile":    "securityProfile specifies the security profile for the managed disk.",
 }
 
 func (OSDiskManagedDiskParameters) SwaggerDoc() map[string]string {
@@ -303,11 +315,23 @@ func (OSDiskManagedDiskParameters) SwaggerDoc() map[string]string {
 
 var map_SecurityProfile = map[string]string{
 	"":                 "SecurityProfile specifies the Security profile settings for a virtual machine or virtual machine scale set.",
-	"encryptionAtHost": "This field indicates whether Host Encryption should be enabled or disabled for a virtual machine or virtual machine scale set. Default is disabled.",
+	"encryptionAtHost": "encryptionAtHost indicates whether Host Encryption should be enabled or disabled for a virtual machine or virtual machine scale set. This should be disabled when SecurityEncryptionType is set to DiskWithVMGuestState. Default is disabled.",
+	"settings":         "settings specify the security type and the UEFI settings of the virtual machine. This field can be set for Confidential VMs and Trusted Launch for VMs.",
 }
 
 func (SecurityProfile) SwaggerDoc() map[string]string {
 	return map_SecurityProfile
+}
+
+var map_SecuritySettings = map[string]string{
+	"":               "SecuritySettings define the security type and the UEFI settings of the virtual machine.",
+	"securityType":   "securityType specifies the SecurityType of the virtual machine. It has to be set to any specified value to enable UEFISettings. The default behavior is: UEFISettings will not be enabled unless this property is set.",
+	"confidentialVM": "confidentialVM specifies the security configuration of the virtual machine. For more information regarding Confidential VMs, please refer to: https://learn.microsoft.com/azure/confidential-computing/confidential-vm-overview",
+	"trustedLaunch":  "trustedLaunch specifies the security configuration of the virtual machine. For more information regarding TrustedLaunch for VMs, please refer to: https://learn.microsoft.com/azure/virtual-machines/trusted-launch",
+}
+
+func (SecuritySettings) SwaggerDoc() map[string]string {
+	return map_SecuritySettings
 }
 
 var map_SpotVMOptions = map[string]string{
@@ -317,6 +341,35 @@ var map_SpotVMOptions = map[string]string{
 
 func (SpotVMOptions) SwaggerDoc() map[string]string {
 	return map_SpotVMOptions
+}
+
+var map_TrustedLaunch = map[string]string{
+	"":             "TrustedLaunch defines the UEFI settings for the virtual machine.",
+	"uefiSettings": "uefiSettings specifies the security settings like secure boot and vTPM used while creating the virtual machine.",
+}
+
+func (TrustedLaunch) SwaggerDoc() map[string]string {
+	return map_TrustedLaunch
+}
+
+var map_UEFISettings = map[string]string{
+	"":                                 "UEFISettings specifies the security settings like secure boot and vTPM used while creating the virtual machine.",
+	"secureBoot":                       "secureBoot specifies whether secure boot should be enabled on the virtual machine. Secure Boot verifies the digital signature of all boot components and halts the boot process if signature verification fails. If omitted, the platform chooses a default, which is subject to change over time, currently that default is disabled.",
+	"virtualizedTrustedPlatformModule": "virtualizedTrustedPlatformModule specifies whether vTPM should be enabled on the virtual machine. When enabled the virtualized trusted platform module measurements are used to create a known good boot integrity policy baseline. The integrity policy baseline is used for comparison with measurements from subsequent VM boots to determine if anything has changed. This is required to be enabled if SecurityEncryptionType is defined. If omitted, the platform chooses a default, which is subject to change over time, currently that default is disabled.",
+}
+
+func (UEFISettings) SwaggerDoc() map[string]string {
+	return map_UEFISettings
+}
+
+var map_VMDiskSecurityProfile = map[string]string{
+	"":                       "VMDiskSecurityProfile specifies the security profile settings for the managed disk. It can be set only for Confidential VMs.",
+	"diskEncryptionSet":      "diskEncryptionSet specifies the customer managed disk encryption set resource id for the managed disk that is used for Customer Managed Key encrypted ConfidentialVM OS Disk and VMGuest blob.",
+	"securityEncryptionType": "securityEncryptionType specifies the encryption type of the managed disk. It is set to DiskWithVMGuestState to encrypt the managed disk along with the VMGuestState blob, and to VMGuestStateOnly to encrypt the VMGuestState blob only. When set to VMGuestStateOnly, the vTPM should be enabled. When set to DiskWithVMGuestState, both SecureBoot and vTPM should be enabled. If the above conditions are not fulfilled, the VM will not be created and the respective error will be returned. It can be set only for Confidential VMs. Confidential VMs are defined by their SecurityProfile.SecurityType being set to ConfidentialVM, the SecurityEncryptionType of their OS disk being set to one of the allowed values and by enabling the respective SecurityProfile.UEFISettings of the VM (i.e. vTPM and SecureBoot), depending on the selected SecurityEncryptionType. For further details on Azure Confidential VMs, please refer to the respective documentation: https://learn.microsoft.com/azure/confidential-computing/confidential-vm-overview",
+}
+
+func (VMDiskSecurityProfile) SwaggerDoc() map[string]string {
+	return map_VMDiskSecurityProfile
 }
 
 var map_GCPDisk = map[string]string{
@@ -368,6 +421,7 @@ func (GCPKMSKeyReference) SwaggerDoc() map[string]string {
 
 var map_GCPMachineProviderSpec = map[string]string{
 	"":                       "GCPMachineProviderSpec is the type that will be embedded in a Machine.Spec.ProviderSpec field for an GCP virtual machine. It is used by the GCP machine actuator to create a single Machine. Compatibility level 2: Stable within a major release for a minimum of 9 months or 3 minor releases (whichever is longer).",
+	"metadata":               "metadata is the standard object's metadata. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata",
 	"userDataSecret":         "UserDataSecret contains a local reference to a secret that contains the UserData to apply to the instance",
 	"credentialsSecret":      "CredentialsSecret is a reference to the secret with GCP credentials.",
 	"canIPForward":           "CanIPForward Allows this instance to send and receive packets with non-matching destination or source IPs. This is required if you plan to use this instance to forward routes.",
@@ -482,7 +536,8 @@ func (LifecycleHooks) SwaggerDoc() map[string]string {
 }
 
 var map_Machine = map[string]string{
-	"": "Machine is the Schema for the machines API Compatibility level 2: Stable within a major release for a minimum of 9 months or 3 minor releases (whichever is longer).",
+	"":         "Machine is the Schema for the machines API Compatibility level 2: Stable within a major release for a minimum of 9 months or 3 minor releases (whichever is longer).",
+	"metadata": "metadata is the standard object's metadata. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata",
 }
 
 func (Machine) SwaggerDoc() map[string]string {
@@ -490,7 +545,8 @@ func (Machine) SwaggerDoc() map[string]string {
 }
 
 var map_MachineList = map[string]string{
-	"": "MachineList contains a list of Machine Compatibility level 2: Stable within a major release for a minimum of 9 months or 3 minor releases (whichever is longer).",
+	"":         "MachineList contains a list of Machine Compatibility level 2: Stable within a major release for a minimum of 9 months or 3 minor releases (whichever is longer).",
+	"metadata": "metadata is the standard list's metadata. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata",
 }
 
 func (MachineList) SwaggerDoc() map[string]string {
@@ -528,9 +584,10 @@ func (MachineStatus) SwaggerDoc() map[string]string {
 }
 
 var map_MachineHealthCheck = map[string]string{
-	"":       "MachineHealthCheck is the Schema for the machinehealthchecks API Compatibility level 2: Stable within a major release for a minimum of 9 months or 3 minor releases (whichever is longer).",
-	"spec":   "Specification of machine health check policy",
-	"status": "Most recently observed status of MachineHealthCheck resource",
+	"":         "MachineHealthCheck is the Schema for the machinehealthchecks API Compatibility level 2: Stable within a major release for a minimum of 9 months or 3 minor releases (whichever is longer).",
+	"metadata": "metadata is the standard object's metadata. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata",
+	"spec":     "Specification of machine health check policy",
+	"status":   "Most recently observed status of MachineHealthCheck resource",
 }
 
 func (MachineHealthCheck) SwaggerDoc() map[string]string {
@@ -538,7 +595,8 @@ func (MachineHealthCheck) SwaggerDoc() map[string]string {
 }
 
 var map_MachineHealthCheckList = map[string]string{
-	"": "MachineHealthCheckList contains a list of MachineHealthCheck Compatibility level 2: Stable within a major release for a minimum of 9 months or 3 minor releases (whichever is longer).",
+	"":         "MachineHealthCheckList contains a list of MachineHealthCheck Compatibility level 2: Stable within a major release for a minimum of 9 months or 3 minor releases (whichever is longer).",
+	"metadata": "metadata is the standard list's metadata. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata",
 }
 
 func (MachineHealthCheckList) SwaggerDoc() map[string]string {
@@ -580,7 +638,8 @@ func (UnhealthyCondition) SwaggerDoc() map[string]string {
 }
 
 var map_MachineSet = map[string]string{
-	"": "MachineSet ensures that a specified number of machines replicas are running at any given time. Compatibility level 2: Stable within a major release for a minimum of 9 months or 3 minor releases (whichever is longer).",
+	"":         "MachineSet ensures that a specified number of machines replicas are running at any given time. Compatibility level 2: Stable within a major release for a minimum of 9 months or 3 minor releases (whichever is longer).",
+	"metadata": "metadata is the standard object's metadata. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata",
 }
 
 func (MachineSet) SwaggerDoc() map[string]string {
@@ -588,7 +647,8 @@ func (MachineSet) SwaggerDoc() map[string]string {
 }
 
 var map_MachineSetList = map[string]string{
-	"": "MachineSetList contains a list of MachineSet Compatibility level 2: Stable within a major release for a minimum of 9 months or 3 minor releases (whichever is longer).",
+	"":         "MachineSetList contains a list of MachineSet Compatibility level 2: Stable within a major release for a minimum of 9 months or 3 minor releases (whichever is longer).",
+	"metadata": "metadata is the standard list's metadata. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata",
 }
 
 func (MachineSetList) SwaggerDoc() map[string]string {
@@ -669,9 +729,24 @@ func (ProviderSpec) SwaggerDoc() map[string]string {
 	return map_ProviderSpec
 }
 
+var map_AddressesFromPool = map[string]string{
+	"":         "AddressesFromPool is an IPAddressPool that will be used to create IPAddressClaims for fulfillment by an external controller.",
+	"group":    "group of the IP address pool type known to an external IPAM controller. This should be a fully qualified domain name, for example, externalipam.controller.io.",
+	"resource": "resource of the IP address pool type known to an external IPAM controller. It is normally the plural form of the resource kind in lowercase, for example, ippools.",
+	"name":     "name of an IP address pool, for example, pool-config-1.",
+}
+
+func (AddressesFromPool) SwaggerDoc() map[string]string {
+	return map_AddressesFromPool
+}
+
 var map_NetworkDeviceSpec = map[string]string{
-	"":            "NetworkDeviceSpec defines the network configuration for a virtual machine's network device.",
-	"networkName": "NetworkName is the name of the vSphere network to which the device will be connected.",
+	"":                   "NetworkDeviceSpec defines the network configuration for a virtual machine's network device.",
+	"networkName":        "networkName is the name of the vSphere network or port group to which the network device will be connected, for example, port-group-1. When not provided, the vCenter API will attempt to select a default network. The available networks (port groups) can be listed using `govc ls 'network/*'`",
+	"gateway":            "gateway is an IPv4 or IPv6 address which represents the subnet gateway, for example, 192.168.1.1.",
+	"ipAddrs":            "ipAddrs is a list of one or more IPv4 and/or IPv6 addresses and CIDR to assign to this device, for example, 192.168.1.100/24. IP addresses provided via ipAddrs are intended to allow explicit assignment of a machine's IP address. IP pool configurations provided via addressesFromPool, however, defer IP address assignment to an external controller. If both addressesFromPool and ipAddrs are empty or not defined, DHCP will be used to assign an IP address. If both ipAddrs and addressesFromPools are defined, the IP addresses associated with ipAddrs will be applied first followed by IP addresses from addressesFromPools.",
+	"nameservers":        "nameservers is a list of IPv4 and/or IPv6 addresses used as DNS nameservers, for example, 8.8.8.8. a nameserver is not provided by a fulfilled IPAddressClaim. If DHCP is not the source of IP addresses for this network device, nameservers should include a valid nameserver.",
+	"addressesFromPools": "addressesFromPools is a list of references to IP pool types and instances which are handled by an external controller. addressesFromPool configurations provided via addressesFromPools defer IP address assignment to an external controller. IP addresses provided via ipAddrs, however, are intended to allow explicit assignment of a machine's IP address. If both addressesFromPool and ipAddrs are empty or not defined, DHCP will assign an IP address. If both ipAddrs and addressesFromPools are defined, the IP addresses associated with ipAddrs will be applied first followed by IP addresses from addressesFromPools.",
 }
 
 func (NetworkDeviceSpec) SwaggerDoc() map[string]string {
