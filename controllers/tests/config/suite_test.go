@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	metricsServer "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/controllers"
@@ -77,8 +78,8 @@ var _ = BeforeSuite(func() {
 	//+kubebuilder:scaffold:scheme
 
 	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:             scheme.Scheme,
-		MetricsBindAddress: "0",
+		Scheme:  scheme.Scheme,
+		Metrics: metricsServer.Options{BindAddress: "0"},
 	})
 	Expect(err).ToNot(HaveOccurred())
 

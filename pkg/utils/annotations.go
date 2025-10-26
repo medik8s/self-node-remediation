@@ -30,7 +30,7 @@ func UpdateNodeAnnotations(watchdogInitiated bool, watchdogTimeout time.Duration
 	}
 
 	if err := mgr.GetAPIReader().Get(context.Background(), key, node); err != nil {
-		return errors.Wrapf(err, "failed to retrieve my node: "+nodeName)
+		return errors.Wrapf(err, "failed to retrieve my node: %s ", nodeName)
 	}
 
 	// the node is reboot capable if either watchdog was initialized or software reboot is enabled
@@ -57,7 +57,7 @@ func UpdateNodeAnnotations(watchdogInitiated bool, watchdogTimeout time.Duration
 	node.Annotations[WatchdogTimeoutSecondsAnnotation] = strconv.Itoa(intTimeout)
 
 	if err := mgr.GetClient().Update(context.Background(), node); err != nil {
-		return errors.Wrapf(err, "failed to add node annotation to node: "+node.Name)
+		return errors.Wrapf(err, "failed to add node annotation to node: %s ", nodeName)
 	}
 
 	return nil

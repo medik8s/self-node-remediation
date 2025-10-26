@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	metricsServer "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	machinev1beta1 "github.com/openshift/api/machine/v1beta1"
 
@@ -105,8 +106,8 @@ var _ = BeforeSuite(func() {
 	//+kubebuilder:scaffold:scheme
 
 	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:             testScheme,
-		MetricsBindAddress: "0",
+		Scheme:  testScheme,
+		Metrics: metricsServer.Options{BindAddress: "0"},
 	})
 	Expect(err).ToNot(HaveOccurred())
 
@@ -192,7 +193,7 @@ var _ = BeforeSuite(func() {
 		Recorder:                 fakeRecorder,
 		IsAgent:                  false,
 	}).SetupWithManager(k8sManager)
-	Expect(err).ToNot(HaveOccurred())
+		Expect(err).ToNot(HaveOccurred())
 
 	var ctx context.Context
 	ctx, cancelFunc = context.WithCancel(ctrl.SetupSignalHandler())
