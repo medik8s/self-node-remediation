@@ -137,27 +137,10 @@ spec:
           - list
           - watch
         - apiGroups:
-          - apps
-          resources:
-          - daemonsets
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - apps
-          resources:
-          - daemonsets/finalizers
-          verbs:
-          - update
-        - apiGroups:
           - ""
           resources:
           - nodes
+          - secrets
           verbs:
           - create
           - delete
@@ -178,9 +161,9 @@ spec:
           - update
           - watch
         - apiGroups:
-          - ""
+          - apps
           resources:
-          - secrets
+          - daemonsets
           verbs:
           - create
           - delete
@@ -189,6 +172,12 @@ spec:
           - patch
           - update
           - watch
+        - apiGroups:
+          - apps
+          resources:
+          - daemonsets/finalizers
+          verbs:
+          - update
         - apiGroups:
           - machine.openshift.io
           resources:
@@ -221,57 +210,7 @@ spec:
           - self-node-remediation.medik8s.io
           resources:
           - selfnoderemediationconfigs
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - self-node-remediation.medik8s.io
-          resources:
-          - selfnoderemediationconfigs/finalizers
-          verbs:
-          - update
-        - apiGroups:
-          - self-node-remediation.medik8s.io
-          resources:
-          - selfnoderemediationconfigs/status
-          verbs:
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - self-node-remediation.medik8s.io
-          resources:
           - selfnoderemediations
-          verbs:
-          - create
-          - delete
-          - get
-          - list
-          - patch
-          - update
-          - watch
-        - apiGroups:
-          - self-node-remediation.medik8s.io
-          resources:
-          - selfnoderemediations/finalizers
-          verbs:
-          - update
-        - apiGroups:
-          - self-node-remediation.medik8s.io
-          resources:
-          - selfnoderemediations/status
-          verbs:
-          - get
-          - patch
-          - update
-        - apiGroups:
-          - self-node-remediation.medik8s.io
-          resources:
           - selfnoderemediationtemplates
           verbs:
           - create
@@ -284,12 +223,16 @@ spec:
         - apiGroups:
           - self-node-remediation.medik8s.io
           resources:
+          - selfnoderemediationconfigs/finalizers
+          - selfnoderemediations/finalizers
           - selfnoderemediationtemplates/finalizers
           verbs:
           - update
         - apiGroups:
           - self-node-remediation.medik8s.io
           resources:
+          - selfnoderemediationconfigs/status
+          - selfnoderemediations/status
           - selfnoderemediationtemplates/status
           verbs:
           - get
