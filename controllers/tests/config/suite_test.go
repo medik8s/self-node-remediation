@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	metricsServer "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/controllers"
@@ -77,8 +78,8 @@ var _ = BeforeSuite(func() {
 	//+kubebuilder:scaffold:scheme
 
 	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:             scheme.Scheme,
-		MetricsBindAddress: "0",
+		Scheme:  scheme.Scheme,
+		Metrics: metricsServer.Options{BindAddress: "0"},
 	})
 	Expect(err).ToNot(HaveOccurred())
 
@@ -136,19 +137,25 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	// reconciler for unhealthy node
-	err = (&controllers.SelfNodeRemediationReconciler{
-		Client:     k8sClient,
-		Log:        ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("unhealthy node"),
-		MyNodeName: shared.UnhealthyNodeName,
-	}).SetupWithManager(k8sManager)
+	err = ctrl.NewControllerManagedBy(k8sManager).
+		For(&selfnoderemediationv1alpha1.SelfNodeRemediation{}).
+		Named("config-test-unhealthy-node").
+		Complete(&controllers.SelfNodeRemediationReconciler{
+			Client:     k8sClient,
+			Log:        ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("unhealthy node"),
+			MyNodeName: shared.UnhealthyNodeName,
+		})
 	Expect(err).ToNot(HaveOccurred())
 
 	// reconciler for peer node
-	err = (&controllers.SelfNodeRemediationReconciler{
-		Client:     k8sClient,
-		Log:        ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
-		MyNodeName: shared.PeerNodeName,
-	}).SetupWithManager(k8sManager)
+	err = ctrl.NewControllerManagedBy(k8sManager).
+		For(&selfnoderemediationv1alpha1.SelfNodeRemediation{}).
+		Named("config-test-peer-node").
+		Complete(&controllers.SelfNodeRemediationReconciler{
+			Client:     k8sClient,
+			Log:        ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
+			MyNodeName: shared.PeerNodeName,
+		})
 	Expect(err).ToNot(HaveOccurred())
 
 	// reconciler for manager on peer node
@@ -157,7 +164,10 @@ var _ = BeforeSuite(func() {
 		Log:        ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("manager node"),
 		MyNodeName: shared.PeerNodeName,
 	}
-	err = managerReconciler.SetupWithManager(k8sManager)
+	err = ctrl.NewControllerManagedBy(k8sManager).
+		For(&selfnoderemediationv1alpha1.SelfNodeRemediation{}).
+		Named("config-test-manager-node").
+		Complete(managerReconciler)
 	Expect(err).ToNot(HaveOccurred())
 
 	var ctx context.Context

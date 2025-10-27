@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	metricsServer "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/controllers"
@@ -66,7 +67,7 @@ var _ = BeforeSuite(func() {
 	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme:                  scheme.Scheme,
 		LeaderElection:          false,
-		MetricsBindAddress:      "0",
+		Metrics:                 metricsServer.Options{BindAddress: "0"},
 		GracefulShutdownTimeout: &gracefulShutdown,
 	})
 	Expect(err).ToNot(HaveOccurred())
