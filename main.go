@@ -46,7 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	metricsServer "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	machinev1beta1 "github.com/openshift/api/machine/v1beta1"
@@ -128,9 +128,10 @@ func main() {
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
-		// HEADS UP: once controller runtime is updated and this changes to metrics.Options{},
-		// and in case you configure TLS / SecureServing, disable HTTP/2 in it for mitigating related CVEs!
-		Metrics:                metricsServer.Options{BindAddress: metricsAddr},
+		Metrics: server.Options{
+			BindAddress: metricsAddr,
+			TLSOpts:     tlsOpts,
+		},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "547f6cb6.medik8s.io",
