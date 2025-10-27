@@ -2,12 +2,12 @@ package shared
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"net"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/gcustom"
 	types2 "github.com/onsi/gomega/types"
@@ -103,16 +103,23 @@ func (kcw *K8sClientWrapper) List(ctx context.Context, list client.ObjectList, o
 
 func assignRandomIpAddressesPods(pods *corev1.PodList) {
 	for i := range pods.Items {
-		pods.Items[i].Status.PodIPs = []corev1.PodIP{{IP: GetRandomIpAddress()}}
+		randomIP := GetRandomIpAddress()
+		pods.Items[i].Status.PodIP = randomIP
+		pods.Items[i].Status.PodIPs = []corev1.PodIP{{IP: randomIP}}
 	}
 
 	return
 }
 
 func GetRandomIpAddress() (randomIP string) {
-	u := uuid.New()
-	ip := net.IP(u[:net.IPv6len])
-	randomIP = ip.String()
+	// Generate a Unique Local Address (fd00::/8). This keeps addresses valid
+	// while avoiding collisions with routable ranges.
+	bytes := make([]byte, net.IPv6len)
+	bytes[0] = 0xfd
+	if _, err := rand.Read(bytes[1:]); err != nil {
+		panic(err)
+	}
+	randomIP = net.IP(bytes).String()
 
 	return
 }
@@ -127,7 +134,10 @@ func NewApiConnectivityCheckWrapper(ck *apicheck.ApiConnectivityCheckConfig, con
 
 	inner.SetHealthStatusFunc(func(endpointIp corev1.PodIP, results chan<- selfNodeRemediation.HealthCheckResponseCode) {
 		if ckw.ShouldSimulatePeerResponses {
-			results <- ckw.nextSimulatedPeerResponse()
+			// The caller expects exactly one response per peer; the helper enforces
+			// that contract to keep the bounded channel writes non-blocking.
+			resp := ckw.nextSimulatedPeerResponse()
+			results <- resp
 			return
 		}
 

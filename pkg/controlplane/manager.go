@@ -174,7 +174,10 @@ func (manager *Manager) isKubeletServiceRunning() bool {
 			MinVersion:         certificates.TLSMinVersion,
 		},
 	}
-	httpClient := &http.Client{Transport: tr}
+	httpClient := &http.Client{
+		Transport: tr,
+		Timeout:   5 * time.Second,
+	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {

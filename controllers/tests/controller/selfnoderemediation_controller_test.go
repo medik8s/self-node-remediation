@@ -61,11 +61,25 @@ var _ = Describe("SNR Controller", func() {
 
 			//clear node's state, this is important to remove taints, label etc.
 			By(fmt.Sprintf("Clear node state for '%s'", shared.UnhealthyNodeName), func() {
-				Expect(k8sClient.Update(context.Background(), getNode(shared.UnhealthyNodeName)))
+				live := &v1.Node{}
+				Expect(k8sClient.Client.Get(context.Background(), unhealthyNodeNamespacedName, live)).To(Succeed())
+				clean := getNode(shared.UnhealthyNodeName)
+				patch := client.MergeFrom(live.DeepCopy())
+				live.Spec = clean.Spec
+				live.Labels = clean.Labels
+				live.Annotations = clean.Annotations
+				Expect(k8sClient.Client.Patch(context.Background(), live, patch)).To(Succeed())
 			})
 
 			By(fmt.Sprintf("Clear node state for '%s'", shared.PeerNodeName), func() {
-				Expect(k8sClient.Update(context.Background(), getNode(shared.PeerNodeName)))
+				live := &v1.Node{}
+				Expect(k8sClient.Client.Get(context.Background(), peerNodeNamespacedName, live)).To(Succeed())
+				clean := getNode(shared.PeerNodeName)
+				patch := client.MergeFrom(live.DeepCopy())
+				live.Spec = clean.Spec
+				live.Labels = clean.Labels
+				live.Annotations = clean.Annotations
+				Expect(k8sClient.Client.Patch(context.Background(), live, patch)).To(Succeed())
 			})
 
 			time.Sleep(time.Second * 2)
@@ -1277,13 +1291,21 @@ func configureUnhealthyNodeAsControlNode() {
 	})
 
 	By("Set the existing unhealthy node as a control node", func() {
-		previousRole := unhealthyNode.Labels[labels2.MasterRole]
+		previousRole, hadMasterLabel := unhealthyNode.Labels[labels2.MasterRole]
 		unhealthyNode.Labels[labels2.MasterRole] = "true"
 		Expect(k8sClient.Update(context.TODO(), unhealthyNode)).To(Succeed(), "failed to update unhealthy node")
 
 		DeferCleanup(func() {
 			By("Revert the unhealthy node's role to its previous value", func() {
-				unhealthyNode.Labels[labels2.MasterRole] = previousRole
+				updated := &v1.Node{}
+				Expect(k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, updated)).To(Succeed())
+				if hadMasterLabel {
+					updated.Labels[labels2.MasterRole] = previousRole
+				} else {
+					delete(updated.Labels, labels2.MasterRole)
+				}
+				Expect(k8sClient.Update(context.TODO(), updated)).To(Succeed(),
+					"failed to restore the unhealthy node label after control-plane override")
 			})
 		})
 	})
