@@ -39,6 +39,7 @@ import (
 	metricsServer "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	machinev1beta1 "github.com/openshift/api/machine/v1beta1"
+	_ "github.com/openshift/api/machine/v1beta1/zz_generated.crd-manifests"
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/controllers"
@@ -88,7 +89,8 @@ var _ = BeforeSuite(func() {
 		CRDInstallOptions: envtest.CRDInstallOptions{
 			Scheme: testScheme,
 			Paths: []string{
-				filepath.Join("../../..", "vendor", "github.com", "openshift", "api", "machine", "v1beta1"),
+				filepath.Join("../../..", "vendor", "github.com", "openshift", "api", "machine", "v1beta1", "zz_generated.crd-manifests", "0000_10_machine-api_01_machinehealthchecks.crd.yaml"),
+				filepath.Join("../../..", "vendor", "github.com", "openshift", "api", "machine", "v1beta1", "zz_generated.crd-manifests", "0000_10_machine-api_01_machines-Default.crd.yaml"),
 				filepath.Join("../../..", "config", "crd", "bases"),
 			},
 			ErrorIfPathMissing: true,

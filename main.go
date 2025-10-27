@@ -130,7 +130,7 @@ func main() {
 		Scheme: scheme,
 		// HEADS UP: once controller runtime is updated and this changes to metrics.Options{},
 		// and in case you configure TLS / SecureServing, disable HTTP/2 in it for mitigating related CVEs!
-		Metrics:                metricsServer.Options{BindAddress: "0"},
+		Metrics:                metricsServer.Options{BindAddress: metricsAddr},
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "547f6cb6.medik8s.io",
