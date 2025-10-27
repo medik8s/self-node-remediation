@@ -190,6 +190,14 @@ func (manager *Manager) isKubeletServiceRunning() bool {
 		manager.log.Error(err, "kubelet service is down", "node name", manager.nodeName)
 		return false
 	}
-	defer resp.Body.Close()
-	return true
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			manager.log.Error(cerr, "failed to close kubelet response body", "node name", manager.nodeName)
+		}
+	}()
+	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
+		return true
+	}
+	manager.log.Info("kubelet responded with non-success status", "node name", manager.nodeName, "status", resp.StatusCode)
+	return false
 }

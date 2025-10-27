@@ -44,8 +44,6 @@ const (
 	SnrPodName3      = "self-node-remediation-3"
 	DsDummyImageName = "dummy-image"
 
-	K8sClientReturnRandomPodIPAddressesByDefault = false
-
 	MinPeersForRemediationConfigDefaultValue = 1
 )
 
@@ -117,7 +115,8 @@ func GetRandomIpAddress() (randomIP string) {
 	bytes := make([]byte, net.IPv6len)
 	bytes[0] = 0xfd
 	if _, err := rand.Read(bytes[1:]); err != nil {
-		panic(err)
+		logf.Log.Error(err, "random IPv6 generation failed; using fallback")
+		return "fd00::1"
 	}
 	randomIP = net.IP(bytes).String()
 
@@ -156,9 +155,7 @@ func (ckw *ApiConnectivityCheckWrapper) nextSimulatedPeerResponse() selfNodeReme
 	}
 
 	code := ckw.simulatedPeerResponses[0]
-	if len(ckw.simulatedPeerResponses) > 1 {
-		ckw.simulatedPeerResponses = append([]selfNodeRemediation.HealthCheckResponseCode{}, ckw.simulatedPeerResponses[1:]...)
-	}
+	ckw.simulatedPeerResponses = append([]selfNodeRemediation.HealthCheckResponseCode{}, ckw.simulatedPeerResponses[1:]...)
 
 	return code
 }
@@ -320,26 +317,6 @@ func VerifySNRStatusExist(k8sClient client.Client, snr *selfnoderemediationv1alp
 type K8sErrorTestingFunc func(err error) bool
 
 // Matches one of the k8s error types that the user wants to ignore
-func IsIgnoredK8sError(k8sErrorsToIgnore []K8sErrorTestingFunc) types2.GomegaMatcher {
-	return gcustom.MakeMatcher(func(errorToTest error) (matches bool, err error) {
-		if errorToTest == nil {
-			matches = false
-			return
-		}
-
-		for _, testingFunc := range k8sErrorsToIgnore {
-			if testingFunc(errorToTest) {
-				matches = true
-				return
-			}
-		}
-
-		matches = false
-
-		return
-	})
-}
-
 func IsK8sNotFoundError() types2.GomegaMatcher {
 	return gcustom.MakeMatcher(func(errorToTest error) (matches bool, err error) {
 		if errorToTest == nil {

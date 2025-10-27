@@ -961,41 +961,6 @@ func deleteSelfNodeRemediationPod(pod *v1.Pod, throwErrorIfNotFound bool) {
 	})
 }
 
-func deleteSelfNodeRemediationPodByName(podName string, throwErrorIfNotFound bool) (err error) {
-	pod := &v1.Pod{}
-	podKey := client.ObjectKey{
-		Namespace: shared.Namespace,
-		Name:      podName,
-	}
-
-	By(fmt.Sprintf("Attempting to get pod '%s' before deleting it", podName), func() {
-		if err := k8sClient.Client.Get(context.Background(), podKey, pod); err != nil {
-			if apierrors.IsNotFound(err) && !throwErrorIfNotFound {
-				logf.Log.Info("pod with name '%s' not found, we're not going to do anything", podName)
-				err = nil
-				return
-			}
-
-			err = fmt.Errorf("unable to get pod with name '%s' in order to delete it", err)
-			return
-		}
-	})
-
-	deleteSelfNodeRemediationPod(pod, throwErrorIfNotFound)
-
-	return
-}
-
-func deleteAllSelfNodeRemediationPods() {
-	pods := getSnrPods()
-
-	By("Deleting self-node-remediation pods")
-
-	for _, pod := range pods.Items {
-		deleteSelfNodeRemediationPod(&pod, false)
-	}
-}
-
 func createTerminatingPod() {
 	pod := &v1.Pod{}
 	pod.Spec.NodeName = shared.UnhealthyNodeName
