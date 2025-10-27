@@ -463,16 +463,20 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceRemoval(ctx context
 	var err error
 	switch phase {
 	case fencingStartedPhase:
+		r.logger.Info("remediateWithResourceRemoval: entered fencing start phase")
 		result, err = r.handleFencingStartedPhase(ctx, node, snr)
 	case preRebootCompletedPhase:
+		r.logger.Info("remediateWithResourceRemoval: entered pre reboot completed phase")
 		result, err = r.handlePreRebootCompletedPhase(node, snr)
 	case rebootCompletedPhase:
+		r.logger.Info("remediateWithResourceRemoval: entered reboot completed phase")
 		result, err = r.handleRebootCompletedPhase(node, snr, rmNodeResources)
 	case fencingCompletedPhase:
+		r.logger.Info("remediateWithResourceRemoval: entered fencing complete phase")
 		result, err = r.handleFencingCompletedPhase(node, snr)
 	default:
 		// this should never happen since we enforce valid values with kubebuilder
-		err = errors.New("unknown phase")
+		err = fmt.Errorf("remediateWithResourceRemoval: unknown phase (%s)", phase)
 		r.logger.Error(err, "Undefined unknown phase", "phase", phase)
 	}
 	return result, err
@@ -506,6 +510,7 @@ func (r *SelfNodeRemediationReconciler) prepareReboot(ctx context.Context, node 
 	}
 
 	preRebootCompleted := string(preRebootCompletedPhase)
+	r.logger.Info("pre-reboot completed")
 	snr.Status.Phase = &preRebootCompleted
 
 	return ctrl.Result{}, nil
@@ -636,7 +641,8 @@ func (r *SelfNodeRemediationReconciler) didIRebootMyself(snr *v1alpha1.SelfNodeR
 func (r *SelfNodeRemediationReconciler) isNodeRebootCapable(node *v1.Node) bool {
 	//make sure that the unhealthy node has self node remediation pod on it which can reboot it
 	if _, err := utils.GetSelfNodeRemediationAgentPod(node.Name, r.Client); err != nil {
-		r.logger.Error(err, "failed to get self node remediation agent pod resource")
+		r.logger.Error(err, "failed to get self node remediation agent pod resource, so that makes this node "+
+			"not reboot capable")
 		return false
 	}
 

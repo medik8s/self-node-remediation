@@ -251,6 +251,19 @@ func getDurEnvVarOrDie(varName string) time.Duration {
 	return time.Duration(intVar)
 }
 
+func getOptionalDurEnvVar(varName string, fallback time.Duration) time.Duration {
+	val, exists := os.LookupEnv(varName)
+	if !exists || val == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(val)
+	if err != nil {
+		setupLog.Error(err, "failed to convert env variable to int", "var name", varName, "var value", val)
+		os.Exit(1)
+	}
+	return time.Duration(parsed)
+}
+
 func getIntEnvVarOrDie(varName string) int {
 	// determine safe reboot time
 	varVal := os.Getenv(varName)
@@ -316,6 +329,8 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	peerDialTimeout := getDurEnvVarOrDie("PEER_DIAL_TIMEOUT")         //timeout for establishing connection to peer
 	peerRequestTimeout := getDurEnvVarOrDie("PEER_REQUEST_TIMEOUT")   //timeout for each peer request
 	peerHealthDefaultPort := getIntEnvVarOrDie("HOST_PORT")
+	failureWindow := getOptionalDurEnvVar("MAX_API_FAILURE_WINDOW", apiCheckInterval*time.Duration(maxErrorThreshold))
+	peerQuorumTimeout := getOptionalDurEnvVar("PEER_QUORUM_TIMEOUT", reboot.MaxTimeForNoPeersResponse)
 
 	// it's fine when the watchdog is nil!
 	rebooter := reboot.NewWatchdogRebooter(wd, ctrl.Log.WithName("rebooter"))
@@ -345,6 +360,8 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		PeerHealthPort:            peerHealthDefaultPort,
 		MaxTimeForNoPeersResponse: reboot.MaxTimeForNoPeersResponse,
 		Recorder:                  mgr.GetEventRecorderFor("ApiConnectivityCheck"),
+		FailureWindow:             failureWindow,
+		PeerQuorumTimeout:         peerQuorumTimeout,
 	}
 
 	controlPlaneManager := controlplane.NewManager(myNodeName, mgr.GetClient())

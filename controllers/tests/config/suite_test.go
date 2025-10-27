@@ -126,7 +126,7 @@ var _ = BeforeSuite(func() {
 		MyNodeName:             shared.UnhealthyNodeName,
 		CheckInterval:          shared.ApiCheckInterval,
 		MaxErrorsThreshold:     shared.MaxErrorThreshold,
-		MinPeersForRemediation: shared.MinPeersForRemediation,
+		MinPeersForRemediation: shared.MinPeersForRemediationConfigDefaultValue,
 		Peers:                  peers,
 		Cfg:                    cfg,
 		CertReader:             certReader,

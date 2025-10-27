@@ -84,13 +84,13 @@ func (p *Peers) Start(ctx context.Context) error {
 	p.log.Info("peer starting", "name", p.myNodeName)
 	wait.UntilWithContext(ctx, func(ctx context.Context) {
 		updateWorkerPeersError := p.updateWorkerPeers(ctx)
-		updateControlPlanePeersError := p.updateControlPlanePeers(ctx)
+		updateControlPlanePeersError := p.UpdateControlPlanePeers(ctx)
 		if updateWorkerPeersError != nil || updateControlPlanePeersError != nil {
 			// the default update interval is quite long, in case of an error we want to retry quicker
 			quickCtx, quickCancel := context.WithCancel(ctx)
 			wait.UntilWithContext(quickCtx, func(ctx context.Context) {
 				quickUpdateWorkerPeersError := p.updateWorkerPeers(ctx)
-				quickUpdateControlPlanePeersError := p.updateControlPlanePeers(ctx)
+				quickUpdateControlPlanePeersError := p.UpdateControlPlanePeers(ctx)
 				if quickUpdateWorkerPeersError == nil && quickUpdateControlPlanePeersError == nil {
 					quickCancel()
 				}
@@ -102,18 +102,40 @@ func (p *Peers) Start(ctx context.Context) error {
 }
 
 func (p *Peers) updateWorkerPeers(ctx context.Context) error {
-	setterFunc := func(addresses []v1.PodIP) { p.workerPeersAddresses = addresses }
-	selectorGetter := func() labels.Selector { return p.workerPeerSelector }
-	return p.updatePeers(ctx, selectorGetter, setterFunc)
+	p.log.Info("updateWorkerPeers entered")
+	setterFunc := func(addresses []v1.PodIP) {
+		p.log.Info("updateWorkerPeers setter called", "addresses", addresses)
+		p.workerPeersAddresses = addresses
+	}
+	selectorGetter := func() labels.Selector {
+		p.log.Info("updateWorkerPeers getter called", "workerPeerSelector", p.workerPeerSelector)
+		return p.workerPeerSelector
+	}
+	resetFunc := func() {
+		p.workerPeersAddresses = []v1.PodIP{}
+	}
+	return p.updatePeers(ctx, selectorGetter, setterFunc, resetFunc)
 }
 
-func (p *Peers) updateControlPlanePeers(ctx context.Context) error {
-	setterFunc := func(addresses []v1.PodIP) { p.controlPlanePeersAddresses = addresses }
-	selectorGetter := func() labels.Selector { return p.controlPlanePeerSelector }
-	return p.updatePeers(ctx, selectorGetter, setterFunc)
+func (p *Peers) UpdateControlPlanePeers(ctx context.Context) error {
+	p.log.Info("UpdateControlPlanePeers entered")
+
+	setterFunc := func(addresses []v1.PodIP) {
+		p.log.Info("UpdateControlPlanePeers setter called", "addresses", addresses)
+		p.controlPlanePeersAddresses = addresses
+	}
+	selectorGetter := func() labels.Selector {
+		p.log.Info("UpdateControlPlanePeers getter called", "workerPeerSelector", p.workerPeerSelector)
+		return p.controlPlanePeerSelector
+	}
+	resetFunc := func() {
+		p.controlPlanePeersAddresses = []v1.PodIP{}
+	}
+	return p.updatePeers(ctx, selectorGetter, setterFunc, resetFunc)
 }
 
-func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selector, setAddresses func(addresses []v1.PodIP)) error {
+func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selector, setAddresses func(addresses []v1.PodIP),
+	resetPeers func()) error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
@@ -121,15 +143,18 @@ func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selec
 	defer cancel()
 
 	nodes := v1.NodeList{}
+
 	// get some nodes, but not ourself
 	if err := p.List(readerCtx, &nodes, client.MatchingLabelsSelector{Selector: getSelector()}); err != nil {
 		if apierrors.IsNotFound(err) {
 			// we are the only node at the moment... reset peerList
-			p.workerPeersAddresses = []v1.PodIP{}
+			resetPeers()
 		}
 		p.log.Error(err, "failed to update peer list")
 		return pkgerrors.Wrap(err, "failed to update peer list")
 	}
+
+	p.log.Info("updatePeers", "nodes", nodes)
 
 	pods := v1.PodList{}
 	listOptions := &client.ListOptions{
@@ -163,6 +188,10 @@ func (p *Peers) mapNodesToPrimaryPodIPs(nodes v1.NodeList, pods v1.PodList) ([]v
 					addresses = append(addresses, pod.Status.PodIPs[0])
 				}
 				break
+			} else {
+				p.log.Info("Skipping current node/pod combo",
+					"node.Name", node.Name,
+					"pod.Spec.NodeName", pod.Spec.NodeName)
 			}
 		}
 		if !found {
@@ -177,11 +206,16 @@ func (p *Peers) GetPeersAddresses(role Role) []v1.PodIP {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
+	p.log.Info("GetPeersAddresses", "workerPeersAddresses", p.workerPeersAddresses,
+		"controlPlanePeersAddresses", p.controlPlanePeersAddresses)
+
 	var addresses []v1.PodIP
 	if role == Worker {
 		addresses = p.workerPeersAddresses
+		p.log.Info("Got a request to see how many worker peers exist", "workerPeersAddresses", p.workerPeersAddresses)
 	} else {
 		addresses = p.controlPlanePeersAddresses
+		p.log.Info("Got a request to see how many control plane peers exist", "controlPlanePeersAddresses", p.controlPlanePeersAddresses)
 	}
 	//we don't want the caller to be able to change the addresses
 	//so we create a deep copy and return it

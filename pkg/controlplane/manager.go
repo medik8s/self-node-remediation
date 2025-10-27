@@ -25,6 +25,16 @@ const (
 	kubeletPort = "10250"
 )
 
+type EvaluationOutcome int
+
+const (
+	EvaluationHealthy EvaluationOutcome = iota
+	EvaluationRemediate
+	EvaluationGlobalOutage
+	EvaluationIsolation
+	EvaluationAwaitQuorum
+)
+
 // Manager contains logic and info needed to fence and remediate controlplane nodes
 type Manager struct {
 	nodeName                     string
@@ -54,48 +64,36 @@ func (manager *Manager) Start(_ context.Context) error {
 }
 
 func (manager *Manager) IsControlPlane() bool {
+	manager.log.Info("Checking to see if node is a control plane node",
+		"nodeName", manager.nodeName,
+		"controlPlaneNodeExpectedValue", peers.ControlPlane,
+		"nodeRole", manager.nodeRole)
 	return manager.nodeRole == peers.ControlPlane
 }
 
-func (manager *Manager) IsControlPlaneHealthy(workerPeerResponse peers.Response, canOtherControlPlanesBeReached bool) bool {
-	switch workerPeerResponse.Reason {
-	//reported unhealthy by worker peers
-	case peers.UnHealthyBecausePeersResponse:
-		manager.log.Info("We are deciding the control plane is not healthy because the peer response was UnHealthyBecausePeersResponse")
+func (manager *Manager) IsControlPlaneHealthy(outcome EvaluationOutcome) bool {
+	switch outcome {
+	case EvaluationRemediate:
+		manager.log.Info("control-plane evaluation requested remediation")
 		return false
-	case peers.UnHealthyBecauseNodeIsIsolated:
-		manager.log.Info("While trying to determine if the control plane is healthy, the peer response was "+
-			"UnHealthyBecauseNodeIsIsolated, so we are returning true if we could reach other control plane nodes",
-			"canOtherControlPlanesBeReached", canOtherControlPlanesBeReached)
-		return canOtherControlPlanesBeReached
-	//reported healthy by worker peers
-	case peers.HealthyBecauseErrorsThresholdNotReached, peers.HealthyBecauseCRNotFound, peers.HealthyBecauseNoPeersResponseNotReachedTimeout:
-		manager.log.Info("We are deciding that the control plane is healthy because either: "+
-			"HealthyBecauseErrorsThresholdNotReached "+
-			", HealthyBecauseCRNotFound,  or HealthyBecauseNoPeersResponseNotReachedTimeout",
-			"reason", workerPeerResponse.Reason)
-		return true
-	//controlPlane node has connection to most workers, we assume it's not isolated (or at least that the controlPlane node that does not have worker peers quorum will reboot)
-	case peers.HealthyBecauseMostPeersCantAccessAPIServer:
+	case EvaluationIsolation:
+		manager.log.Info("control-plane evaluation detected isolation")
+		return false
+	case EvaluationGlobalOutage:
 		didDiagnosticsPass := manager.isDiagnosticsPassed()
-		manager.log.Info("The peers couldn't access the API server, so we are returning whether "+
-			"diagnostics passed", "didDiagnosticsPass", didDiagnosticsPass)
+		manager.log.Info("peers report API outage, relying on diagnostics",
+			"diagnosticsPassed", didDiagnosticsPass)
 		return didDiagnosticsPass
-	case peers.HealthyBecauseNoPeersWereFound:
-		didDiagnosticsPass := manager.isDiagnosticsPassed()
-
-		manager.log.Info("We couldn't find any peers so we are returning didDiagnosticsPass && "+
-			"canOtherControlPlanesBeReached", "didDiagnosticsPass", didDiagnosticsPass,
-			"canOtherControlPlanesBeReached", canOtherControlPlanesBeReached)
-
-		return didDiagnosticsPass && canOtherControlPlanesBeReached
-
+	case EvaluationAwaitQuorum:
+		manager.log.Info("peer quorum pending, deferring remediation")
+		return true
+	case EvaluationHealthy:
+		return true
 	default:
-		errorText := "node is considered unhealthy by worker peers for an unknown reason"
-		manager.log.Error(errors.New(errorText), errorText, "reason", workerPeerResponse.Reason, "node name", manager.nodeName)
+		errorText := "unknown evaluation outcome"
+		manager.log.Error(errors.New(errorText), errorText, "outcome", outcome, "node name", manager.nodeName)
 		return false
 	}
-
 }
 
 func (manager *Manager) isDiagnosticsPassed() bool {
@@ -131,6 +129,9 @@ func (manager *Manager) initializeManager() error {
 }
 
 func (manager *Manager) setNodeRole(node corev1.Node) {
+	manager.log.Info("setNodeRole called",
+		"labels", node.Labels)
+
 	if nodes.IsControlPlane(&node) {
 		manager.nodeRole = peers.ControlPlane
 	} else {
@@ -173,7 +174,10 @@ func (manager *Manager) isKubeletServiceRunning() bool {
 			MinVersion:         certificates.TLSMinVersion,
 		},
 	}
-	httpClient := &http.Client{Transport: tr}
+	httpClient := &http.Client{
+		Transport: tr,
+		Timeout:   5 * time.Second,
+	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
