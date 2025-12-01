@@ -70,7 +70,7 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 	Expect(err).NotTo(HaveOccurred())
 
 	cfg, err = config.GetConfig()
-	Expect(err).NotTo(HaveOccurred())
+	Expect(err).NotTo(HaveOccurred(), "Couldn't get kubeconfig")
 	Expect(cfg).ToNot(BeNil())
 
 	k8sClient, err = client.New(cfg, client.Options{})
