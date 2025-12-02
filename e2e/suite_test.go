@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -24,12 +25,18 @@ import (
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 // needs to match CI config!
-const testNamespace = "self-node-remediation"
+const operatorInstalledNamespaceEnvVar = "OPERATOR_NS"
+const defaultTestNamespace = "self-node-remediation"
 
-var cfg *rest.Config
-var k8sClient client.Client
-var k8sClientSet *kubernetes.Clientset
-var logger logr.Logger
+var (
+	cfg          *rest.Config
+	k8sClient    client.Client
+	k8sClientSet *kubernetes.Clientset
+	logger       logr.Logger
+
+	// The namespace the operator is installed in (needs to match CI config)
+	testNamespace string
+)
 
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -45,11 +52,25 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 	logger = logf.Log
 
+	testNamespace = os.Getenv(operatorInstalledNamespaceEnvVar)
+	if testNamespace == "" {
+		logger.Info("Env var for operator's namespace not set, thus it uses default namespace as test namespace",
+			"envVar", operatorInstalledNamespaceEnvVar,
+			"namespace", defaultTestNamespace,
+		)
+		testNamespace = defaultTestNamespace
+	} else {
+		logger.Info("Env var for operator's namespace was set, thus it uses provided namespace as test namespace",
+			"envVar", operatorInstalledNamespaceEnvVar,
+			"namespace", testNamespace,
+		)
+	}
+
 	err := v1alpha1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
 
 	cfg, err = config.GetConfig()
-	Expect(err).NotTo(HaveOccurred())
+	Expect(err).NotTo(HaveOccurred(), "Couldn't get kubeconfig")
 	Expect(cfg).ToNot(BeNil())
 
 	k8sClient, err = client.New(cfg, client.Options{})
