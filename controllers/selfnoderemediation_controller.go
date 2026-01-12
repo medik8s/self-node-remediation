@@ -71,7 +71,7 @@ var (
 	}
 
 	OutOfServiceTaint = &corev1.Taint{
-		Key:       "node.kubernetes.io/out-of-service",
+		Key:       corev1.TaintNodeOutOfService,
 		Value:     "nodeshutdown",
 		Effect:    corev1.TaintEffectNoExecute,
 	}

@@ -364,7 +364,7 @@ var _ = Describe("SNR Controller", func() {
 						return false
 					}
 					return !utils.TaintExists(updatedNode.Spec.Taints, &corev1.Taint{
-						Key:    "node.kubernetes.io/out-of-service",
+						Key:    corev1.TaintNodeOutOfService,
 						Value:  "nodeshutdown",
 						Effect: corev1.TaintEffectNoExecute,
 					})
