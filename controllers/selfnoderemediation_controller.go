@@ -52,12 +52,10 @@ const (
 
 	// remediation
 	eventReasonAddFinalizer                 = "AddFinalizer"
-	eventReasonMarkUnschedulable            = "MarkUnschedulable"
 	eventReasonAddNoExecute                 = "AddNoExecute"
 	eventReasonAddOutOfService              = "AddOutOfService"
 	eventReasonUpdateTimeAssumedRebooted    = "UpdateTimeAssumedRebooted"
 	eventReasonDeleteResources              = "DeleteResources"
-	eventReasonMarkSchedulable              = "MarkNodeSchedulable"
 	eventReasonRemoveFinalizer              = "RemoveFinalizer"
 	eventReasonRemoveNoExecute              = "RemoveNoExecuteTaint"
 	eventReasonRemoveOutOfService           = "RemoveOutOfService"
@@ -66,11 +64,6 @@ const (
 )
 
 var (
-	NodeUnschedulableTaint = &v1.Taint{
-		Key:    "node.kubernetes.io/unschedulable",
-		Effect: v1.TaintEffectNoSchedule,
-	}
-
 	NodeNoExecuteTaint = &v1.Taint{
 		Key:    "medik8s.io/remediation",
 		Value:  "self-node-remediation",
@@ -497,10 +490,6 @@ func (r *SelfNodeRemediationReconciler) prepareReboot(ctx context.Context, node 
 		return ctrl.Result{}, err
 	}
 
-	if !node.Spec.Unschedulable || !utils.TaintExists(node.Spec.Taints, NodeUnschedulableTaint) {
-		return r.markNodeAsUnschedulable(node)
-	}
-
 	if err := r.setTimeAssumedRebooted(ctx, node, snr); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -559,22 +548,6 @@ func (r *SelfNodeRemediationReconciler) handleFencingCompletedPhase(node *v1.Nod
 
 func (r *SelfNodeRemediationReconciler) recoverNode(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	r.logger.Info("fencing completed, cleaning up")
-	if node.Spec.Unschedulable {
-		node.Spec.Unschedulable = false
-		if err := r.Client.Update(context.Background(), node); err != nil {
-			if apiErrors.IsConflict(err) {
-				return ctrl.Result{RequeueAfter: time.Second}, nil
-			}
-			r.logger.Error(err, "failed to unmark node as schedulable")
-			return ctrl.Result{}, err
-		}
-		events.NormalEvent(r.Recorder, node, eventReasonMarkSchedulable, "Remediation process - mark healthy remediated node as schedulable")
-	}
-
-	// wait until NoSchedulable taint was removed
-	if utils.TaintExists(node.Spec.Taints, NodeUnschedulableTaint) {
-		return ctrl.Result{RequeueAfter: time.Second}, nil
-	}
 
 	if err := r.removeNoExecuteTaint(node); err != nil {
 		return ctrl.Result{}, err
@@ -738,29 +711,6 @@ func (r *SelfNodeRemediationReconciler) getNodeFromSnr(ctx context.Context, snr 
 		return nil, err
 	}
 	return node, nil
-}
-
-// the unhealthy node might reboot itself and take new workloads
-// since we're going to delete the node eventually, we must make sure the node is deleted only
-// when there's no running workload there. Hence we mark it as unschedulable.
-// markNodeAsUnschedulable sets node.Spec.Unschedulable which triggers node controller to add the taint
-func (r *SelfNodeRemediationReconciler) markNodeAsUnschedulable(node *v1.Node) (ctrl.Result, error) {
-	if node.Spec.Unschedulable {
-		r.logger.Info("waiting for unschedulable taint to appear", "node name", node.Name)
-		return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
-	}
-
-	node.Spec.Unschedulable = true
-	r.logger.Info("Marking node as unschedulable", "node name", node.Name)
-	if err := r.Client.Update(context.Background(), node); err != nil {
-		if apiErrors.IsConflict(err) {
-			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
-		}
-		r.logger.Error(err, "failed to mark node as unschedulable")
-		return ctrl.Result{}, err
-	}
-	events.NormalEvent(r.Recorder, node, eventReasonMarkUnschedulable, "Remediation process - unhealthy node marked as unschedulable")
-	return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 }
 
 func (r *SelfNodeRemediationReconciler) updateSnrStatusLastError(snr *v1alpha1.SelfNodeRemediation, err error) error {

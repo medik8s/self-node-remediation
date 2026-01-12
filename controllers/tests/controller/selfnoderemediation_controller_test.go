@@ -179,13 +179,7 @@ var _ = Describe("SNR Controller", func() {
 			})
 
 			It("Remediation flow", func() {
-				node := verifyNodeIsUnschedulable()
-
 				verifyEvent("Normal", "RemediationStarted", "Remediation started by SNR manager")
-
-				verifyEvent("Normal", "MarkUnschedulable", "Remediation process - unhealthy node marked as unschedulable")
-
-				addUnschedulableTaint(node)
 
 				verifyTypeConditions(snr, metav1.ConditionTrue, metav1.ConditionUnknown, "RemediationStarted")
 
@@ -211,12 +205,6 @@ var _ = Describe("SNR Controller", func() {
 
 				deleteSNR(snr)
 
-				verifyNodeIsSchedulable()
-
-				removeUnschedulableTaint()
-
-				verifyEvent("Normal", "MarkNodeSchedulable", "Remediation process - mark healthy remediated node as schedulable")
-
 				verifyNoExecuteTaintRemoved()
 
 				verifyEvent("Normal", "RemoveNoExecuteTaint", "Remediation process - remove NoExecute taint from healthy remediated node")
@@ -231,11 +219,7 @@ var _ = Describe("SNR Controller", func() {
 			})
 
 			It("The snr agent attempts to keep deleting node resources during temporary api-server failure", func() {
-				node := verifyNodeIsUnschedulable()
-
 				k8sClient.ShouldSimulatePodDeleteFailure = true
-
-				addUnschedulableTaint(node)
 
 				verifyTypeConditions(snr, metav1.ConditionTrue, metav1.ConditionUnknown, "RemediationStarted")
 
@@ -253,8 +237,6 @@ var _ = Describe("SNR Controller", func() {
 				verifySelfNodeRemediationPodDoesntExist()
 
 				deleteSNR(snr)
-
-				removeUnschedulableTaint()
 
 				verifySNRDoesNotExists(snr)
 
@@ -310,11 +292,6 @@ var _ = Describe("SNR Controller", func() {
 					} else {
 						createSNR(snr, remediationStrategy)
 					}
-
-					node := verifyNodeIsUnschedulable()
-
-					addUnschedulableTaint(node)
-
 					verifyTypeConditions(snr, metav1.ConditionTrue, metav1.ConditionUnknown, "RemediationStarted")
 
 					// The normal NoExecute taint tries to delete pods, however it can't delete pods
@@ -344,10 +321,6 @@ var _ = Describe("SNR Controller", func() {
 
 					deleteSNR(snr)
 
-					verifyNodeIsSchedulable()
-
-					removeUnschedulableTaint()
-
 					verifyNoExecuteTaintRemoved()
 
 					verifySNRDoesNotExists(snr)
@@ -362,10 +335,6 @@ var _ = Describe("SNR Controller", func() {
 				})
 
 				createSNR(snr, remediationStrategy)
-
-				node := verifyNodeIsUnschedulable()
-				addUnschedulableTaint(node)
-
 				verifyTypeConditions(snr, metav1.ConditionTrue, metav1.ConditionUnknown, "RemediationStarted")
 
 				// Create terminating pod but DON'T delete it - this simulates workloads stuck in terminating state
@@ -406,8 +375,6 @@ var _ = Describe("SNR Controller", func() {
 
 				// Clean up: manually delete the terminating pod and SNR to complete the test
 				deleteTerminatingPod()
-				verifyNodeIsSchedulable()
-				removeUnschedulableTaint()
 				verifyNoExecuteTaintRemoved()
 				verifySNRDoesNotExists(snr)
 			})
@@ -462,10 +429,6 @@ var _ = Describe("SNR Controller", func() {
 						})
 					})
 
-					It("Node is found and set with Unschedulable taint", func() {
-						time.Sleep(time.Second)
-						verifyEvent("Normal", "MarkUnschedulable", "Remediation process - unhealthy node marked as unschedulable")
-					})
 				})
 
 				When("the wrong  NodeRef is set in the machine statusThe", func() {
@@ -481,7 +444,6 @@ var _ = Describe("SNR Controller", func() {
 					When("NHC isn't set as owner in the remediation", func() {
 						It("Node is not found", func() {
 							time.Sleep(time.Second)
-							verifyNoEvent("Normal", "MarkUnschedulable", "Remediation process - unhealthy node marked as unschedulable")
 							verifyTypeConditions(snr, metav1.ConditionFalse, metav1.ConditionFalse, "RemediationSkippedNodeNotFound")
 							verifyEvent("Warning", "RemediationCannotStart", "Could not get remediation target Node")
 						})
@@ -489,11 +451,6 @@ var _ = Describe("SNR Controller", func() {
 					When("NHC is set as owner in the remediation", func() {
 						BeforeEach(func() {
 							snr.OwnerReferences = append(snr.OwnerReferences, metav1.OwnerReference{Name: "nhc", Kind: "NodeHealthCheck", APIVersion: "remediation.medik8s.io/v1alpha1", UID: "12345"})
-						})
-
-						It("Node is found and set with Unschedulable taint", func() {
-							time.Sleep(time.Second)
-							verifyEvent("Normal", "MarkUnschedulable", "Remediation process - unhealthy node marked as unschedulable")
 						})
 					})
 				})
@@ -589,15 +546,6 @@ func verifySelfNodeRemediationPodDoesntExist() {
 	}, shared.CalculatedRebootDuration+10*time.Second, 250*time.Millisecond).Should(BeTrue())
 }
 
-func verifyNodeIsSchedulable() {
-	By("Verify that node is not marked as unschedulable")
-	node := &v1.Node{}
-	Eventually(func() (bool, error) {
-		err := k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)
-		return node.Spec.Unschedulable, err
-	}, 95*time.Second, 250*time.Millisecond).Should(BeFalse())
-}
-
 func verifyWatchdogTriggered() {
 	EventuallyWithOffset(1, func(g Gomega) {
 		g.Expect(dummyDog.Status()).To(Equal(watchdog.Triggered))
@@ -675,31 +623,6 @@ func verifySNRDoesNotExists(snr *v1alpha1.SelfNodeRemediation) {
 		err := k8sClient.Get(context.Background(), snrNamespacedName, snr)
 		return apierrors.IsNotFound(err)
 	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue())
-}
-
-func addUnschedulableTaint(node *v1.Node) {
-	By("Add unschedulable taint to node to simulate node controller")
-	node.Spec.Taints = append(node.Spec.Taints, *controllers.NodeUnschedulableTaint)
-	ExpectWithOffset(1, k8sClient.Client.Update(context.TODO(), node)).To(Succeed())
-}
-
-func removeUnschedulableTaint() {
-	By("Removing unschedulable taint to node to simulate node controller")
-	updateNodeFund := func(node *v1.Node) {
-		taints, _ := utils.DeleteTaint(node.Spec.Taints, controllers.NodeUnschedulableTaint)
-		node.Spec.Taints = taints
-	}
-	eventuallyUpdateNode(updateNodeFund, false)
-}
-
-func verifyNodeIsUnschedulable() *v1.Node {
-	By("Verify that node was marked as unschedulable")
-	node := &v1.Node{}
-	EventuallyWithOffset(1, func() (bool, error) {
-		err := k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)
-		return node.Spec.Unschedulable, err
-	}, 5*time.Second, 250*time.Millisecond).Should(BeTrue(), "node should be marked as unschedulable")
-	return node
 }
 
 func verifySelfNodeRemediationPodExist() {
