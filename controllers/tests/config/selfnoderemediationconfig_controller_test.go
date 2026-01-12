@@ -121,7 +121,7 @@ var _ = Describe("SNR Config Test", func() {
 		When("Configuration has customized tolerations", func() {
 			var expectedToleration corev1.Toleration
 			BeforeEach(func() {
-				expectedToleration = corev1.Toleration{Key: "dummyTolerationKey", Operator: corev1.TolerationOpEqual, Effect: corev1.TaintEffectNoExecute}
+				expectedToleration = corev1.Toleration{Key: "dummyTolerationKey", Operator: corev1.TolerationOpEqual, Effect: corev1.TaintEffectNoSchedule}
 				config.Spec.CustomDsTolerations = []corev1.Toleration{expectedToleration}
 			})
 			It("Daemonset should have customized tolerations", func() {

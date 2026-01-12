@@ -197,17 +197,17 @@ var _ = Describe("SNR Controller", func() {
 
 				verifyEvent("Normal", "AddFinalizer", "Remediation process - successful adding finalizer")
 
-				verifyNoExecuteTaintExist()
+				verifyNoScheduleTaintExist()
 
-				verifyEvent("Normal", "AddNoExecute", "Remediation process - NoExecute taint added to the unhealthy node")
+				verifyEvent("Normal", "AddNoSchedule", "Remediation process - NoSchedule taint added to the unhealthy node")
 
 				verifyTypeConditions(snr, metav1.ConditionFalse, metav1.ConditionTrue, "RemediationFinishedSuccessfully")
 
 				deleteSNR(snr)
 
-				verifyNoExecuteTaintRemoved()
+				verifyNoScheduleTaintRemoved()
 
-				verifyEvent("Normal", "RemoveNoExecuteTaint", "Remediation process - remove NoExecute taint from healthy remediated node")
+				verifyEvent("Normal", "RemoveNoScheduleTaint", "Remediation process - remove NoSchedule taint from healthy remediated node")
 
 				verifyEvent("Normal", "RemoveFinalizer", "Remediation process - remove finalizer from snr")
 
@@ -294,8 +294,7 @@ var _ = Describe("SNR Controller", func() {
 					}
 					verifyTypeConditions(snr, metav1.ConditionTrue, metav1.ConditionUnknown, "RemediationStarted")
 
-					// The normal NoExecute taint tries to delete pods, however it can't delete pods
-					// with stateful workloads like volumes and they are stuck in terminating status.
+					// The normal NoSchedule taint stops new workloads from being scheduled on the node.
 					createTerminatingPod()
 
 					verifyTimeHasBeenRebootedExists(snr)
@@ -304,7 +303,7 @@ var _ = Describe("SNR Controller", func() {
 
 					verifyFinalizerExists(snr)
 
-					verifyNoExecuteTaintExist()
+					verifyNoScheduleTaintExist()
 
 					verifyOutOfServiceTaintExist()
 
@@ -321,7 +320,7 @@ var _ = Describe("SNR Controller", func() {
 
 					deleteSNR(snr)
 
-					verifyNoExecuteTaintRemoved()
+					verifyNoScheduleTaintRemoved()
 
 					verifySNRDoesNotExists(snr)
 				})
@@ -343,7 +342,7 @@ var _ = Describe("SNR Controller", func() {
 				verifyTimeHasBeenRebootedExists(snr)
 				verifyWatchdogTriggered()
 				verifyFinalizerExists(snr)
-				verifyNoExecuteTaintExist()
+				verifyNoScheduleTaintExist()
 				verifyOutOfServiceTaintExist()
 
 				// Verify timestamp annotation was added
@@ -375,7 +374,7 @@ var _ = Describe("SNR Controller", func() {
 
 				// Clean up: manually delete the terminating pod and SNR to complete the test
 				deleteTerminatingPod()
-				verifyNoExecuteTaintRemoved()
+				verifyNoScheduleTaintRemoved()
 				verifySNRDoesNotExists(snr)
 			})
 		})
@@ -565,17 +564,17 @@ func verifyFinalizerExists(snr *v1alpha1.SelfNodeRemediation) {
 	ExpectWithOffset(1, controllerutil.ContainsFinalizer(snr, controllers.SNRFinalizer)).Should(BeTrue(), "finalizer should be added")
 }
 
-func verifyNoExecuteTaintRemoved() {
-	By("Verify that node does not have NoExecute taint")
+func verifyNoScheduleTaintRemoved() {
+	By("Verify that node does not have NoSchedule taint")
 	Eventually(func() (bool, error) {
-		return isTaintExist(controllers.NodeNoExecuteTaint)
+		return isTaintExist(controllers.NodeNoScheduleTaint)
 	}, 10*time.Second, 200*time.Millisecond).Should(BeFalse())
 }
 
-func verifyNoExecuteTaintExist() {
-	By("Verify that node has NoExecute taint")
+func verifyNoScheduleTaintExist() {
+	By("Verify that node has NoSchedule taint")
 	Eventually(func() (bool, error) {
-		return isTaintExist(controllers.NodeNoExecuteTaint)
+		return isTaintExist(controllers.NodeNoScheduleTaint)
 	}, 10*time.Second, 200*time.Millisecond).Should(BeTrue())
 }
 

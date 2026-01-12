@@ -85,7 +85,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 		utils.CheckReboot(context.Background(), k8sClientSet, nodeUnderTest, oldBootTime, testNamespace)
 		// Simulate NHC deleting SNR
 		deleteAndWait(snr)
-		checkNoExecuteTaintRemoved(nodeUnderTest)
+		checkNoScheduleTaintRemoved(nodeUnderTest)
 	}
 
 	Describe("Workers Remediation", func() {
@@ -304,9 +304,9 @@ func createSNR(node *v1.Node, remediationStrategy v1alpha1.RemediationStrategyTy
 	return snr
 }
 
-func checkNoExecuteTaintRemoved(node *v1.Node) {
-	By("checking if NoExecute taint was removed")
-	checkTaintRemoved(node, controllers.NodeNoExecuteTaint)
+func checkNoScheduleTaintRemoved(node *v1.Node) {
+	By("checking if Remediation NoSchedule taint was removed")
+	checkTaintRemoved(node, controllers.NodeNoScheduleTaint)
 }
 
 func checkOutOfServiceTaintRemoved(node *v1.Node) {

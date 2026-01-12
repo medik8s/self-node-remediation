@@ -52,28 +52,28 @@ const (
 
 	// remediation
 	eventReasonAddFinalizer                 = "AddFinalizer"
-	eventReasonAddNoExecute                 = "AddNoExecute"
+	eventReasonAddNoSchedule                = "AddNoSchedule"
 	eventReasonAddOutOfService              = "AddOutOfService"
 	eventReasonUpdateTimeAssumedRebooted    = "UpdateTimeAssumedRebooted"
 	eventReasonDeleteResources              = "DeleteResources"
 	eventReasonRemoveFinalizer              = "RemoveFinalizer"
-	eventReasonRemoveNoExecute              = "RemoveNoExecuteTaint"
+	eventReasonRemoveNoSchedule             = "RemoveNoScheduleTaint"
 	eventReasonRemoveOutOfService           = "RemoveOutOfService"
 	eventReasonNodeReboot                   = "NodeReboot"
 	eventReasonOutOfServiceTimestampExpired = "OutOfServiceTimestampExpired"
 )
 
 var (
-	NodeNoExecuteTaint = &corev1.Taint{
+	NodeNoScheduleTaint = &corev1.Taint{
 		Key:    "medik8s.io/remediation",
 		Value:  "self-node-remediation",
-		Effect: corev1.TaintEffectNoExecute,
+		Effect: corev1.TaintEffectNoSchedule,
 	}
 
 	OutOfServiceTaint = &corev1.Taint{
-		Key:       corev1.TaintNodeOutOfService,
-		Value:     "nodeshutdown",
-		Effect:    corev1.TaintEffectNoExecute,
+		Key:    corev1.TaintNodeOutOfService,
+		Value:  "nodeshutdown",
+		Effect: corev1.TaintEffectNoExecute,
 	}
 
 	// OutOfServiceTimeoutDuration - time after which out-of-service taint is automatically removed
@@ -486,7 +486,7 @@ func (r *SelfNodeRemediationReconciler) prepareReboot(ctx context.Context, node 
 		return r.addFinalizer(snr)
 	}
 
-	if err := r.addNoExecuteTaint(node); err != nil {
+	if err := r.addNoScheduleTaint(node); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -549,7 +549,7 @@ func (r *SelfNodeRemediationReconciler) handleFencingCompletedPhase(node *corev1
 func (r *SelfNodeRemediationReconciler) recoverNode(node *corev1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	r.logger.Info("fencing completed, cleaning up")
 
-	if err := r.removeNoExecuteTaint(node); err != nil {
+	if err := r.removeNoScheduleTaint(node); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -742,44 +742,44 @@ func (r *SelfNodeRemediationReconciler) updateSnrStatusLastError(snr *v1alpha1.S
 	return err
 }
 
-func (r *SelfNodeRemediationReconciler) addNoExecuteTaint(node *corev1.Node) error {
-	if utils.TaintExists(node.Spec.Taints, NodeNoExecuteTaint) {
+func (r *SelfNodeRemediationReconciler) addNoScheduleTaint(node *corev1.Node) error {
+	if utils.TaintExists(node.Spec.Taints, NodeNoScheduleTaint) {
 		return nil
 	}
 
 	patch := client.MergeFrom(node.DeepCopy())
-	taint := *NodeNoExecuteTaint
+	taint := *NodeNoScheduleTaint
 	now := metav1.Now()
 	taint.TimeAdded = &now
 	node.Spec.Taints = append(node.Spec.Taints, taint)
 	if err := r.Client.Patch(context.Background(), node, patch); err != nil {
-		r.logger.Error(err, "Failed to add taint on node", "node name", node.Name, "taint key", NodeNoExecuteTaint.Key, "taint effect", NodeNoExecuteTaint.Effect)
+		r.logger.Error(err, "Failed to add taint on node", "node name", node.Name, "taint key", NodeNoScheduleTaint.Key, "taint effect", NodeNoScheduleTaint.Effect)
 		return err
 	}
-	r.logger.Info("NoExecute taint added", "new taints", node.Spec.Taints)
-	events.NormalEvent(r.Recorder, node, eventReasonAddNoExecute, "Remediation process - NoExecute taint added to the unhealthy node")
+	r.logger.Info("NoSchedule taint added", "new taints", node.Spec.Taints)
+	events.NormalEvent(r.Recorder, node, eventReasonAddNoSchedule, "Remediation process - NoSchedule taint added to the unhealthy node")
 	return nil
 }
 
-func (r *SelfNodeRemediationReconciler) removeNoExecuteTaint(node *corev1.Node) error {
-	if !utils.TaintExists(node.Spec.Taints, NodeNoExecuteTaint) {
+func (r *SelfNodeRemediationReconciler) removeNoScheduleTaint(node *corev1.Node) error {
+	if !utils.TaintExists(node.Spec.Taints, NodeNoScheduleTaint) {
 		return nil
 	}
 
 	patch := client.MergeFrom(node.DeepCopy())
-	if taints, deleted := utils.DeleteTaint(node.Spec.Taints, NodeNoExecuteTaint); !deleted {
-		r.logger.Info("Failed to remove taint from node, taint not found", "node name", node.Name, "taint key", NodeNoExecuteTaint.Key, "taint effect", NodeNoExecuteTaint.Effect)
+	if taints, deleted := utils.DeleteTaint(node.Spec.Taints, NodeNoScheduleTaint); !deleted {
+		r.logger.Info("Failed to remove taint from node, taint not found", "node name", node.Name, "taint key", NodeNoScheduleTaint.Key, "taint effect", NodeNoScheduleTaint.Effect)
 		return nil
 	} else {
 		node.Spec.Taints = taints
 	}
 
 	if err := r.Client.Patch(context.Background(), node, patch); err != nil {
-		r.logger.Error(err, "Failed to remove taint from node,", "node name", node.Name, "taint key", NodeNoExecuteTaint.Key, "taint effect", NodeNoExecuteTaint.Effect)
+		r.logger.Error(err, "Failed to remove taint from node,", "node name", node.Name, "taint key", NodeNoScheduleTaint.Key, "taint effect", NodeNoScheduleTaint.Effect)
 		return err
 	}
-	r.logger.Info("NoExecute taint removed", "new taints", node.Spec.Taints)
-	events.NormalEvent(r.Recorder, node, eventReasonRemoveNoExecute, "Remediation process - remove NoExecute taint from healthy remediated node")
+	r.logger.Info("NoSchedule taint removed", "new taints", node.Spec.Taints)
+	events.NormalEvent(r.Recorder, node, eventReasonRemoveNoSchedule, "Remediation process - remove NoSchedule taint from healthy remediated node")
 
 	return nil
 }
