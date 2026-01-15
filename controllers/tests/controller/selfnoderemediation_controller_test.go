@@ -199,7 +199,7 @@ var _ = Describe("SNR Controller", func() {
 
 				verifyNoScheduleTaintExist()
 
-				verifyEvent("Normal", "AddNoSchedule", "Remediation process - NoSchedule taint added to the unhealthy node")
+				verifyEvent("Normal", "AddNoScheduleTaint", "Remediation process - NoSchedule taint added to the unhealthy node")
 
 				verifyTypeConditions(snr, metav1.ConditionFalse, metav1.ConditionTrue, "RemediationFinishedSuccessfully")
 

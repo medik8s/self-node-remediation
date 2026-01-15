@@ -214,6 +214,10 @@ func getPod(nodeName string) *corev1.Pod {
 					Effect:   corev1.TaintEffectNoExecute,
 					Operator: corev1.TolerationOpExists,
 				},
+				{
+					Effect:   corev1.TaintEffectNoSchedule,
+					Operator: corev1.TolerationOpExists,
+				},
 			},
 			TerminationGracePeriodSeconds: pointer.Int64(600),
 		},

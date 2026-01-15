@@ -52,7 +52,7 @@ const (
 
 	// remediation
 	eventReasonAddFinalizer                 = "AddFinalizer"
-	eventReasonAddNoSchedule                = "AddNoSchedule"
+	eventReasonAddNoSchedule                = "AddNoScheduleTaint"
 	eventReasonAddOutOfService              = "AddOutOfService"
 	eventReasonUpdateTimeAssumedRebooted    = "UpdateTimeAssumedRebooted"
 	eventReasonDeleteResources              = "DeleteResources"
@@ -65,8 +65,7 @@ const (
 
 var (
 	NodeNoScheduleTaint = &corev1.Taint{
-		Key:    "medik8s.io/remediation",
-		Value:  "self-node-remediation",
+		Key:    "remediation.medik8s.io/self-node-remediation",
 		Effect: corev1.TaintEffectNoSchedule,
 	}
 

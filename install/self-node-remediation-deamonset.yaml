@@ -99,13 +99,12 @@ spec:
       securityContext: {}
       terminationGracePeriodSeconds: 10
       tolerations:
-        - key: "medik8s.io/remediation"
-          operator: "Equal"
-          value: "self-node-remediation"
-          effect: "NoExecute"
+        - key: "remediation.medik8s.io/self-node-remediation"
+          operator: "Exists"
+          effect: "NoSchedule"
         - key: "node-role.kubernetes.io/master"
-          operator: "Equal"
+          operator: "Exists"
           effect: "NoSchedule"
         - key: "node-role.kubernetes.io/control-plane"
-          operator: "Equal"
+          operator: "Exists"
           effect: "NoSchedule"
