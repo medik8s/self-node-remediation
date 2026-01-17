@@ -26,7 +26,7 @@ import (
 	"github.com/medik8s/common/pkg/resources"
 	"github.com/pkg/errors"
 
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	storagev1 "k8s.io/api/storage/v1"
 	apiErrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -52,28 +52,27 @@ const (
 
 	// remediation
 	eventReasonAddFinalizer                 = "AddFinalizer"
-	eventReasonAddNoExecute                 = "AddNoExecute"
+	eventReasonAddNoSchedule                = "AddNoScheduleTaint"
 	eventReasonAddOutOfService              = "AddOutOfService"
 	eventReasonUpdateTimeAssumedRebooted    = "UpdateTimeAssumedRebooted"
 	eventReasonDeleteResources              = "DeleteResources"
 	eventReasonRemoveFinalizer              = "RemoveFinalizer"
-	eventReasonRemoveNoExecute              = "RemoveNoExecuteTaint"
+	eventReasonRemoveNoSchedule             = "RemoveNoScheduleTaint"
 	eventReasonRemoveOutOfService           = "RemoveOutOfService"
 	eventReasonNodeReboot                   = "NodeReboot"
 	eventReasonOutOfServiceTimestampExpired = "OutOfServiceTimestampExpired"
 )
 
 var (
-	NodeNoExecuteTaint = &v1.Taint{
-		Key:    "medik8s.io/remediation",
-		Value:  "self-node-remediation",
-		Effect: v1.TaintEffectNoExecute,
+	NodeNoScheduleTaint = &corev1.Taint{
+		Key:    "remediation.medik8s.io/self-node-remediation",
+		Effect: corev1.TaintEffectNoSchedule,
 	}
 
-	OutOfServiceTaint = &v1.Taint{
-		Key:    "node.kubernetes.io/out-of-service",
+	OutOfServiceTaint = &corev1.Taint{
+		Key:    corev1.TaintNodeOutOfService,
 		Value:  "nodeshutdown",
-		Effect: v1.TaintEffectNoExecute,
+		Effect: corev1.TaintEffectNoExecute,
 	}
 
 	// OutOfServiceTimeoutDuration - time after which out-of-service taint is automatically removed
@@ -401,22 +400,22 @@ func (r *SelfNodeRemediationReconciler) getPhase(snr *v1alpha1.SelfNodeRemediati
 	}
 }
 
-func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(ctx context.Context, snr *v1alpha1.SelfNodeRemediation, node *v1.Node) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(ctx context.Context, snr *v1alpha1.SelfNodeRemediation, node *corev1.Node) (ctrl.Result, error) {
 	return r.remediateWithResourceRemoval(ctx, snr, node, r.deleteResourcesWrapper)
 }
 
 // deleteResourcesWrapper returns a 'zero' time and nil if it completes to delete node resources successfully
 // if not, it will return a 'zero' time and non-nil error, which means exponential backoff is triggered
 // SelfNodeRemediation is only used in order to match method signature required by remediateWithResourceRemoval
-func (r *SelfNodeRemediationReconciler) deleteResourcesWrapper(node *v1.Node, _ *v1alpha1.SelfNodeRemediation) (time.Duration, error) {
+func (r *SelfNodeRemediationReconciler) deleteResourcesWrapper(node *corev1.Node, _ *v1alpha1.SelfNodeRemediation) (time.Duration, error) {
 	return 0, resources.DeletePods(context.Background(), r.Client, node.Name)
 }
 
-func (r *SelfNodeRemediationReconciler) remediateWithOutOfServiceTaint(ctx context.Context, snr *v1alpha1.SelfNodeRemediation, node *v1.Node) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) remediateWithOutOfServiceTaint(ctx context.Context, snr *v1alpha1.SelfNodeRemediation, node *corev1.Node) (ctrl.Result, error) {
 	return r.remediateWithResourceRemoval(ctx, snr, node, r.useOutOfServiceTaint)
 }
 
-func (r *SelfNodeRemediationReconciler) useOutOfServiceTaint(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (time.Duration, error) {
+func (r *SelfNodeRemediationReconciler) useOutOfServiceTaint(node *corev1.Node, snr *v1alpha1.SelfNodeRemediation) (time.Duration, error) {
 	if err := r.addOutOfServiceTaint(node); err != nil {
 		return 0, err
 	}
@@ -448,9 +447,9 @@ func (r *SelfNodeRemediationReconciler) useOutOfServiceTaint(node *v1.Node, snr 
 	return 0, nil
 }
 
-type removeNodeResources func(*v1.Node, *v1alpha1.SelfNodeRemediation) (time.Duration, error)
+type removeNodeResources func(*corev1.Node, *v1alpha1.SelfNodeRemediation) (time.Duration, error)
 
-func (r *SelfNodeRemediationReconciler) remediateWithResourceRemoval(ctx context.Context, snr *v1alpha1.SelfNodeRemediation, node *v1.Node, rmNodeResources removeNodeResources) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) remediateWithResourceRemoval(ctx context.Context, snr *v1alpha1.SelfNodeRemediation, node *corev1.Node, rmNodeResources removeNodeResources) (ctrl.Result, error) {
 	result := ctrl.Result{}
 	phase := r.getPhase(snr)
 	var err error
@@ -471,11 +470,11 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceRemoval(ctx context
 	return result, err
 }
 
-func (r *SelfNodeRemediationReconciler) handleFencingStartedPhase(ctx context.Context, node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) handleFencingStartedPhase(ctx context.Context, node *corev1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	return r.prepareReboot(ctx, node, snr)
 }
 
-func (r *SelfNodeRemediationReconciler) prepareReboot(ctx context.Context, node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) prepareReboot(ctx context.Context, node *corev1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	r.logger.Info("pre-reboot not completed yet, prepare for rebooting")
 	if !r.isNodeRebootCapable(node) {
 		// use err to trigger exponential backoff
@@ -486,7 +485,7 @@ func (r *SelfNodeRemediationReconciler) prepareReboot(ctx context.Context, node 
 		return r.addFinalizer(snr)
 	}
 
-	if err := r.addNoExecuteTaint(node); err != nil {
+	if err := r.addNoScheduleTaint(node); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -500,11 +499,11 @@ func (r *SelfNodeRemediationReconciler) prepareReboot(ctx context.Context, node 
 	return ctrl.Result{}, nil
 }
 
-func (r *SelfNodeRemediationReconciler) handlePreRebootCompletedPhase(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) handlePreRebootCompletedPhase(node *corev1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	return r.waitForNodeRebooted(node, snr)
 }
 
-func (r *SelfNodeRemediationReconciler) waitForNodeRebooted(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) waitForNodeRebooted(node *corev1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	wasRebooted, timeLeft := r.wasNodeRebooted(snr)
 	if !wasRebooted {
 		r.logger.Info("Node didn't reboot yet, waiting for it to reboot", "node name", node.Name, "time left", timeLeft)
@@ -519,7 +518,7 @@ func (r *SelfNodeRemediationReconciler) waitForNodeRebooted(node *v1.Node, snr *
 	return ctrl.Result{}, nil
 }
 
-func (r *SelfNodeRemediationReconciler) handleRebootCompletedPhase(node *v1.Node, snr *v1alpha1.SelfNodeRemediation, rmNodeResources removeNodeResources) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) handleRebootCompletedPhase(node *corev1.Node, snr *v1alpha1.SelfNodeRemediation, rmNodeResources removeNodeResources) (ctrl.Result, error) {
 	// if err is non-nil, exponential backoff is triggered
 	// if err is nil and waitTime is not a 'zero' time, wait for waitTime seconds to remove node resources
 	if waitTime, err := rmNodeResources(node, snr); err != nil {
@@ -535,7 +534,7 @@ func (r *SelfNodeRemediationReconciler) handleRebootCompletedPhase(node *v1.Node
 	return ctrl.Result{}, r.updateConditions(remediationFinishedSuccessfully, snr)
 }
 
-func (r *SelfNodeRemediationReconciler) handleFencingCompletedPhase(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) handleFencingCompletedPhase(node *corev1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	result := ctrl.Result{}
 	var err error
 
@@ -546,10 +545,10 @@ func (r *SelfNodeRemediationReconciler) handleFencingCompletedPhase(node *v1.Nod
 	return result, err
 }
 
-func (r *SelfNodeRemediationReconciler) recoverNode(node *v1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) recoverNode(node *corev1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	r.logger.Info("fencing completed, cleaning up")
 
-	if err := r.removeNoExecuteTaint(node); err != nil {
+	if err := r.removeNoScheduleTaint(node); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -565,7 +564,7 @@ func (r *SelfNodeRemediationReconciler) recoverNode(node *v1.Node, snr *v1alpha1
 }
 
 // rebootIfNeeded reboots the node if no reboot was performed so far
-func (r *SelfNodeRemediationReconciler) rebootIfNeeded(snr *v1alpha1.SelfNodeRemediation, node *v1.Node) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) rebootIfNeeded(snr *v1alpha1.SelfNodeRemediation, node *corev1.Node) (ctrl.Result, error) {
 	shouldAvoidReboot, err := r.didIRebootMyself(snr)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -606,7 +605,7 @@ func (r *SelfNodeRemediationReconciler) didIRebootMyself(snr *v1alpha1.SelfNodeR
 
 // isNodeRebootCapable checks if the node is capable to reboot itself when it becomes unhealthy
 // this boils down to check if it has an assigned self node remediation pod, and the reboot-capable annotation
-func (r *SelfNodeRemediationReconciler) isNodeRebootCapable(node *v1.Node) bool {
+func (r *SelfNodeRemediationReconciler) isNodeRebootCapable(node *corev1.Node) bool {
 	//make sure that the unhealthy node has self node remediation pod on it which can reboot it
 	if _, err := utils.GetSelfNodeRemediationAgentPod(node.Name, r.Client); err != nil {
 		r.logger.Error(err, "failed to get self node remediation agent pod resource")
@@ -676,7 +675,7 @@ func (r *SelfNodeRemediationReconciler) updateSnrStatus(ctx context.Context, snr
 	return nil
 }
 
-func (r *SelfNodeRemediationReconciler) setTimeAssumedRebooted(ctx context.Context, node *v1.Node, snr *v1alpha1.SelfNodeRemediation) error {
+func (r *SelfNodeRemediationReconciler) setTimeAssumedRebooted(ctx context.Context, node *corev1.Node, snr *v1alpha1.SelfNodeRemediation) error {
 	if snr.Status.TimeAssumedRebooted != nil {
 		// timeAssumedRebooted already set, nothing to do
 		return nil
@@ -696,13 +695,13 @@ func (r *SelfNodeRemediationReconciler) setTimeAssumedRebooted(ctx context.Conte
 }
 
 // getNodeFromSnr returns the unhealthy node reported in the given snr
-func (r *SelfNodeRemediationReconciler) getNodeFromSnr(ctx context.Context, snr *v1alpha1.SelfNodeRemediation) (*v1.Node, error) {
+func (r *SelfNodeRemediationReconciler) getNodeFromSnr(ctx context.Context, snr *v1alpha1.SelfNodeRemediation) (*corev1.Node, error) {
 	nodeName, err := getNodeName(ctx, r.Client, snr, r.logger)
 	if err != nil {
 		return nil, err
 	}
 
-	node := &v1.Node{}
+	node := &corev1.Node{}
 	key := client.ObjectKey{
 		Name:      nodeName,
 		Namespace: "",
@@ -742,44 +741,44 @@ func (r *SelfNodeRemediationReconciler) updateSnrStatusLastError(snr *v1alpha1.S
 	return err
 }
 
-func (r *SelfNodeRemediationReconciler) addNoExecuteTaint(node *v1.Node) error {
-	if utils.TaintExists(node.Spec.Taints, NodeNoExecuteTaint) {
+func (r *SelfNodeRemediationReconciler) addNoScheduleTaint(node *corev1.Node) error {
+	if utils.TaintExists(node.Spec.Taints, NodeNoScheduleTaint) {
 		return nil
 	}
 
 	patch := client.MergeFrom(node.DeepCopy())
-	taint := *NodeNoExecuteTaint
+	taint := *NodeNoScheduleTaint
 	now := metav1.Now()
 	taint.TimeAdded = &now
 	node.Spec.Taints = append(node.Spec.Taints, taint)
 	if err := r.Client.Patch(context.Background(), node, patch); err != nil {
-		r.logger.Error(err, "Failed to add taint on node", "node name", node.Name, "taint key", NodeNoExecuteTaint.Key, "taint effect", NodeNoExecuteTaint.Effect)
+		r.logger.Error(err, "Failed to add taint on node", "node name", node.Name, "taint key", NodeNoScheduleTaint.Key, "taint effect", NodeNoScheduleTaint.Effect)
 		return err
 	}
-	r.logger.Info("NoExecute taint added", "new taints", node.Spec.Taints)
-	events.NormalEvent(r.Recorder, node, eventReasonAddNoExecute, "Remediation process - NoExecute taint added to the unhealthy node")
+	r.logger.Info("NoSchedule taint added", "new taints", node.Spec.Taints)
+	events.NormalEvent(r.Recorder, node, eventReasonAddNoSchedule, "Remediation process - NoSchedule taint added to the unhealthy node")
 	return nil
 }
 
-func (r *SelfNodeRemediationReconciler) removeNoExecuteTaint(node *v1.Node) error {
-	if !utils.TaintExists(node.Spec.Taints, NodeNoExecuteTaint) {
+func (r *SelfNodeRemediationReconciler) removeNoScheduleTaint(node *corev1.Node) error {
+	if !utils.TaintExists(node.Spec.Taints, NodeNoScheduleTaint) {
 		return nil
 	}
 
 	patch := client.MergeFrom(node.DeepCopy())
-	if taints, deleted := utils.DeleteTaint(node.Spec.Taints, NodeNoExecuteTaint); !deleted {
-		r.logger.Info("Failed to remove taint from node, taint not found", "node name", node.Name, "taint key", NodeNoExecuteTaint.Key, "taint effect", NodeNoExecuteTaint.Effect)
+	if taints, deleted := utils.DeleteTaint(node.Spec.Taints, NodeNoScheduleTaint); !deleted {
+		r.logger.Info("Failed to remove taint from node, taint not found", "node name", node.Name, "taint key", NodeNoScheduleTaint.Key, "taint effect", NodeNoScheduleTaint.Effect)
 		return nil
 	} else {
 		node.Spec.Taints = taints
 	}
 
 	if err := r.Client.Patch(context.Background(), node, patch); err != nil {
-		r.logger.Error(err, "Failed to remove taint from node,", "node name", node.Name, "taint key", NodeNoExecuteTaint.Key, "taint effect", NodeNoExecuteTaint.Effect)
+		r.logger.Error(err, "Failed to remove taint from node,", "node name", node.Name, "taint key", NodeNoScheduleTaint.Key, "taint effect", NodeNoScheduleTaint.Effect)
 		return err
 	}
-	r.logger.Info("NoExecute taint removed", "new taints", node.Spec.Taints)
-	events.NormalEvent(r.Recorder, node, eventReasonRemoveNoExecute, "Remediation process - remove NoExecute taint from healthy remediated node")
+	r.logger.Info("NoSchedule taint removed", "new taints", node.Spec.Taints)
+	events.NormalEvent(r.Recorder, node, eventReasonRemoveNoSchedule, "Remediation process - remove NoSchedule taint from healthy remediated node")
 
 	return nil
 }
@@ -792,7 +791,7 @@ func (r *SelfNodeRemediationReconciler) isStoppedByNHC(snr *v1alpha1.SelfNodeRem
 	return false
 }
 
-func (r *SelfNodeRemediationReconciler) addOutOfServiceTaint(node *v1.Node) error {
+func (r *SelfNodeRemediationReconciler) addOutOfServiceTaint(node *corev1.Node) error {
 	if utils.TaintExists(node.Spec.Taints, OutOfServiceTaint) {
 		return nil
 	}
@@ -811,7 +810,7 @@ func (r *SelfNodeRemediationReconciler) addOutOfServiceTaint(node *v1.Node) erro
 	return nil
 }
 
-func (r *SelfNodeRemediationReconciler) removeOutOfServiceTaint(node *v1.Node) error {
+func (r *SelfNodeRemediationReconciler) removeOutOfServiceTaint(node *corev1.Node) error {
 
 	if !utils.TaintExists(node.Spec.Taints, OutOfServiceTaint) {
 		return nil
@@ -833,8 +832,8 @@ func (r *SelfNodeRemediationReconciler) removeOutOfServiceTaint(node *v1.Node) e
 	return nil
 }
 
-func (r *SelfNodeRemediationReconciler) isResourceDeletionCompleted(node *v1.Node) bool {
-	pods := &v1.PodList{}
+func (r *SelfNodeRemediationReconciler) isResourceDeletionCompleted(node *corev1.Node) bool {
+	pods := &corev1.PodList{}
 	if err := r.Client.List(context.Background(), pods); err != nil {
 		r.logger.Error(err, "failed to get pod list")
 		return false
@@ -860,7 +859,7 @@ func (r *SelfNodeRemediationReconciler) isResourceDeletionCompleted(node *v1.Nod
 	return true
 }
 
-func (r *SelfNodeRemediationReconciler) isPodTerminating(pod *v1.Pod) bool {
+func (r *SelfNodeRemediationReconciler) isPodTerminating(pod *corev1.Pod) bool {
 	return pod.ObjectMeta.DeletionTimestamp != nil
 }
 
