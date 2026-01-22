@@ -1,10 +1,13 @@
 package v1alpha1
 
 import (
+	"context"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
@@ -15,6 +18,7 @@ var _ = Describe("SelfNodeRemediationTemplate Validation", func() {
 
 		var snrtValid *SelfNodeRemediationTemplate
 		var outOfServiceStrategy *SelfNodeRemediationTemplate
+		var validator admission.CustomValidator
 
 		BeforeEach(func() {
 			snrtValid = &SelfNodeRemediationTemplate{
@@ -41,12 +45,12 @@ var _ = Describe("SelfNodeRemediationTemplate Validation", func() {
 					},
 				},
 			}
-
+			validator = &SNRTemplateValidator{}
 		})
 
 		Context("with valid strategy", func() {
 			It("should be allowed", func() {
-				_, err := snrtValid.ValidateCreate()
+				_, err := validator.ValidateCreate(context.Background(), snrtValid)
 				Expect(err).To(Succeed())
 			})
 		})
@@ -62,9 +66,9 @@ var _ = Describe("SelfNodeRemediationTemplate Validation", func() {
 					utils.IsOutOfServiceTaintSupported = true
 				})
 				It("should be allowed", func() {
-					_, err := outOfServiceStrategy.ValidateCreate()
+					_, err := validator.ValidateCreate(context.Background(), outOfServiceStrategy)
 					Expect(err).To(Succeed())
-					_, err = snrtValid.ValidateUpdate(outOfServiceStrategy)
+					_, err = validator.ValidateUpdate(context.Background(), snrtValid, outOfServiceStrategy)
 					Expect(err).To(Succeed())
 				})
 			})
@@ -73,9 +77,9 @@ var _ = Describe("SelfNodeRemediationTemplate Validation", func() {
 					utils.IsOutOfServiceTaintSupported = false
 				})
 				It("should be denied", func() {
-					_, err := outOfServiceStrategy.ValidateCreate()
+					_, err := validator.ValidateCreate(context.Background(), outOfServiceStrategy)
 					Expect(err).To(MatchError(ContainSubstring("OutOfServiceTaint remediation strategy is not supported at kubernetes version lower than 1.26, please use a different remediation strategy")))
-					_, err = outOfServiceStrategy.ValidateUpdate(snrtValid)
+					_, err = validator.ValidateUpdate(context.Background(), snrtValid, outOfServiceStrategy)
 					Expect(err).To(MatchError(ContainSubstring("OutOfServiceTaint remediation strategy is not supported at kubernetes version lower than 1.26, please use a different remediation strategy")))
 				})
 			})

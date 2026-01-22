@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -25,7 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/medik8s/self-node-remediation/pkg/utils"
@@ -66,48 +66,63 @@ var selfNodeRemediationConfigLog = logf.Log.WithName("selfnoderemediationconfig-
 
 func (r *SelfNodeRemediationConfig) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
+		WithValidator(&SNRConfigValidator{}).
 		For(r).
 		Complete()
 }
 
 //+kubebuilder:webhook:path=/validate-self-node-remediation-medik8s-io-v1alpha1-selfnoderemediationconfig,mutating=false,failurePolicy=fail,sideEffects=None,groups=self-node-remediation.medik8s.io,resources=selfnoderemediationconfigs,verbs=create;update;delete,versions=v1alpha1,name=vselfnoderemediationconfig.kb.io,admissionReviewVersions={v1}
 
-var _ webhook.Validator = &SelfNodeRemediationConfig{}
+type SNRConfigValidator struct{}
+
+var _ admission.CustomValidator = &SNRConfigValidator{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
-func (r *SelfNodeRemediationConfig) ValidateCreate() (warning admission.Warnings, err error) {
-	selfNodeRemediationConfigLog.Info("validate create", "name", r.Name)
+func (v *SNRConfigValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
+	snrConfig, ok := obj.(*SelfNodeRemediationConfig)
+	if !ok {
+		return nil, fmt.Errorf("expected a SelfNodeRemediationTemplate but got a %T", obj)
+	}
+	selfNodeRemediationConfigLog.Info("validate create", "name", snrConfig.Name)
 
-	warnings := r.validatePeerTimeoutSafety()
+	warnings := validatePeerTimeoutSafety(snrConfig)
 
 	return warnings, errors.NewAggregate([]error{
-		r.validateTimes(),
-		r.validateCustomTolerations(),
-		r.validateSingleton(),
+		validateTimes(snrConfig),
+		validateCustomTolerations(snrConfig),
+		validateSingleton(snrConfig),
 	})
 
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
-func (r *SelfNodeRemediationConfig) ValidateUpdate(_ runtime.Object) (warning admission.Warnings, err error) {
-	selfNodeRemediationConfigLog.Info("validate update", "name", r.Name)
+func (v *SNRConfigValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
+	snrConfig, ok := newObj.(*SelfNodeRemediationConfig)
+	if !ok {
+		return nil, fmt.Errorf("expected a SelfNodeRemediationTemplate but got a %T", newObj)
+	}
+	selfNodeRemediationConfigLog.Info("validate update", "name", snrConfig.Name)
 
-	warnings := r.validatePeerTimeoutSafety()
+	warnings := validatePeerTimeoutSafety(snrConfig)
 
 	return warnings, errors.NewAggregate([]error{
-		r.validateTimes(),
-		r.validateCustomTolerations(),
+		validateTimes(snrConfig),
+		validateCustomTolerations(snrConfig),
 	})
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
-func (r *SelfNodeRemediationConfig) ValidateDelete() (warning admission.Warnings, err error) {
-	selfNodeRemediationConfigLog.Info("validate delete", "name", r.Name)
-	if r.Name == ConfigCRName {
+func (v *SNRConfigValidator) ValidateDelete(_ context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
+	snrConfig, ok := obj.(*SelfNodeRemediationConfig)
+	if !ok {
+		return nil, fmt.Errorf("expected a SelfNodeRemediationTemplate but got a %T", obj)
+	}
+	selfNodeRemediationConfigLog.Info("validate delete", "name", snrConfig.Name)
+	if snrConfig.Name == ConfigCRName {
 		if deploymentNs, err := utils.GetDeploymentNamespace(); err != nil {
-			selfNodeRemediationConfigLog.Error(err, "validate configuration delete failed", "config name", r.Name)
+			selfNodeRemediationConfigLog.Error(err, "validate configuration delete failed", "config name", snrConfig.Name)
 			return admission.Warnings{}, err
-		} else if deploymentNs == r.Namespace {
+		} else if deploymentNs == snrConfig.Namespace {
 			return admission.Warnings{"The default configuration is deleted, Self Node Remediation is now disabled"}, nil
 		}
 	}
@@ -116,17 +131,17 @@ func (r *SelfNodeRemediationConfig) ValidateDelete() (warning admission.Warnings
 
 // validateTimes validates that each time field in the SelfNodeRemediationConfig CR doesn't go below the minimum time
 // that was defined to it
-func (r *SelfNodeRemediationConfig) validateTimes() error {
+func validateTimes(snrConfig *SelfNodeRemediationConfig) error {
 	errMsg := ""
 
-	s := r.Spec
+	spec := snrConfig.Spec
 	fields := []field{
-		{peerApiServerTimeout, s.PeerApiServerTimeout.Duration, minDurPeerApiServerTimeout},
-		{apiServerTimeout, s.ApiServerTimeout.Duration, minDurApiServerTimeout},
-		{peerDialTimeout, s.PeerDialTimeout.Duration, minDurPeerDialTimeout},
-		{peerRequestTimeout, s.PeerRequestTimeout.Duration, minDurPeerRequestTimeout},
-		{apiCheckInterval, s.ApiCheckInterval.Duration, minDurApiCheckInterval},
-		{peerUpdateInterval, s.PeerUpdateInterval.Duration, minDurPeerUpdateInterval},
+		{peerApiServerTimeout, spec.PeerApiServerTimeout.Duration, minDurPeerApiServerTimeout},
+		{apiServerTimeout, spec.ApiServerTimeout.Duration, minDurApiServerTimeout},
+		{peerDialTimeout, spec.PeerDialTimeout.Duration, minDurPeerDialTimeout},
+		{peerRequestTimeout, spec.PeerRequestTimeout.Duration, minDurPeerRequestTimeout},
+		{apiCheckInterval, spec.ApiCheckInterval.Duration, minDurApiCheckInterval},
+		{peerUpdateInterval, spec.PeerUpdateInterval.Duration, minDurPeerUpdateInterval},
 	}
 
 	for _, field := range fields {
@@ -151,8 +166,8 @@ func (f *field) validate() error {
 	return nil
 }
 
-func (r *SelfNodeRemediationConfig) validateCustomTolerations() error {
-	customTolerations := r.Spec.CustomDsTolerations
+func validateCustomTolerations(snrConfig *SelfNodeRemediationConfig) error {
+	customTolerations := snrConfig.Spec.CustomDsTolerations
 	for _, toleration := range customTolerations {
 		if err := validateToleration(toleration); err != nil {
 			return err
@@ -194,10 +209,10 @@ func validateToleration(toleration v1.Toleration) error {
 
 // validatePeerTimeoutSafety checks if PeerRequestTimeout is safe relative to ApiServerTimeout
 // and returns warnings if the configuration might be unsafe
-func (r *SelfNodeRemediationConfig) validatePeerTimeoutSafety() admission.Warnings {
+func validatePeerTimeoutSafety(snrConfig *SelfNodeRemediationConfig) admission.Warnings {
 	var warnings admission.Warnings
 
-	spec := r.Spec
+	spec := snrConfig.Spec
 	if spec.PeerRequestTimeout == nil || spec.ApiServerTimeout == nil {
 		// Use defaults if not specified
 		return warnings
@@ -229,12 +244,12 @@ func (r *SelfNodeRemediationConfig) validatePeerTimeoutSafety() admission.Warnin
 	return warnings
 }
 
-func (r *SelfNodeRemediationConfig) validateSingleton() error {
-	if r.Name != ConfigCRName {
+func validateSingleton(snrConfig *SelfNodeRemediationConfig) error {
+	if snrConfig.Name != ConfigCRName {
 		return fmt.Errorf("to enforce only one SelfNodeRemediationConfig in the cluster, a name other than %s is not allowed", ConfigCRName)
 	} else if ns, err := utils.GetDeploymentNamespace(); err != nil {
 		return fmt.Errorf("failed to verify the deployment namespace SelfNodeRemediationConfig can not be created")
-	} else if ns != r.Namespace {
+	} else if ns != snrConfig.Namespace {
 		return fmt.Errorf("SelfNodeRemediationConfig is only allowed to be created in the namespace: %s", ns)
 	}
 
