@@ -4,9 +4,6 @@ SHELL := /bin/bash
 # versions at  https://github.com/kubernetes-sigs/controller-tools/releases
 CONTROLLER_GEN_VERSION = v0.19.0
 
-# GO_VERSION refers to the version of Golang to be downloaded when running dockerized version
-GO_VERSION = 1.24
-
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary, align with k8s.io/client-go in go.mod
 ENVTEST_K8S_VERSION = 1.34
 
@@ -120,19 +117,6 @@ KUBECTL = kubectl
 ifeq (,$(shell which kubectl))
 KUBECTL=oc
 endif
-
-# Run go in a container
-# --rm                                                          = remove container when stopped
-# -v $$(pwd):/home/go/src/github.com/medik8s/self-node-remediation-operator = bind mount current dir in container
-# -u $$(id -u)                                                  = use current user (else new / modified files will be owned by root)
-# -w /home/go/src/github.com/medik8s/self-node-remediation-operator         = working dir
-# -e ...                                                        = some env vars, especially set cache to a user writable dir
-# --entrypoint /bin bash ... -c                                 = run bash -c on start; that means the actual command(s) need be wrapped in double quotes, see e.g. check target which will run: bash -c "make test"
-export DOCKER_GO=docker run --rm -v $$(pwd):/home/go/src/github.com/medik8s/$(OPERATOR_NAME)-operator \
-	-u $$(id -u) -w /home/go/src/github.com/medik8s/$(OPERATOR_NAME)-operator \
-	-e "GOPATH=/go" -e "GOFLAGS=-mod=vendor" -e "XDG_CACHE_HOME=/tmp/.cache" \
-	-e "VERSION=$(VERSION)" -e "IMAGE_REGISTRY=$(IMAGE_REGISTRY)" \
-	--entrypoint /bin/bash golang:$(GO_VERSION) -c
 
 all: build
 
@@ -504,7 +488,7 @@ catalog-push: ## Push a catalog image.
 .PHONY: check
 # WORKAROUND: add "protoc" as dependency for downloading binary first, the golang image misses the needed "unzip"tool
 check: protoc ## Dockerized version of make test
-	$(DOCKER_GO) "make test"
+	make test
 
 .PHONY: container-build-community
 container-build-community: ## Build containers for community
