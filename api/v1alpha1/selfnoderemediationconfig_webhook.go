@@ -81,7 +81,7 @@ var _ admission.CustomValidator = &SNRConfigValidator{}
 func (v *SNRConfigValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
 	snrConfig, ok := obj.(*SelfNodeRemediationConfig)
 	if !ok {
-		return nil, fmt.Errorf("expected a SelfNodeRemediationTemplate but got a %T", obj)
+		return nil, fmt.Errorf("expected a SelfNodeRemediationConfig but got a %T", obj)
 	}
 	selfNodeRemediationConfigLog.Info("validate create", "name", snrConfig.Name)
 
@@ -99,7 +99,7 @@ func (v *SNRConfigValidator) ValidateCreate(_ context.Context, obj runtime.Objec
 func (v *SNRConfigValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
 	snrConfig, ok := newObj.(*SelfNodeRemediationConfig)
 	if !ok {
-		return nil, fmt.Errorf("expected a SelfNodeRemediationTemplate but got a %T", newObj)
+		return nil, fmt.Errorf("expected a SelfNodeRemediationConfig but got a %T", newObj)
 	}
 	selfNodeRemediationConfigLog.Info("validate update", "name", snrConfig.Name)
 
@@ -115,7 +115,7 @@ func (v *SNRConfigValidator) ValidateUpdate(_ context.Context, _, newObj runtime
 func (v *SNRConfigValidator) ValidateDelete(_ context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
 	snrConfig, ok := obj.(*SelfNodeRemediationConfig)
 	if !ok {
-		return nil, fmt.Errorf("expected a SelfNodeRemediationTemplate but got a %T", obj)
+		return nil, fmt.Errorf("expected a SelfNodeRemediationConfig but got a %T", obj)
 	}
 	selfNodeRemediationConfigLog.Info("validate delete", "name", snrConfig.Name)
 	if snrConfig.Name == ConfigCRName {

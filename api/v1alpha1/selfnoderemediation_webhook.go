@@ -47,7 +47,7 @@ var _ admission.CustomValidator = &SNRValidator{}
 func (v *SNRValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
 	snr, ok := obj.(*SelfNodeRemediation)
 	if !ok {
-		return nil, fmt.Errorf("expected a SelfNodeRemediationTemplate but got a %T", obj)
+		return nil, fmt.Errorf("expected a SelfNodeRemediation but got a %T", obj)
 	}
 	webhookRemediationLog.Info("validate create", "name", snr.Name)
 	return admission.Warnings{}, validateStrategy(snr.Spec)
@@ -57,7 +57,7 @@ func (v *SNRValidator) ValidateCreate(_ context.Context, obj runtime.Object) (ad
 func (v *SNRValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
 	snr, ok := newObj.(*SelfNodeRemediation)
 	if !ok {
-		return nil, fmt.Errorf("expected a SelfNodeRemediationTemplate but got a %T", newObj)
+		return nil, fmt.Errorf("expected a SelfNodeRemediation but got a %T", newObj)
 	}
 	webhookRemediationLog.Info("validate update", "name", snr.Name)
 	return admission.Warnings{}, validateStrategy(snr.Spec)
@@ -67,7 +67,7 @@ func (v *SNRValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Objec
 func (v *SNRValidator) ValidateDelete(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
 	snr, ok := obj.(*SelfNodeRemediation)
 	if !ok {
-		return nil, fmt.Errorf("expected a SelfNodeRemediationTemplate but got a %T", obj)
+		return nil, fmt.Errorf("expected a SelfNodeRemediation but got a %T", obj)
 	} // unused for now, add "delete" when needed to verbs in the kubebuilder annotation above
 	webhookRemediationLog.Info("validate delete", "name", snr.Name)
 	return admission.Warnings{}, nil
