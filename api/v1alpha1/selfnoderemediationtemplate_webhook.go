@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"context"
 	"fmt"
 
 	commonAnnotations "github.com/medik8s/common/pkg/annotations"
@@ -24,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/medik8s/self-node-remediation/pkg/utils"
@@ -37,45 +37,68 @@ var (
 
 func (r *SelfNodeRemediationTemplate) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
+		WithDefaulter(&SNRTemplateDefaulter{}).
+		WithValidator(&SNRTemplateValidator{}).
 		For(r).
 		Complete()
 }
 
 // +kubebuilder:webhook:path=/mutate-self-node-remediation-medik8s-io-v1alpha1-selfnoderemediationtemplate,mutating=true,failurePolicy=fail,sideEffects=None,groups=self-node-remediation.medik8s.io,resources=selfnoderemediationtemplates,verbs=create;update,versions=v1alpha1,name=mselfnoderemediationtemplate.kb.io,admissionReviewVersions=v1
 
-var _ webhook.Defaulter = &SelfNodeRemediationTemplate{}
+type SNRTemplateDefaulter struct{}
+
+var _ admission.CustomDefaulter = &SNRTemplateDefaulter{}
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type
-func (r *SelfNodeRemediationTemplate) Default() {
-	webhookTemplateLog.Info("default", "name", r.Name)
-	if r.GetAnnotations() == nil {
-		r.Annotations = make(map[string]string)
+func (d *SNRTemplateDefaulter) Default(_ context.Context, obj runtime.Object) error {
+	snrTemplate, ok := obj.(*SelfNodeRemediationTemplate)
+	if !ok {
+		return fmt.Errorf("expected a SelfNodeRemediationTemplate but got a %T", obj)
 	}
-	if _, isSameKindSupported := r.GetAnnotations()[commonAnnotations.MultipleTemplatesSupportedAnnotation]; !isSameKindSupported {
-		r.Annotations[commonAnnotations.MultipleTemplatesSupportedAnnotation] = "true"
+	webhookTemplateLog.Info("default", "name", snrTemplate.Name)
+	if snrTemplate.GetAnnotations() == nil {
+		snrTemplate.Annotations = make(map[string]string)
 	}
+	if _, isSameKindSupported := snrTemplate.GetAnnotations()[commonAnnotations.MultipleTemplatesSupportedAnnotation]; !isSameKindSupported {
+		snrTemplate.Annotations[commonAnnotations.MultipleTemplatesSupportedAnnotation] = "true"
+	}
+	return nil
 }
 
 //+kubebuilder:webhook:path=/validate-self-node-remediation-medik8s-io-v1alpha1-selfnoderemediationtemplate,mutating=false,failurePolicy=fail,sideEffects=None,groups=self-node-remediation.medik8s.io,resources=selfnoderemediationtemplates,verbs=create;update,versions=v1alpha1,name=vselfnoderemediationtemplate.kb.io,admissionReviewVersions=v1
 
-var _ webhook.Validator = &SelfNodeRemediationTemplate{}
+type SNRTemplateValidator struct{}
+
+var _ admission.CustomValidator = &SNRTemplateValidator{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
-func (r *SelfNodeRemediationTemplate) ValidateCreate() (warning admission.Warnings, err error) {
-	webhookTemplateLog.Info("validate create", "name", r.Name)
-	return admission.Warnings{}, validateStrategy(r.Spec.Template.Spec)
+func (v *SNRTemplateValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
+	snrTemplate, ok := obj.(*SelfNodeRemediationTemplate)
+	if !ok {
+		return nil, fmt.Errorf("expected a SelfNodeRemediationTemplate but got a %T", obj)
+	}
+	webhookTemplateLog.Info("validate create", "name", snrTemplate.Name)
+	return admission.Warnings{}, validateStrategy(snrTemplate.Spec.Template.Spec)
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
-func (r *SelfNodeRemediationTemplate) ValidateUpdate(_ runtime.Object) (warning admission.Warnings, err error) {
-	webhookTemplateLog.Info("validate update", "name", r.Name)
-	return admission.Warnings{}, validateStrategy(r.Spec.Template.Spec)
+func (v *SNRTemplateValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
+	snrTemplate, ok := newObj.(*SelfNodeRemediationTemplate)
+	if !ok {
+		return nil, fmt.Errorf("expected a SelfNodeRemediationTemplate but got a %T", newObj)
+	}
+	webhookTemplateLog.Info("validate update", "name", snrTemplate.Name)
+	return admission.Warnings{}, validateStrategy(snrTemplate.Spec.Template.Spec)
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
-func (r *SelfNodeRemediationTemplate) ValidateDelete() (warning admission.Warnings, err error) {
+func (v *SNRTemplateValidator) ValidateDelete(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
+	snrTemplate, ok := obj.(*SelfNodeRemediationTemplate)
+	if !ok {
+		return nil, fmt.Errorf("expected a SelfNodeRemediationTemplate but got a %T", obj)
+	}
 	// unused for now, add "delete" when needed to verbs in the kubebuilder annotation above
-	webhookTemplateLog.Info("validate delete", "name", r.Name)
+	webhookTemplateLog.Info("validate delete", "name", snrTemplate.Name)
 	return admission.Warnings{}, nil
 }
 

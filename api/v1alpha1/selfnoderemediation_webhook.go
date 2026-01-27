@@ -17,10 +17,12 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"context"
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -30,29 +32,43 @@ var (
 
 func (r *SelfNodeRemediation) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
+		WithValidator(&SNRValidator{}).
 		For(r).
 		Complete()
 }
 
 //+kubebuilder:webhook:path=/validate-self-node-remediation-medik8s-io-v1alpha1-selfnoderemediation,mutating=false,failurePolicy=ignore,sideEffects=None,groups=self-node-remediation.medik8s.io,resources=selfnoderemediations,verbs=create;update,versions=v1alpha1,name=vselfnoderemediation.kb.io,admissionReviewVersions=v1
 
-var _ webhook.Validator = &SelfNodeRemediation{}
+type SNRValidator struct{}
+
+var _ admission.CustomValidator = &SNRValidator{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
-func (r *SelfNodeRemediation) ValidateCreate() (warning admission.Warnings, err error) {
-	webhookRemediationLog.Info("validate create", "name", r.Name)
-	return admission.Warnings{}, validateStrategy(r.Spec)
+func (v *SNRValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
+	snr, ok := obj.(*SelfNodeRemediation)
+	if !ok {
+		return nil, fmt.Errorf("expected a SelfNodeRemediation but got a %T", obj)
+	}
+	webhookRemediationLog.Info("validate create", "name", snr.Name)
+	return admission.Warnings{}, validateStrategy(snr.Spec)
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
-func (r *SelfNodeRemediation) ValidateUpdate(_ runtime.Object) (warning admission.Warnings, err error) {
-	webhookRemediationLog.Info("validate update", "name", r.Name)
-	return admission.Warnings{}, validateStrategy(r.Spec)
+func (v *SNRValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
+	snr, ok := newObj.(*SelfNodeRemediation)
+	if !ok {
+		return nil, fmt.Errorf("expected a SelfNodeRemediation but got a %T", newObj)
+	}
+	webhookRemediationLog.Info("validate update", "name", snr.Name)
+	return admission.Warnings{}, validateStrategy(snr.Spec)
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
-func (r *SelfNodeRemediation) ValidateDelete() (warning admission.Warnings, err error) {
-	// unused for now, add "delete" when needed to verbs in the kubebuilder annotation above
-	webhookRemediationLog.Info("validate delete", "name", r.Name)
+func (v *SNRValidator) ValidateDelete(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
+	snr, ok := obj.(*SelfNodeRemediation)
+	if !ok {
+		return nil, fmt.Errorf("expected a SelfNodeRemediation but got a %T", obj)
+	} // unused for now, add "delete" when needed to verbs in the kubebuilder annotation above
+	webhookRemediationLog.Info("validate delete", "name", snr.Name)
 	return admission.Warnings{}, nil
 }
