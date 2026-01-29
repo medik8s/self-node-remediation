@@ -1,6 +1,7 @@
 package v1alpha1
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -11,6 +12,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 // default CR fields durations
@@ -68,22 +70,39 @@ func (v validationType) getName() string {
 
 var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 
-	Describe("creating SelfNodeRemediationConfig CR", func() {
+	validator := &SNRConfigValidator{}
+
+	Describe("updating SelfNodeRemediationConfig CR", func() {
 		// test create validation on CRs with time field that has value shorter than allowed
-		testSingleInvalidField(create)
+		testSingleInvalidField(validator, create)
 
 		// test create validation on CRs with multiple fields that has value shorter than allowed
-		testMultipleInvalidFields(create)
+		testMultipleInvalidFields(validator, create)
 
 		// test create validation on a valid CR
-		testValidCR(create)
+		testValidCR(validator, create)
 
+	})
+
+	Describe("updating SelfNodeRemediationConfig CR", func() {
+		// test update validation on CRs with time field that has value shorter than allowed
+		testSingleInvalidField(validator, update)
+
+		// test update validation on CRs with multiple fields that has value shorter than allowed
+		testMultipleInvalidFields(validator, update)
+
+		// test update validation on a valid CR
+		testValidCR(validator, update)
+
+	})
+
+	Describe("creating SelfNodeRemediationConfig CR", func() {
 		Context("Duplicate config create", func() {
 
 			When("CR name doesn't match default name", func() {
 				It("create should be rejected", func() {
 					snrc := createTestSelfNodeRemediationConfigCR()
-					_, err := snrc.ValidateCreate()
+					_, err := validator.ValidateCreate(context.Background(), snrc)
 					Expect(err).To(HaveOccurred())
 					Expect(err.Error()).To(ContainSubstring("to enforce only one SelfNodeRemediationConfig in the cluster, a name other than"))
 
@@ -96,7 +115,7 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 					snrc.Name = ConfigCRName
 					_ = os.Setenv("DEPLOYMENT_NAMESPACE", "mock-deployment-namespace")
 
-					_, err := snrc.ValidateCreate()
+					_, err := validator.ValidateCreate(context.Background(), snrc)
 					Expect(err).To(HaveOccurred())
 					Expect(err.Error()).To(ContainSubstring("SelfNodeRemediationConfig is only allowed to be created in the namespace:"))
 
@@ -104,18 +123,6 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 			})
 
 		})
-
-	})
-
-	Describe("updating SelfNodeRemediationConfig CR", func() {
-		// test update validation on CRs with time field that has value shorter than allowed
-		testSingleInvalidField(update)
-
-		// test update validation on CRs with multiple fields that has value shorter than allowed
-		testMultipleInvalidFields(update)
-
-		// test update validation on a valid CR
-		testValidCR(update)
 
 	})
 
@@ -132,9 +139,9 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 				_ = os.Setenv("DEPLOYMENT_NAMESPACE", conf.Namespace)
 			})
 			It("should have warning", func() {
-				war, err := conf.ValidateDelete()
+				warnings, err := validator.ValidateDelete(context.Background(), conf)
 				Expect(err).To(Succeed())
-				Expect(war[0]).To(ContainSubstring("The default configuration is deleted, Self Node Remediation is now disabled"))
+				Expect(warnings[0]).To(ContainSubstring("The default configuration is deleted, Self Node Remediation is now disabled"))
 			})
 		})
 	})
@@ -151,7 +158,7 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 			snrc.Spec.ApiServerTimeout = &metav1.Duration{Duration: 5 * time.Second}
 			snrc.Spec.PeerRequestTimeout = &metav1.Duration{Duration: 6 * time.Second}
 
-			warnings, err := snrc.ValidateCreate()
+			warnings, err := validator.ValidateCreate(context.Background(), snrc)
 			Expect(err).To(BeNil())
 			Expect(len(warnings)).To(Equal(1))
 			Expect(warnings[0]).To(ContainSubstring("PeerRequestTimeout (6s) is less than ApiServerTimeout + MinimumBuffer"))
@@ -162,7 +169,7 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 			snrc.Spec.ApiServerTimeout = &metav1.Duration{Duration: 5 * time.Second}
 			snrc.Spec.PeerRequestTimeout = &metav1.Duration{Duration: 8 * time.Second}
 
-			warnings, err := snrc.ValidateCreate()
+			warnings, err := validator.ValidateCreate(context.Background(), snrc)
 			Expect(err).To(BeNil())
 			Expect(len(warnings)).To(Equal(0))
 		})
@@ -170,14 +177,14 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 		It("should not produce warning when using default values", func() {
 			// Use default values: ApiServerTimeout=5s, PeerRequestTimeout=7s (which is safe)
 
-			warnings, err := snrc.ValidateCreate()
+			warnings, err := validator.ValidateCreate(context.Background(), snrc)
 			Expect(err).To(BeNil())
 			Expect(len(warnings)).To(Equal(0))
 		})
 	})
 })
 
-func testSingleInvalidField(validationType validationType) {
+func testSingleInvalidField(validator admission.CustomValidator, validationType validationType) {
 	for _, item := range testItems {
 		item := item
 
@@ -189,9 +196,9 @@ func testSingleInvalidField(validationType validationType) {
 				var err error
 				if validationType == update {
 					snrcOld := createTestSelfNodeRemediationConfigCR()
-					_, err = snrc.ValidateUpdate(snrcOld)
+					_, err = validator.ValidateUpdate(context.Background(), snrcOld, snrc)
 				} else {
-					_, err = snrc.ValidateCreate()
+					_, err = validator.ValidateCreate(context.Background(), snrc)
 				}
 
 				Expect(err).To(HaveOccurred())
@@ -208,9 +215,9 @@ func testSingleInvalidField(validationType validationType) {
 			var err error
 			if validationType == update {
 				snrcOld := createTestSelfNodeRemediationConfigCR()
-				_, err = snrc.ValidateUpdate(snrcOld)
+				_, err = validator.ValidateUpdate(context.Background(), snrcOld, snrc)
 			} else {
-				_, err = snrc.ValidateCreate()
+				_, err = validator.ValidateCreate(context.Background(), snrc)
 			}
 
 			Expect(err).To(HaveOccurred())
@@ -223,9 +230,9 @@ func testSingleInvalidField(validationType validationType) {
 			var err error
 			if validationType == update {
 				snrcOld := createTestSelfNodeRemediationConfigCR()
-				_, err = snrc.ValidateUpdate(snrcOld)
+				_, err = validator.ValidateUpdate(context.Background(), snrcOld, snrc)
 			} else {
-				_, err = snrc.ValidateCreate()
+				_, err = validator.ValidateCreate(context.Background(), snrc)
 			}
 
 			Expect(err).To(HaveOccurred())
@@ -234,7 +241,7 @@ func testSingleInvalidField(validationType validationType) {
 	})
 }
 
-func testMultipleInvalidFields(validationType validationType) {
+func testMultipleInvalidFields(validator admission.CustomValidator, validationType validationType) {
 	var errorMsg string
 	snrc := createTestSelfNodeRemediationConfigCR()
 
@@ -252,9 +259,9 @@ func testMultipleInvalidFields(validationType validationType) {
 			var err error
 			if validationType == update {
 				snrcOld := createTestSelfNodeRemediationConfigCR()
-				_, err = snrc.ValidateUpdate(snrcOld)
+				_, err = validator.ValidateUpdate(context.Background(), snrcOld, snrc)
 			} else {
-				_, err = snrc.ValidateCreate()
+				_, err = validator.ValidateCreate(context.Background(), snrc)
 			}
 
 			Expect(err).To(HaveOccurred())
@@ -263,7 +270,7 @@ func testMultipleInvalidFields(validationType validationType) {
 	})
 }
 
-func testValidCR(validationType validationType) {
+func testValidCR(validator admission.CustomValidator, validationType validationType) {
 	snrc := &SelfNodeRemediationConfig{}
 	snrc.Name = "self-node-remediation-config"
 	snrc.Namespace = "default"
@@ -289,9 +296,9 @@ func testValidCR(validationType validationType) {
 			var err error
 			if validationType == update {
 				snrcOld := createTestSelfNodeRemediationConfigCR()
-				_, err = snrc.ValidateUpdate(snrcOld)
+				_, err = validator.ValidateUpdate(context.Background(), snrcOld, snrc)
 			} else {
-				_, err = snrc.ValidateCreate()
+				_, err = validator.ValidateCreate(context.Background(), snrc)
 			}
 			Expect(err).NotTo(HaveOccurred())
 
