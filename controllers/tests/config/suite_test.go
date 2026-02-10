@@ -101,6 +101,7 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 	err = (&controllers.SelfNodeRemediationConfigReconciler{
 		Client:                   k8sManager.GetClient(),
+		Cache:                    k8sManager.GetCache(),
 		Log:                      ctrl.Log.WithName("controllers").WithName("self-node-remediation-config-controller"),
 		InstallFileFolder:        "../../../install/",
 		Scheme:                   scheme.Scheme,
@@ -120,7 +121,7 @@ var _ = BeforeSuite(func() {
 	err = k8sManager.Add(peers)
 	Expect(err).ToNot(HaveOccurred())
 
-	certReader = certificates.NewSecretCertStorage(k8sClient, ctrl.Log.WithName("SecretCertStorage"), shared.Namespace)
+	certReader = certificates.NewSecretCertStorage(k8sClient, k8sManager.GetCache(), ctrl.Log.WithName("SecretCertStorage"), shared.Namespace)
 
 	apiConnectivityCheckConfig := &apicheck.ApiConnectivityCheckConfig{
 		Log:                    ctrl.Log.WithName("api-check"),
