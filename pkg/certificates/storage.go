@@ -36,9 +36,9 @@ const (
 	caPemKey   = "caPem"
 	certPemKey = "certPem"
 	keyPemKey  = "keyPem"
-
-	apiTimeout = 10 * time.Second
 )
+
+var apiTimeout = 10 * time.Second
 
 var _ CertStorageReader = &SecretCertStorage{}
 
