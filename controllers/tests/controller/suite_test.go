@@ -136,6 +136,7 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 	err = (&controllers.SelfNodeRemediationConfigReconciler{
 		Client:                   k8sManager.GetClient(),
+		Cache:                    k8sManager.GetCache(),
 		Log:                      ctrl.Log.WithName("controllers").WithName("self-node-remediation-config-controller"),
 		InstallFileFolder:        "../../../install/",
 		Scheme:                   testScheme,

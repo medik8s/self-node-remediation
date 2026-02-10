@@ -35,7 +35,7 @@ var _ = Describe("Certificates", func() {
 					return b
 				}
 
-				store := NewSecretCertStorage(k8sClient, ctrl.Log.WithName("TestSecretCertStore"), "default")
+				store := NewSecretCertStorage(k8sClient, k8sCache, ctrl.Log.WithName("TestSecretCertStore"), "default")
 				Expect(store.StoreCerts(toBuffer(caData), toBuffer(certData), toBuffer(keyData))).ToNot(HaveOccurred())
 
 				caBuf, certBuf, keyBuf, err := store.GetCerts()
@@ -48,12 +48,18 @@ var _ = Describe("Certificates", func() {
 
 		})
 
-		It("should fail with timeout when secret informer cache is not synced yet", func() {
-			// Use a very short timeout to reproduce the issue where the cached
-			// client's informer hasn't synced yet. In production, many secrets
-			// cause the informer's initial List to take longer than apiTimeout.
-			// Here we use a 1ms timeout: even with few secrets, the informer
-			// needs at least one HTTP round trip to sync, which exceeds 1ms.
+		It("should succeed even when secret informer cache is not synced yet", func() {
+			// Regression test: previously GetCerts would fail with
+			// "failed waiting for *v1.Secret Informer to sync" because
+			// the cached client's Get blocks until the informer completes
+			// its initial List, which in clusters with many secrets can
+			// exceed the apiTimeout. The fix waits for the informer to
+			// sync separately via cache.GetInformer before calling Get.
+			//
+			// We use a very short apiTimeout to prove that the informer
+			// sync is handled independently: even with a 1ms Get timeout,
+			// GetCerts succeeds because GetInformer waits for sync first,
+			// after which Get reads from the local cache instantly.
 			originalTimeout := apiTimeout
 			apiTimeout = 1 * time.Millisecond
 			defer func() { apiTimeout = originalTimeout }()
@@ -132,15 +138,17 @@ var _ = Describe("Certificates", func() {
 			// when the cached client's Get is first called for Secrets.
 			<-newMgr.Elected()
 
-			// Call GetCerts now that the cache is started.
-			// The cached client's Get blocks until the informer completes its
-			// initial List. With the short apiTimeout, the context deadline is
-			// exceeded before the List finishes — reproducing the production
-			// failure seen when many secrets exist in the cluster.
-			store := NewSecretCertStorage(newMgr.GetClient(), ctrl.Log.WithName("TestUnsyncedCache"), testNs)
-			_, _, _, err = store.GetCerts()
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("failed waiting for *v1.Secret Informer to sync"))
+			// Call GetCerts with a fresh cache and a 1ms apiTimeout.
+			// Without the fix this would fail with:
+			//   "failed waiting for *v1.Secret Informer to sync"
+			// With the fix, GetInformer waits for the sync to complete,
+			// then Get reads from the local cache and succeeds.
+			store := NewSecretCertStorage(newMgr.GetClient(), newMgr.GetCache(), ctrl.Log.WithName("TestUnsyncedCache"), testNs)
+			caBuf, certBuf, keyBuf, err := store.GetCerts()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(caBuf.String()).To(Equal("test-ca"))
+			Expect(certBuf.String()).To(Equal("test-cert"))
+			Expect(keyBuf.String()).To(Equal("test-key"))
 		})
 
 	})

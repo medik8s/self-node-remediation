@@ -201,6 +201,7 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 
 	if err := (&controllers.SelfNodeRemediationConfigReconciler{
 		Client:                   mgr.GetClient(),
+		Cache:                    mgr.GetCache(),
 		Log:                      ctrl.Log.WithName("controllers").WithName("SelfNodeRemediationConfig"),
 		Scheme:                   mgr.GetScheme(),
 		InstallFileFolder:        "./install",
@@ -322,7 +323,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	rebooter := reboot.NewWatchdogRebooter(wd, ctrl.Log.WithName("rebooter"))
 
 	// init certificate reader
-	certReader := certificates.NewSecretCertStorage(mgr.GetClient(), ctrl.Log.WithName("SecretCertStorage"), ns)
+	certReader := certificates.NewSecretCertStorage(mgr.GetClient(), mgr.GetCache(), ctrl.Log.WithName("SecretCertStorage"), ns)
 
 	var machineName string
 	if machineName, err = getMachineName(mgr.GetAPIReader(), myNodeName); err != nil {
