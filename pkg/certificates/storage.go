@@ -40,6 +40,7 @@ const (
 )
 
 var apiTimeout = 10 * time.Second
+var informerSyncTimeout = 5 * time.Minute
 
 var _ CertStorageReader = &SecretCertStorage{}
 
@@ -77,8 +78,10 @@ func (s *SecretCertStorage) GetCerts() (caPem, certPem, keyPem *bytes.Buffer, er
 		// Wait for the Secret informer to sync before reading from the cache.
 		// The cached client's Get blocks until the informer completes its
 		// initial List. In clusters with many secrets this can exceed apiTimeout,
-		// so we wait for sync separately without a short timeout.
-		if _, err := s.cache.GetInformer(context.Background(), &v1.Secret{}); err != nil {
+		// so we wait for sync separately with a generous timeout.
+		syncCtx, syncCancel := context.WithTimeout(context.Background(), informerSyncTimeout)
+		defer syncCancel()
+		if _, err := s.cache.GetInformer(syncCtx, &v1.Secret{}); err != nil {
 			return nil, nil, nil, err
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
