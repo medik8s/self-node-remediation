@@ -33,22 +33,24 @@ import (
 
 // fields names
 const (
-	peerApiServerTimeout = "PeerApiServerTimeout"
-	apiServerTimeout     = "ApiServerTimeout"
-	peerDialTimeout      = "PeerDialTimeout"
-	peerRequestTimeout   = "PeerRequestTimeout"
-	apiCheckInterval     = "ApiCheckInterval"
-	peerUpdateInterval   = "PeerUpdateInterval"
+	peerApiServerTimeout  = "PeerApiServerTimeout"
+	apiServerTimeout      = "ApiServerTimeout"
+	peerDialTimeout       = "PeerDialTimeout"
+	peerRequestTimeout    = "PeerRequestTimeout"
+	apiCheckInterval      = "ApiCheckInterval"
+	peerUpdateInterval    = "PeerUpdateInterval"
+	certStorageApiTimeout = "CertStorageApiTimeout"
 )
 
 // minimal time durations allowed for fields
 const (
-	minDurPeerApiServerTimeout = 10 * time.Millisecond
-	minDurApiServerTimeout     = 10 * time.Millisecond
-	minDurPeerDialTimeout      = 10 * time.Millisecond
-	minDurPeerRequestTimeout   = 10 * time.Millisecond
-	minDurApiCheckInterval     = 1 * time.Second
-	minDurPeerUpdateInterval   = 10 * time.Second
+	minDurPeerApiServerTimeout  = 10 * time.Millisecond
+	minDurApiServerTimeout      = 10 * time.Millisecond
+	minDurPeerDialTimeout       = 10 * time.Millisecond
+	minDurPeerRequestTimeout    = 10 * time.Millisecond
+	minDurApiCheckInterval      = 1 * time.Second
+	minDurPeerUpdateInterval    = 10 * time.Second
+	minDurCertStorageApiTimeout = 10 * time.Second
 
 	// MinimumBuffer is the minimum buffer time between APIServerTimeout and PeerRequestTimeout
 	// It is required to make sure there is enough time for network communication between the peers in case the API Server is out
@@ -142,6 +144,7 @@ func validateTimes(snrConfig *SelfNodeRemediationConfig) error {
 		{peerRequestTimeout, spec.PeerRequestTimeout.Duration, minDurPeerRequestTimeout},
 		{apiCheckInterval, spec.ApiCheckInterval.Duration, minDurApiCheckInterval},
 		{peerUpdateInterval, spec.PeerUpdateInterval.Duration, minDurPeerUpdateInterval},
+		{certStorageApiTimeout, spec.CertStorageApiTimeout.Duration, minDurCertStorageApiTimeout},
 	}
 
 	for _, field := range fields {

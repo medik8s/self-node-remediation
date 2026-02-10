@@ -39,6 +39,7 @@ spec:
       containers:
       - args:
         - --is-manager=false
+        - --cert-storage-api-timeout={{.CertStorageApiTimeout}}
         command:
         - /manager
         env:

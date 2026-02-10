@@ -53,11 +53,12 @@ const (
 // SelfNodeRemediationConfigReconciler reconciles a SelfNodeRemediationConfig object
 type SelfNodeRemediationConfigReconciler struct {
 	client.Client
-	Log                      logr.Logger
-	Scheme                   *runtime.Scheme
-	InstallFileFolder        string
-	Namespace                string
-	RebootDurationCalculator reboot.Calculator
+	Log                         logr.Logger
+	Scheme                      *runtime.Scheme
+	InstallFileFolder           string
+	Namespace                   string
+	RebootDurationCalculator    reboot.Calculator
+	SecretCertStorageApiTimeout time.Duration
 }
 
 //+kubebuilder:rbac:groups=self-node-remediation.medik8s.io,resources=selfnoderemediationconfigs,verbs=get;list;watch;create;update;patch;delete
@@ -156,6 +157,7 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 	data.Data["MinPeersForRemediation"] = snrConfig.Spec.MinPeersForRemediation
 	data.Data["HostPort"] = snrConfig.Spec.HostPort
 	data.Data["IsSoftwareRebootEnabled"] = fmt.Sprintf("\"%t\"", snrConfig.Spec.IsSoftwareRebootEnabled)
+	data.Data["CertStorageApiTimeout"] = snrConfig.Spec.CertStorageApiTimeout.Seconds()
 
 	objs, err := render.Dir(r.InstallFileFolder, &data)
 	if err != nil {
@@ -204,7 +206,7 @@ func (r *SelfNodeRemediationConfigReconciler) syncCerts(cr *selfnoderemediationv
 
 	r.Log.Info("Syncing certs")
 	// check if certs exists already
-	st := certificates.NewSecretCertStorage(r.Client, r.Log.WithName("SecretCertStorage"), cr.Namespace)
+	st := certificates.NewSecretCertStorage(r.Client, r.Log.WithName("SecretCertStorage"), cr.Namespace, r.SecretCertStorageApiTimeout)
 	pem, _, _, err := st.GetCerts()
 	if err != nil && !errors.IsNotFound(err) {
 		r.Log.Error(err, "Failed to get cert secret")

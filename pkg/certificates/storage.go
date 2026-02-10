@@ -36,28 +36,28 @@ const (
 	caPemKey   = "caPem"
 	certPemKey = "certPem"
 	keyPemKey  = "keyPem"
-
-	apiTimeout = 10 * time.Second
 )
 
 var _ CertStorageReader = &SecretCertStorage{}
 
 type SecretCertStorage struct {
 	client.Client
-	log       logr.Logger
-	namespace string
-	secret    *v1.Secret
-	mutex     sync.Mutex
+	log        logr.Logger
+	namespace  string
+	secret     *v1.Secret
+	mutex      sync.Mutex
+	apiTimeout time.Duration
 }
 
 //+kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
 
-func NewSecretCertStorage(c client.Client, log logr.Logger, namespace string) *SecretCertStorage {
+func NewSecretCertStorage(c client.Client, log logr.Logger, namespace string, secretCertStorageApiTimeout time.Duration) *SecretCertStorage {
 	return &SecretCertStorage{
-		Client:    c,
-		log:       log,
-		namespace: namespace,
-		mutex:     sync.Mutex{},
+		Client:     c,
+		log:        log,
+		namespace:  namespace,
+		mutex:      sync.Mutex{},
+		apiTimeout: secretCertStorageApiTimeout,
 	}
 }
 
@@ -71,7 +71,7 @@ func (s *SecretCertStorage) GetCerts() (caPem, certPem, keyPem *bytes.Buffer, er
 			Namespace: s.namespace,
 			Name:      secretName,
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), s.apiTimeout)
 		defer cancel()
 		if err := s.Get(ctx, key, certSecret); err != nil {
 			return nil, nil, nil, err
@@ -105,7 +105,7 @@ func (s *SecretCertStorage) StoreCerts(caPem, certPem, keyPem *bytes.Buffer) err
 		},
 		Type: v1.SecretTypeOpaque,
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), s.apiTimeout)
 	defer cancel()
 	if err := s.Create(ctx, secret); err != nil {
 		if errors.IsAlreadyExists(err) {

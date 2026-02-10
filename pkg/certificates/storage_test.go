@@ -2,6 +2,7 @@ package certificates
 
 import (
 	"bytes"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -27,7 +28,7 @@ var _ = Describe("Certificates", func() {
 					return b
 				}
 
-				store := NewSecretCertStorage(k8sClient, ctrl.Log.WithName("TestSecretCertStore"), "default")
+				store := NewSecretCertStorage(k8sClient, ctrl.Log.WithName("TestSecretCertStore"), "default", time.Duration(10)*time.Second)
 				Expect(store.StoreCerts(toBuffer(caData), toBuffer(certData), toBuffer(keyData))).ToNot(HaveOccurred())
 
 				caBuf, certBuf, keyBuf, err := store.GetCerts()

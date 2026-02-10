@@ -145,6 +145,13 @@ spec:
                   Valid time units are "ms", "s", "m", "h".
                 pattern: ^([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$
                 type: string
+              certStorageApiTimeout:
+                default: 10s
+                description: |-
+                  The timeout for api-server connectivity while checking for certificate secrets.
+                  Valid time units are "ms", "s", "m", "h".
+                pattern: ^([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$
+                type: string
               peerDialTimeout:
                 default: 5s
                 description: |-

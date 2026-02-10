@@ -137,6 +137,14 @@ type SelfNodeRemediationConfigSpec struct {
 	// +kubebuilder:default:=1
 	// +kubebuilder:validation:Minimum=0
 	MinPeersForRemediation int `json:"minPeersForRemediation,omitempty"`
+
+	// The timeout for api-server connectivity while checking for certificate secrets.
+	// Valid time units are "ms", "s", "m", "h".
+	// +kubebuilder:default:="10s"
+	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+	// +kubebuilder:validation:Type:=string
+	// +optional
+	CertStorageApiTimeout *metav1.Duration `json:"certStorageApiTimeout,omitempty"`
 }
 
 // SelfNodeRemediationConfigStatus defines the observed state of SelfNodeRemediationConfig

@@ -120,7 +120,7 @@ var _ = BeforeSuite(func() {
 	err = k8sManager.Add(peers)
 	Expect(err).ToNot(HaveOccurred())
 
-	certReader = certificates.NewSecretCertStorage(k8sClient, ctrl.Log.WithName("SecretCertStorage"), shared.Namespace)
+	certReader = certificates.NewSecretCertStorage(k8sClient, ctrl.Log.WithName("SecretCertStorage"), shared.Namespace, time.Duration(10)*time.Second)
 
 	apiConnectivityCheckConfig := &apicheck.ApiConnectivityCheckConfig{
 		Log:                    ctrl.Log.WithName("api-check"),

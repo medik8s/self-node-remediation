@@ -94,6 +94,7 @@ func main() {
 	var probeAddr string
 	var enableHTTP2 bool
 	var isManager bool
+	var certStorageApiTimeout int
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
@@ -103,6 +104,8 @@ func main() {
 	flag.BoolVar(&isManager, "is-manager", false,
 		"Used to differentiate between the self node remediation agents that runs in a daemonset to the 'manager' that only"+
 			"reconciles the config CRD and installs the DS")
+	flag.IntVar(&certStorageApiTimeout, "cert-storage-api-timeout", 10,
+		"Set Kubernetes timeout value while collecting self-node-remediation-certificates secret.")
 	opts := zap.Options{
 		Development: true,
 		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
@@ -147,9 +150,9 @@ func main() {
 	}
 
 	if isManager {
-		initSelfNodeRemediationManager(mgr)
+		initSelfNodeRemediationManager(mgr, time.Duration(certStorageApiTimeout)*time.Second)
 	} else {
-		initSelfNodeRemediationAgent(mgr)
+		initSelfNodeRemediationAgent(mgr, time.Duration(certStorageApiTimeout)*time.Second)
 	}
 
 	//+kubebuilder:scaffold:builder
@@ -170,7 +173,7 @@ func main() {
 	}
 }
 
-func initSelfNodeRemediationManager(mgr manager.Manager) {
+func initSelfNodeRemediationManager(mgr manager.Manager, secretCertStorageApiTimeout time.Duration) {
 	setupLog.Info("Starting as a manager that installs the daemonset")
 
 	if err := (&selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}).SetupWebhookWithManager(mgr); err != nil {
@@ -200,12 +203,13 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 	)
 
 	if err := (&controllers.SelfNodeRemediationConfigReconciler{
-		Client:                   mgr.GetClient(),
-		Log:                      ctrl.Log.WithName("controllers").WithName("SelfNodeRemediationConfig"),
-		Scheme:                   mgr.GetScheme(),
-		InstallFileFolder:        "./install",
-		Namespace:                ns,
-		RebootDurationCalculator: calculator,
+		Client:                      mgr.GetClient(),
+		Log:                         ctrl.Log.WithName("controllers").WithName("SelfNodeRemediationConfig"),
+		Scheme:                      mgr.GetScheme(),
+		InstallFileFolder:           "./install",
+		Namespace:                   ns,
+		RebootDurationCalculator:    calculator,
+		SecretCertStorageApiTimeout: secretCertStorageApiTimeout,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "SelfNodeRemediationConfig")
 		os.Exit(1)
@@ -263,7 +267,7 @@ func getIntEnvVarOrDie(varName string) int {
 	return intVar
 }
 
-func initSelfNodeRemediationAgent(mgr manager.Manager) {
+func initSelfNodeRemediationAgent(mgr manager.Manager, secretCertStorageApiTimeout time.Duration) {
 	setupLog.Info("Starting as a self node remediation agent that should run as part of the daemonset")
 
 	myNodeName := os.Getenv(nodeNameEnvVar)
@@ -322,7 +326,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	rebooter := reboot.NewWatchdogRebooter(wd, ctrl.Log.WithName("rebooter"))
 
 	// init certificate reader
-	certReader := certificates.NewSecretCertStorage(mgr.GetClient(), ctrl.Log.WithName("SecretCertStorage"), ns)
+	certReader := certificates.NewSecretCertStorage(mgr.GetClient(), ctrl.Log.WithName("SecretCertStorage"), ns, secretCertStorageApiTimeout)
 
 	var machineName string
 	if machineName, err = getMachineName(mgr.GetAPIReader(), myNodeName); err != nil {

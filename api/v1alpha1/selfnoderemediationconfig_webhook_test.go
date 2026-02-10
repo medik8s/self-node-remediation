@@ -17,12 +17,13 @@ import (
 
 // default CR fields durations
 const (
-	peerApiServerTimeoutDefault = 5 * time.Second
-	apiServerTimeoutDefault     = 5 * time.Second
-	peerDialTimeoutDefault      = 5 * time.Second
-	peerRequestTimeoutDefault   = 7 * time.Second
-	apiCheckIntervalDefault     = 15 * time.Second
-	peerUpdateIntervalDefault   = 15 * time.Minute
+	peerApiServerTimeoutDefault  = 5 * time.Second
+	apiServerTimeoutDefault      = 5 * time.Second
+	peerDialTimeoutDefault       = 5 * time.Second
+	peerRequestTimeoutDefault    = 7 * time.Second
+	apiCheckIntervalDefault      = 15 * time.Second
+	peerUpdateIntervalDefault    = 15 * time.Minute
+	certStorageApiTimeoutDefault = 10 * time.Second
 )
 
 // each field in the list will be used in different IT test
@@ -39,6 +40,7 @@ var testItems = []field{
 	{peerRequestTimeout, -1 * time.Minute, minDurPeerRequestTimeout},
 	{apiCheckInterval, -1 * time.Second, minDurApiCheckInterval},
 	{peerUpdateInterval, -10 * time.Second, minDurPeerUpdateInterval},
+	{certStorageApiTimeout, 10 * time.Second, minDurCertStorageApiTimeout},
 }
 
 var testItems2 = []field{
@@ -318,6 +320,7 @@ func createTestSelfNodeRemediationConfigCR() *SelfNodeRemediationConfig {
 	snrc.Spec.PeerRequestTimeout = &metav1.Duration{Duration: peerRequestTimeoutDefault}
 	snrc.Spec.ApiCheckInterval = &metav1.Duration{Duration: apiCheckIntervalDefault}
 	snrc.Spec.PeerUpdateInterval = &metav1.Duration{Duration: peerUpdateIntervalDefault}
+	snrc.Spec.CertStorageApiTimeout = &metav1.Duration{Duration: certStorageApiTimeoutDefault}
 
 	return snrc
 }
