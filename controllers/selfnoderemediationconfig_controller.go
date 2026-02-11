@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -53,6 +54,7 @@ const (
 // SelfNodeRemediationConfigReconciler reconciles a SelfNodeRemediationConfig object
 type SelfNodeRemediationConfigReconciler struct {
 	client.Client
+	Cache                    cache.Cache
 	Log                      logr.Logger
 	Scheme                   *runtime.Scheme
 	InstallFileFolder        string
@@ -204,7 +206,7 @@ func (r *SelfNodeRemediationConfigReconciler) syncCerts(cr *selfnoderemediationv
 
 	r.Log.Info("Syncing certs")
 	// check if certs exists already
-	st := certificates.NewSecretCertStorage(r.Client, r.Log.WithName("SecretCertStorage"), cr.Namespace)
+	st := certificates.NewSecretCertStorage(r.Client, r.Cache, r.Log.WithName("SecretCertStorage"), cr.Namespace)
 	pem, _, _, err := st.GetCerts()
 	if err != nil && !errors.IsNotFound(err) {
 		r.Log.Error(err, "Failed to get cert secret")

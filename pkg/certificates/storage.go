@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -36,14 +37,16 @@ const (
 	caPemKey   = "caPem"
 	certPemKey = "certPem"
 	keyPemKey  = "keyPem"
-
-	apiTimeout = 10 * time.Second
 )
+
+var apiTimeout = 10 * time.Second
+var informerSyncTimeout = 5 * time.Minute
 
 var _ CertStorageReader = &SecretCertStorage{}
 
 type SecretCertStorage struct {
 	client.Client
+	cache     cache.Cache
 	log       logr.Logger
 	namespace string
 	secret    *v1.Secret
@@ -52,9 +55,10 @@ type SecretCertStorage struct {
 
 //+kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
 
-func NewSecretCertStorage(c client.Client, log logr.Logger, namespace string) *SecretCertStorage {
+func NewSecretCertStorage(c client.Client, cache cache.Cache, log logr.Logger, namespace string) *SecretCertStorage {
 	return &SecretCertStorage{
 		Client:    c,
+		cache:     cache,
 		log:       log,
 		namespace: namespace,
 		mutex:     sync.Mutex{},
@@ -70,6 +74,15 @@ func (s *SecretCertStorage) GetCerts() (caPem, certPem, keyPem *bytes.Buffer, er
 		key := types.NamespacedName{
 			Namespace: s.namespace,
 			Name:      secretName,
+		}
+		// Wait for the Secret informer to sync before reading from the cache.
+		// The cached client's Get blocks until the informer completes its
+		// initial List. In clusters with many secrets this can exceed apiTimeout,
+		// so we wait for sync separately with a generous timeout.
+		syncCtx, syncCancel := context.WithTimeout(context.Background(), informerSyncTimeout)
+		defer syncCancel()
+		if _, err := s.cache.GetInformer(syncCtx, &v1.Secret{}); err != nil {
+			return nil, nil, nil, err
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
 		defer cancel()
