@@ -158,6 +158,7 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 	data.Data["MinPeersForRemediation"] = snrConfig.Spec.MinPeersForRemediation
 	data.Data["HostPort"] = snrConfig.Spec.HostPort
 	data.Data["IsSoftwareRebootEnabled"] = fmt.Sprintf("\"%t\"", snrConfig.Spec.IsSoftwareRebootEnabled)
+	data.Data["EnableIncludeInRemediationLabel"] = snrConfig.Spec.EnableIncludeInRemediationLabel
 
 	objs, err := render.Dir(r.InstallFileFolder, &data)
 	if err != nil {

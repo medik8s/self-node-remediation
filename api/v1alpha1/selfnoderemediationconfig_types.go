@@ -25,10 +25,11 @@ import (
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
 const (
-	ConfigCRName                   = "self-node-remediation-config"
-	defaultWatchdogPath            = "/dev/watchdog"
-	defaultIsSoftwareRebootEnabled = true
-	defaultMinPeersForRemediation  = 1
+	ConfigCRName                           = "self-node-remediation-config"
+	defaultWatchdogPath                    = "/dev/watchdog"
+	defaultIsSoftwareRebootEnabled         = true
+	defaultEnableIncludeInRemediationLabel = false
+	defaultMinPeersForRemediation          = 1
 )
 
 // SelfNodeRemediationConfigSpec defines the desired state of SelfNodeRemediationConfig
@@ -113,6 +114,12 @@ type SelfNodeRemediationConfigSpec struct {
 	// +optional
 	IsSoftwareRebootEnabled bool `json:"isSoftwareRebootEnabled,omitempty"`
 
+	// EnableIncludeInRemediationLabel indicates whether we will include remediation.medik8s.io/include-in-remediation
+	// label in nodeAffinity configuration as a required for the pod to be deployed on specific node.
+	// +kubebuilder:default=false
+	// +optional
+	EnableIncludeInRemediationLabel bool `json:"enableIncludeInRemediationLabel,omitempty"`
+
 	// EndpointHealthCheckUrl is an url that self node remediation agents which run on control-plane node will try to access when they can't contact their peers.
 	// This is a part of self diagnostics which will decide whether the node should be remediated or not.
 	// It will be ignored when empty (which is the default).
@@ -178,8 +185,9 @@ func NewDefaultSelfNodeRemediationConfig() SelfNodeRemediationConfig {
 			Name: ConfigCRName,
 		},
 		Spec: SelfNodeRemediationConfigSpec{
-			WatchdogFilePath:        defaultWatchdogPath,
-			IsSoftwareRebootEnabled: defaultIsSoftwareRebootEnabled,
+			WatchdogFilePath:                defaultWatchdogPath,
+			IsSoftwareRebootEnabled:         defaultIsSoftwareRebootEnabled,
+			EnableIncludeInRemediationLabel: defaultEnableIncludeInRemediationLabel,
 		},
 	}
 }

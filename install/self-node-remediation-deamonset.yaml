@@ -35,6 +35,12 @@ spec:
                   operator: NotIn
                   values:
                   - "true"
+                {{ if .EnableIncludeInRemediationLabel }}
+                - key: remediation.medik8s.io/include-in-remediation
+                  operator: In
+                  values:
+                    - "true"
+                {{ end }}
       hostPID: true
       containers:
       - args:

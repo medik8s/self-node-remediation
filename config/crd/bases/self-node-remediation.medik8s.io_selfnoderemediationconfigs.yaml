@@ -119,6 +119,12 @@ spec:
                   if the watchdog device can not be used or will use watchdog only,
                   without a fallback to software reboot.
                 type: boolean
+              enableIncludeInRemediationLabel:
+                default: false
+                description: |-
+                  Enable inclusion of "remediation.medik8s.io/include-in-remediation" label in nodeAffinity configuration
+                  for DaemonSet as a required for the pod to be deployed on specific node.
+                type: boolean
               maxApiErrorThreshold:
                 default: 3
                 description: After this threshold, the node will start contacting
