@@ -24,7 +24,6 @@ import (
 
 	"github.com/go-logr/logr"
 	pkgerrors "github.com/pkg/errors"
-
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -170,6 +169,11 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 		return err
 	}
 
+	if err := r.updateDsNodeSelectors(objs, snrConfig.Spec.CustomDsNodeSelectors); err != nil {
+		logger.Error(err, "Fail update daemonset node selector match expression")
+		return err
+	}
+
 	// Sync DaemonSets
 	for _, obj := range objs {
 		if err := r.removeOldDsOnOperatorUpdate(ctx, obj.GetName(), obj.GetAnnotations()[lastChangedAnnotationKey]); err != nil {
@@ -234,11 +238,25 @@ func (r *SelfNodeRemediationConfigReconciler) syncCerts(cr *selfnoderemediationv
 	return nil
 }
 
-func (r *SelfNodeRemediationConfigReconciler) updateDsTolerations(objs []*unstructured.Unstructured, tolerations []corev1.Toleration) error {
-	r.Log.Info("Updating DS tolerations")
+func (r *SelfNodeRemediationConfigReconciler) checkNumberOfDSObjects(objs []*unstructured.Unstructured) error {
 	//Expecting to find a single DS object
 	if len(objs) != 1 {
-		err := fmt.Errorf("/install folder does not contain exectly one ds object")
+		err := fmt.Errorf("/install folder does not contain exactly one ds object")
+		r.Log.Error(err, "expecting exactly one ds element in /install folder", "actual number of elements", len(objs))
+		return err
+	}
+	return nil
+}
+
+func (r *SelfNodeRemediationConfigReconciler) updateDsTolerations(objs []*unstructured.Unstructured, tolerations []corev1.Toleration) error {
+	r.Log.Info("Updating DS tolerations")
+
+	if err := r.checkNumberOfDSObjects(objs); err != nil {
+		return err
+	}
+
+	if len(objs) != 1 {
+		err := fmt.Errorf("/install folder does not contain exactly one ds object")
 		r.Log.Error(err, "expecting exactly one ds element in /install folder", "actual number of elements", len(objs))
 		return err
 	}
@@ -278,6 +296,61 @@ func (r *SelfNodeRemediationConfigReconciler) convertTolerationsToUnstructed(tol
 		convertedTolerations = append(convertedTolerations, convertedToleration)
 	}
 	return convertedTolerations, nil
+}
+
+func (r *SelfNodeRemediationConfigReconciler) updateDsNodeSelectors(objs []*unstructured.Unstructured, nodeSelectors []corev1.NodeSelectorRequirement) error {
+	r.Log.Info("Updating DS node selectors")
+
+	if err := r.checkNumberOfDSObjects(objs); err != nil {
+		return err
+	}
+
+	if len(nodeSelectors) == 0 {
+		return nil
+	}
+
+	ds := objs[0]
+	existingNodeSelectorTerms, _, err := unstructured.NestedSlice(ds.Object, "spec", "template", "spec", "affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
+	if err != nil {
+		r.Log.Error(err, "error fetching node selector terms from ds")
+		return err
+	}
+
+	existingMatchExpressions, _, err := unstructured.NestedSlice((existingNodeSelectorTerms[0]).(map[string]interface{}), "matchExpressions")
+	if err != nil {
+		r.Log.Error(err, "error fetching node selector terms matchExpressions from ds for the first term")
+		return err
+	}
+
+	convertedNodeSelectors, err := r.convertNodeSelectorsToUnstructed(nodeSelectors)
+	if err != nil {
+		r.Log.Error(err, "error converting custom node selector term expressions")
+		return err
+	}
+
+	updatedMatchExpressions := append(existingMatchExpressions, convertedNodeSelectors...)
+	existingNodeSelectorTerms[0] = map[string]interface{}{"matchExpressions": updatedMatchExpressions}
+
+	if err := unstructured.SetNestedSlice(ds.Object, existingNodeSelectorTerms, "spec", "template", "spec", "affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms"); err != nil {
+		r.Log.Error(err, "failed to set node affinity nodeSelectorTerms")
+		return err
+	}
+
+	return nil
+}
+
+func (r *SelfNodeRemediationConfigReconciler) convertNodeSelectorsToUnstructed(nodeSelectors []corev1.NodeSelectorRequirement) ([]interface{}, error) {
+	var convertedNodeSelectors []interface{}
+	for _, nodeSelector := range nodeSelectors {
+
+		convertedNodeSelector, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&nodeSelector)
+		if err != nil {
+			r.Log.Error(err, "couldn't convert nodeSelector to unstructured")
+			return nil, err
+		}
+		convertedNodeSelectors = append(convertedNodeSelectors, convertedNodeSelector)
+	}
+	return convertedNodeSelectors, nil
 }
 
 func (r *SelfNodeRemediationConfigReconciler) removeOldDsOnOperatorUpdate(ctx context.Context, dsName string, lastVersion string) error {

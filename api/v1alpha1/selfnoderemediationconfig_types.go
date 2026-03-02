@@ -129,6 +129,11 @@ type SelfNodeRemediationConfigSpec struct {
 	// +optional
 	CustomDsTolerations []v1.Toleration `json:"customDsTolerations,omitempty"`
 
+	// CustomDsNodeSelectors allows to add custom nodeSelector terms to already defined matchExpressions for snr agents
+	// that are running on the ds in order to support remediation for different types of nodes selected based on custom labels.
+	// +optional
+	CustomDsNodeSelectors []v1.NodeSelectorRequirement `json:"customDsNodeSelectors,omitempty"`
+
 	// Minimum number of peer workers/control nodes to attempt to contact before deciding if node is unhealthy or not
 	//	if set to zero, no other peers will be required to be present for remediation action to occur when this
 	//	node has lost API server access.  If an insufficient number of peers are found, we will not attempt to ask
