@@ -310,13 +310,25 @@ func (r *SelfNodeRemediationConfigReconciler) updateDsNodeSelectors(objs []*unst
 	}
 
 	ds := objs[0]
-	existingNodeSelectorTerms, _, err := unstructured.NestedSlice(ds.Object, "spec", "template", "spec", "affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
+	existingNodeSelectorTerms, found, err := unstructured.NestedSlice(ds.Object, "spec", "template", "spec", "affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
 	if err != nil {
 		r.Log.Error(err, "error fetching node selector terms from ds")
 		return err
 	}
+	if !found || len(existingNodeSelectorTerms) == 0 {
+		err := fmt.Errorf("daemonset is missing required nodeSelectorTerms")
+		r.Log.Error(err, "error fetching node selector terms from ds")
+		return err
+	}
 
-	existingMatchExpressions, _, err := unstructured.NestedSlice((existingNodeSelectorTerms[0]).(map[string]interface{}), "matchExpressions")
+	firstTerm, ok := existingNodeSelectorTerms[0].(map[string]interface{})
+	if !ok {
+		err := fmt.Errorf("unexpected nodeSelectorTerm type: %T", existingNodeSelectorTerms[0])
+		r.Log.Error(err, "invalid first nodeSelectorTerm type")
+		return err
+	}
+
+	existingMatchExpressions, _, err := unstructured.NestedSlice(firstTerm, "matchExpressions")
 	if err != nil {
 		r.Log.Error(err, "error fetching node selector terms matchExpressions from ds for the first term")
 		return err
@@ -329,7 +341,8 @@ func (r *SelfNodeRemediationConfigReconciler) updateDsNodeSelectors(objs []*unst
 	}
 
 	updatedMatchExpressions := append(existingMatchExpressions, convertedNodeSelectors...)
-	existingNodeSelectorTerms[0] = map[string]interface{}{"matchExpressions": updatedMatchExpressions}
+	firstTerm["matchExpressions"] = updatedMatchExpressions
+	existingNodeSelectorTerms[0] = firstTerm
 
 	if err := unstructured.SetNestedSlice(ds.Object, existingNodeSelectorTerms, "spec", "template", "spec", "affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms"); err != nil {
 		r.Log.Error(err, "failed to set node affinity nodeSelectorTerms")
