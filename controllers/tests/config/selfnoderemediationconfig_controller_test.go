@@ -199,7 +199,7 @@ var _ = Describe("SNR Config Test", func() {
 					//verify ds has new configuration
 					envVars := getEnvVarMap(ds.Spec.Template.Spec.Containers[0].Env)
 					g.Expect(envVars["PEER_UPDATE_INTERVAL"].Value).To(Equal(strconv.Itoa(int(time.Second * 10))))
-					//verify toleration remains on ds
+					//verify node selector remains on ds
 
 					g.Expect(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms).ToNot(BeNil())
 					g.Expect(len(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms)).To(Equal(1))
