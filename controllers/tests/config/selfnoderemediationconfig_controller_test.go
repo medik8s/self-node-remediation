@@ -2,6 +2,7 @@ package testconfig
 
 import (
 	"context"
+	"slices"
 	"strconv"
 	"time"
 
@@ -165,6 +166,54 @@ var _ = Describe("SNR Config Test", func() {
 				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 			})
 		})
+		When("Configuration has customized nodeAffinity node selector", func() {
+			var expectedNodeSelector corev1.NodeSelectorRequirement
+			BeforeEach(func() {
+				expectedNodeSelector = corev1.NodeSelectorRequirement{Key: "dummyLabel", Operator: corev1.NodeSelectorOpIn, Values: []string{"true"}}
+				config.Spec.CustomDsNodeSelectors = []corev1.NodeSelectorRequirement{expectedNodeSelector}
+			})
+			It("Daemonset should have customized nodeAffinity node selector", func() {
+				Eventually(func(g Gomega) {
+					ds = &appsv1.DaemonSet{}
+					g.Expect(k8sClient.Get(context.Background(), dsKey, ds)).Should(BeNil())
+
+					g.Expect(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms).ToNot(BeNil())
+					g.Expect(len(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms)).To(Equal(1))
+
+					actualNodeSelector := findNodeSelectorRequirement(expectedNodeSelector, ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0])
+					//Verify customized nodeAffinity node selector found
+					g.Expect(actualNodeSelector).ToNot(BeNil())
+					g.Expect(string(expectedNodeSelector.Key)).To(Equal(string(actualNodeSelector.Key)))
+					g.Expect(string(expectedNodeSelector.Operator)).To(Equal(string(actualNodeSelector.Operator)))
+					g.Expect(expectedNodeSelector.Values).To(BeEquivalentTo(actualNodeSelector.Values))
+				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+
+				//update configuration
+				config.Spec.PeerUpdateInterval = &metav1.Duration{Duration: time.Second * 10}
+				Expect(k8sClient.Update(context.Background(), config)).To(Succeed())
+
+				Eventually(func(g Gomega) {
+					ds = &appsv1.DaemonSet{}
+					g.Expect(k8sClient.Get(context.Background(), dsKey, ds)).Should(BeNil())
+
+					//verify ds has new configuration
+					envVars := getEnvVarMap(ds.Spec.Template.Spec.Containers[0].Env)
+					g.Expect(envVars["PEER_UPDATE_INTERVAL"].Value).To(Equal(strconv.Itoa(int(time.Second * 10))))
+					//verify toleration remains on ds
+
+					g.Expect(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms).ToNot(BeNil())
+					g.Expect(len(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms)).To(Equal(1))
+
+					actualNodeSelector := findNodeSelectorRequirement(expectedNodeSelector, ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0])
+					//Verify customized nodeAffinity node selector found
+					g.Expect(actualNodeSelector).ToNot(BeNil())
+					g.Expect(string(expectedNodeSelector.Key)).To(Equal(string(actualNodeSelector.Key)))
+					g.Expect(string(expectedNodeSelector.Operator)).To(Equal(string(actualNodeSelector.Operator)))
+					g.Expect(expectedNodeSelector.Values).To(BeEquivalentTo(actualNodeSelector.Values))
+
+				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+			})
+		})
 		Context("DS Recreation on Operator Update", func() {
 			var timeToWaitForDsUpdate = 6 * time.Second
 			var oldDsVersion, currentDsVersion = "0", "1"
@@ -312,6 +361,17 @@ var _ = Describe("SNR Config Test", func() {
 	})
 
 })
+
+func findNodeSelectorRequirement(expectedNodeSelector corev1.NodeSelectorRequirement, nodeSelectorTerm corev1.NodeSelectorTerm) corev1.NodeSelectorRequirement {
+	var actualNodeSelector corev1.NodeSelectorRequirement
+	for _, mx := range nodeSelectorTerm.MatchExpressions {
+		if mx.Key == expectedNodeSelector.Key && mx.Operator == expectedNodeSelector.Operator && slices.Equal(mx.Values, expectedNodeSelector.Values) {
+			actualNodeSelector = mx
+			break
+		}
+	}
+	return actualNodeSelector
+}
 
 func findToleration(expectedToleration corev1.Toleration, tolerations []corev1.Toleration) corev1.Toleration {
 	var actualToleration corev1.Toleration

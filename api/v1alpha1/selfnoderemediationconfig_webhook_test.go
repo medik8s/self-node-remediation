@@ -239,6 +239,159 @@ func testSingleInvalidField(validator admission.CustomValidator, validationType 
 			Expect(err.Error()).To(ContainSubstring("invalid value for toleration, value must be empty for Operator value is Exists"))
 		})
 	})
+
+	Context(fmt.Sprintf("%s validation of customized nodeAffinity node selector", validationType.getName()), func() {
+		It("should be rejected - operator must be non-empty", func() {
+			snrc := createTestSelfNodeRemediationConfigCR()
+			snrc.Spec.CustomDsNodeSelectors = []v1.NodeSelectorRequirement{{Key: "validLabel", Values: []string{"someValue"}}}
+
+			var err error
+			if validationType == update {
+				snrcOld := createTestSelfNodeRemediationConfigCR()
+				_, err = validator.ValidateUpdate(context.Background(), snrcOld, snrc)
+			} else {
+				_, err = validator.ValidateCreate(context.Background(), snrc)
+			}
+
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid operator for nodeSelector: operator must be non-empty"))
+		})
+		It("should be rejected - invalid operator value", func() {
+			snrc := createTestSelfNodeRemediationConfigCR()
+			snrc.Spec.CustomDsNodeSelectors = []v1.NodeSelectorRequirement{{Key: "validLabel", Operator: "dummyInvalidOperatorValue"}}
+
+			var err error
+			if validationType == update {
+				snrcOld := createTestSelfNodeRemediationConfigCR()
+				_, err = validator.ValidateUpdate(context.Background(), snrcOld, snrc)
+			} else {
+				_, err = validator.ValidateCreate(context.Background(), snrc)
+			}
+
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid operator for nodeSelector: dummyInvalidOperatorValue"))
+		})
+		It("should be rejected - non empty value when operator equals Exists", func() {
+			snrc := createTestSelfNodeRemediationConfigCR()
+			snrc.Spec.CustomDsNodeSelectors = []v1.NodeSelectorRequirement{{Key: "validLabel", Operator: "Exists", Values: []string{"someValue"}}}
+
+			var err error
+			if validationType == update {
+				snrcOld := createTestSelfNodeRemediationConfigCR()
+				_, err = validator.ValidateUpdate(context.Background(), snrcOld, snrc)
+			} else {
+				_, err = validator.ValidateCreate(context.Background(), snrc)
+			}
+
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid values for nodeSelector term, values must not exists when Operator value is Exists"))
+		})
+		It("should be rejected - non empty value when operator equals DoesNotExist", func() {
+			snrc := createTestSelfNodeRemediationConfigCR()
+			snrc.Spec.CustomDsNodeSelectors = []v1.NodeSelectorRequirement{{Key: "validLabel", Operator: "DoesNotExist", Values: []string{"someValue"}}}
+
+			var err error
+			if validationType == update {
+				snrcOld := createTestSelfNodeRemediationConfigCR()
+				_, err = validator.ValidateUpdate(context.Background(), snrcOld, snrc)
+			} else {
+				_, err = validator.ValidateCreate(context.Background(), snrc)
+			}
+
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid values for nodeSelector term, values must not exists when Operator value is DoesNotExist"))
+		})
+		It("should be rejected - values must be non empty when operator equals In", func() {
+			snrc := createTestSelfNodeRemediationConfigCR()
+			snrc.Spec.CustomDsNodeSelectors = []v1.NodeSelectorRequirement{{Key: "validLabel", Operator: "In"}}
+
+			var err error
+			if validationType == update {
+				snrcOld := createTestSelfNodeRemediationConfigCR()
+				_, err = validator.ValidateUpdate(context.Background(), snrcOld, snrc)
+			} else {
+				_, err = validator.ValidateCreate(context.Background(), snrc)
+			}
+
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid values for nodeSelector term, values must not be empty when Operator value is In"))
+		})
+		It("should be rejected - values must be non empty when operator equals NotIn", func() {
+			snrc := createTestSelfNodeRemediationConfigCR()
+			snrc.Spec.CustomDsNodeSelectors = []v1.NodeSelectorRequirement{{Key: "validLabel", Operator: "NotIn"}}
+
+			var err error
+			if validationType == update {
+				snrcOld := createTestSelfNodeRemediationConfigCR()
+				_, err = validator.ValidateUpdate(context.Background(), snrcOld, snrc)
+			} else {
+				_, err = validator.ValidateCreate(context.Background(), snrc)
+			}
+
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid values for nodeSelector term, values must not be empty when Operator value is NotIn"))
+		})
+		It("should be rejected - values must single element list when operator equals Gt", func() {
+			snrc := createTestSelfNodeRemediationConfigCR()
+			snrc.Spec.CustomDsNodeSelectors = []v1.NodeSelectorRequirement{{Key: "validLabel", Operator: "Gt"}}
+
+			var err error
+			if validationType == update {
+				snrcOld := createTestSelfNodeRemediationConfigCR()
+				_, err = validator.ValidateUpdate(context.Background(), snrcOld, snrc)
+			} else {
+				_, err = validator.ValidateCreate(context.Background(), snrc)
+			}
+
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid values for nodeSelector term, array must have a single element, which will be interpreted as an integer when Operator value is Gt"))
+		})
+		It("should be rejected - values must single element list when operator equals Lt", func() {
+			snrc := createTestSelfNodeRemediationConfigCR()
+			snrc.Spec.CustomDsNodeSelectors = []v1.NodeSelectorRequirement{{Key: "validLabel", Operator: "Lt"}}
+
+			var err error
+			if validationType == update {
+				snrcOld := createTestSelfNodeRemediationConfigCR()
+				_, err = validator.ValidateUpdate(context.Background(), snrcOld, snrc)
+			} else {
+				_, err = validator.ValidateCreate(context.Background(), snrc)
+			}
+
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid values for nodeSelector term, array must have a single element, which will be interpreted as an integer when Operator value is Lt"))
+		})
+		It("should be rejected - values must single element list and valid integer when operator equals Gt", func() {
+			snrc := createTestSelfNodeRemediationConfigCR()
+			snrc.Spec.CustomDsNodeSelectors = []v1.NodeSelectorRequirement{{Key: "validLabel", Operator: "Gt", Values: []string{"notAnInteger"}}}
+
+			var err error
+			if validationType == update {
+				snrcOld := createTestSelfNodeRemediationConfigCR()
+				_, err = validator.ValidateUpdate(context.Background(), snrcOld, snrc)
+			} else {
+				_, err = validator.ValidateCreate(context.Background(), snrc)
+			}
+
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid value for nodeSelector term, first array element must be valid integer when Operator value is Gt"))
+		})
+		It("should be rejected - values must single element list and valid integer when operator equals Lt", func() {
+			snrc := createTestSelfNodeRemediationConfigCR()
+			snrc.Spec.CustomDsNodeSelectors = []v1.NodeSelectorRequirement{{Key: "validLabel", Operator: "Lt", Values: []string{"notAnInteger"}}}
+
+			var err error
+			if validationType == update {
+				snrcOld := createTestSelfNodeRemediationConfigCR()
+				_, err = validator.ValidateUpdate(context.Background(), snrcOld, snrc)
+			} else {
+				_, err = validator.ValidateCreate(context.Background(), snrc)
+			}
+
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid value for nodeSelector term, first array element must be valid integer when Operator value is Lt"))
+		})
+	})
 }
 
 func testMultipleInvalidFields(validator admission.CustomValidator, validationType validationType) {
@@ -253,6 +406,9 @@ func testMultipleInvalidFields(validator admission.CustomValidator, validationTy
 
 	snrc.Spec.CustomDsTolerations = []v1.Toleration{{Key: "validValue", Operator: "dummyInvalidOperatorValue"}}
 	errorMsg += ", invalid operator for toleration: dummyInvalidOperatorValue"
+
+	snrc.Spec.CustomDsNodeSelectors = []v1.NodeSelectorRequirement{{Key: "labelValue", Operator: "dummyInvalidOperatorValue"}}
+	errorMsg += ", invalid operator for nodeSelector: dummyInvalidOperatorValue"
 
 	Context("for CR multiple invalid fields", func() {
 		It("should be rejected", func() {
@@ -283,6 +439,7 @@ func testValidCR(validator admission.CustomValidator, validationType validationT
 	snrc.Spec.ApiCheckInterval = &metav1.Duration{Duration: 10*time.Second + 500*time.Millisecond}
 	snrc.Spec.PeerUpdateInterval = &metav1.Duration{Duration: 10 * time.Second}
 	snrc.Spec.CustomDsTolerations = []v1.Toleration{{Key: "validValue", Effect: v1.TaintEffectNoSchedule}, {}, {Operator: v1.TolerationOpEqual, TolerationSeconds: pointer.Int64(-5)}, {Value: "SomeValidValue"}}
+	snrc.Spec.CustomDsNodeSelectors = []v1.NodeSelectorRequirement{{Key: "labelValue", Operator: v1.NodeSelectorOpExists}, {Key: "labelValue1", Operator: v1.NodeSelectorOpIn, Values: []string{"true"}}}
 
 	Context("for valid CR", func() {
 		BeforeEach(func() {
