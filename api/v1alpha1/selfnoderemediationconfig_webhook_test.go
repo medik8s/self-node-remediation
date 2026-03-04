@@ -241,6 +241,21 @@ func testSingleInvalidField(validator admission.CustomValidator, validationType 
 	})
 
 	Context(fmt.Sprintf("%s validation of customized nodeAffinity node selector", validationType.getName()), func() {
+		It("should be rejected - key must be non-empty", func() {
+			snrc := createTestSelfNodeRemediationConfigCR()
+			snrc.Spec.CustomDsNodeSelectors = []v1.NodeSelectorRequirement{{Key: "", Operator: "In", Values: []string{"someValue"}}}
+
+			var err error
+			if validationType == update {
+				snrcOld := createTestSelfNodeRemediationConfigCR()
+				_, err = validator.ValidateUpdate(context.Background(), snrcOld, snrc)
+			} else {
+				_, err = validator.ValidateCreate(context.Background(), snrc)
+			}
+
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid key for nodeSelector: key must be non-empty"))
+		})
 		It("should be rejected - operator must be non-empty", func() {
 			snrc := createTestSelfNodeRemediationConfigCR()
 			snrc.Spec.CustomDsNodeSelectors = []v1.NodeSelectorRequirement{{Key: "validLabel", Values: []string{"someValue"}}}
