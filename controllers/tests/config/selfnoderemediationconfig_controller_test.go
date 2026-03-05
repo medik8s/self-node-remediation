@@ -182,7 +182,7 @@ var _ = Describe("SNR Config Test", func() {
 
 					actualNodeSelector := findNodeSelectorRequirement(expectedNodeSelector, ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0])
 					//Verify customized nodeAffinity node selector found
-					g.Expect(string(expectedNodeSelector.Key)).To(Equal(string(actualNodeSelector.Key)))
+					g.Expect(expectedNodeSelector.Key).To(Equal(actualNodeSelector.Key))
 					g.Expect(string(expectedNodeSelector.Operator)).To(Equal(string(actualNodeSelector.Operator)))
 					g.Expect(expectedNodeSelector.Values).To(BeEquivalentTo(actualNodeSelector.Values))
 				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
@@ -205,7 +205,7 @@ var _ = Describe("SNR Config Test", func() {
 
 					actualNodeSelector := findNodeSelectorRequirement(expectedNodeSelector, ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0])
 					//Verify customized nodeAffinity node selector found
-					g.Expect(string(expectedNodeSelector.Key)).To(Equal(string(actualNodeSelector.Key)))
+					g.Expect(expectedNodeSelector.Key).To(Equal(actualNodeSelector.Key))
 					g.Expect(string(expectedNodeSelector.Operator)).To(Equal(string(actualNodeSelector.Operator)))
 					g.Expect(expectedNodeSelector.Values).To(BeEquivalentTo(actualNodeSelector.Values))
 
