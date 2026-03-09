@@ -71,19 +71,11 @@ spec:
                     key:
                       description: The label key that the selector applies to.
                       type: string
-                      minLength: 1
                     operator:
                       description: |-
                         Represents a key's relationship to a set of values.
-                        Valid operators are In, NotIn, Exists, DoesNotExist, Gt, and Lt.
+                        Valid operators are In, NotIn, Exists, DoesNotExist. Gt, and Lt.
                       type: string
-                      enum:
-                        - In
-                        - NotIn
-                        - Exists
-                        - DoesNotExist
-                        - Gt
-                        - Lt
                     values:
                       description: |-
                         An array of string values. If the operator is In or NotIn,
@@ -94,9 +86,10 @@ spec:
                       items:
                         type: string
                       type: array
+                      x-kubernetes-list-type: atomic
                   required:
-                    - key
-                    - operator
+                  - key
+                  - operator
                   type: object
                 type: array
               customDsTolerations:
