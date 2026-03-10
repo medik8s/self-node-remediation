@@ -211,7 +211,7 @@ func validateToleration(toleration v1.Toleration) error {
 }
 
 func validateCustomDsNodeSelectors(snrConfig *SelfNodeRemediationConfig) error {
-	customDsNodeSelectors := snrConfig.Spec.CustomDsNodeSelectors
+	customDsNodeSelectors := snrConfig.Spec.CustomDsNodeSelectorRequirements
 	for _, nodeSelector := range customDsNodeSelectors {
 		if err := validateNodeSelector(nodeSelector); err != nil {
 			return err

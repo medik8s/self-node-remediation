@@ -217,8 +217,8 @@ func (in *SelfNodeRemediationConfigSpec) DeepCopyInto(out *SelfNodeRemediationCo
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	if in.CustomDsNodeSelectors != nil {
-		in, out := &in.CustomDsNodeSelectors, &out.CustomDsNodeSelectors
+	if in.CustomDsNodeSelectorRequirements != nil {
+		in, out := &in.CustomDsNodeSelectorRequirements, &out.CustomDsNodeSelectorRequirements
 		*out = make([]corev1.NodeSelectorRequirement, len(*in))
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])

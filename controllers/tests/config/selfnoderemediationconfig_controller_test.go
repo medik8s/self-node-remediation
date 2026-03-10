@@ -162,7 +162,7 @@ var _ = Describe("SNR Config Test", func() {
 			var expectedNodeSelector corev1.NodeSelectorRequirement
 			BeforeEach(func() {
 				expectedNodeSelector = corev1.NodeSelectorRequirement{Key: "dummyLabel", Operator: corev1.NodeSelectorOpIn, Values: []string{"true"}}
-				config.Spec.CustomDsNodeSelectors = []corev1.NodeSelectorRequirement{expectedNodeSelector}
+				config.Spec.CustomDsNodeSelectorRequirements = []corev1.NodeSelectorRequirement{expectedNodeSelector}
 			})
 			It("Daemonset should have customized nodeAffinity node selector", func() {
 				Eventually(func(g Gomega) {

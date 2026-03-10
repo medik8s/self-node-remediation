@@ -59,9 +59,9 @@ spec:
                   Valid time units are "ms", "s", "m", "h".
                 pattern: ^([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$
                 type: string
-              customDsNodeSelectors:
+              customDsNodeSelectorRequirements:
                 description: |-
-                  CustomDsNodeSelectors allows to add custom nodeSelector terms to already defined matchExpressions for snr agents
+                  CustomDsNodeSelectorRequirements allows to add custom nodeSelector terms to already defined matchExpressions for snr agents
                   that are running on the ds in order to support remediation for different types of nodes selected based on custom labels.
                 items:
                   description: |-
