@@ -165,6 +165,10 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 		return err
 	}
 
+	if err := r.checkNumberOfDSObjects(objs); err != nil {
+		return err
+	}
+
 	if err := r.updateDsTolerations(objs, snrConfig.Spec.CustomDsTolerations); err != nil {
 		logger.Error(err, "Fail to update daemonset tolerations")
 		return err
@@ -252,10 +256,6 @@ func (r *SelfNodeRemediationConfigReconciler) checkNumberOfDSObjects(objs []*uns
 func (r *SelfNodeRemediationConfigReconciler) updateDsTolerations(objs []*unstructured.Unstructured, tolerations []corev1.Toleration) error {
 	r.Log.Info("Updating DS tolerations")
 
-	if err := r.checkNumberOfDSObjects(objs); err != nil {
-		return err
-	}
-
 	if len(objs) != 1 {
 		err := fmt.Errorf("/install folder does not contain exactly one ds object")
 		r.Log.Error(err, "expecting exactly one ds element in /install folder", "actual number of elements", len(objs))
@@ -301,10 +301,6 @@ func (r *SelfNodeRemediationConfigReconciler) convertTolerationsToUnstructed(tol
 
 func (r *SelfNodeRemediationConfigReconciler) updateDsNodeSelectors(objs []*unstructured.Unstructured, nodeSelectors []corev1.NodeSelectorRequirement) error {
 	r.Log.Info("Updating DS node selectors")
-
-	if err := r.checkNumberOfDSObjects(objs); err != nil {
-		return err
-	}
 
 	if len(nodeSelectors) == 0 {
 		return nil
