@@ -2,7 +2,6 @@ package testconfig
 
 import (
 	"context"
-	"slices"
 	"strconv"
 	"time"
 
@@ -133,11 +132,8 @@ var _ = Describe("SNR Config Test", func() {
 					g.Expect(ds.Spec.Template.Spec.Tolerations).ToNot(BeNil())
 					g.Expect(len(ds.Spec.Template.Spec.Tolerations)).To(Equal(4))
 
-					actualToleration := findToleration(expectedToleration, ds.Spec.Template.Spec.Tolerations)
 					//Verify customized toleration found
-					g.Expect(actualToleration).ToNot(BeNil())
-					g.Expect(string(expectedToleration.Effect)).To(Equal(string(actualToleration.Effect)))
-					g.Expect(string(expectedToleration.Operator)).To(Equal(string(actualToleration.Operator)))
+					g.Expect(ds.Spec.Template.Spec.Tolerations).To(ContainElement(expectedToleration))
 
 				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 
@@ -157,12 +153,8 @@ var _ = Describe("SNR Config Test", func() {
 					g.Expect(ds.Spec.Template.Spec.Tolerations).ToNot(BeNil())
 					g.Expect(len(ds.Spec.Template.Spec.Tolerations)).To(Equal(4))
 
-					actualToleration := findToleration(expectedToleration, ds.Spec.Template.Spec.Tolerations)
 					//Verify customized toleration found
-					g.Expect(actualToleration).ToNot(BeNil())
-					g.Expect(string(expectedToleration.Effect)).To(Equal(string(actualToleration.Effect)))
-					g.Expect(string(expectedToleration.Operator)).To(Equal(string(actualToleration.Operator)))
-
+					g.Expect(ds.Spec.Template.Spec.Tolerations).To(ContainElement(expectedToleration))
 				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 			})
 		})
@@ -180,11 +172,8 @@ var _ = Describe("SNR Config Test", func() {
 					g.Expect(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms).ToNot(BeNil())
 					g.Expect(len(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms)).To(Equal(1))
 
-					actualNodeSelector := findNodeSelectorRequirement(expectedNodeSelector, ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0])
 					//Verify customized nodeAffinity node selector found
-					g.Expect(expectedNodeSelector.Key).To(Equal(actualNodeSelector.Key))
-					g.Expect(expectedNodeSelector.Operator).To(Equal(actualNodeSelector.Operator))
-					g.Expect(expectedNodeSelector.Values).To(BeEquivalentTo(actualNodeSelector.Values))
+					g.Expect(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions).To(ContainElement(expectedNodeSelector))
 				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 
 				//update configuration
@@ -203,12 +192,8 @@ var _ = Describe("SNR Config Test", func() {
 					g.Expect(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms).ToNot(BeNil())
 					g.Expect(len(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms)).To(Equal(1))
 
-					actualNodeSelector := findNodeSelectorRequirement(expectedNodeSelector, ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0])
 					//Verify customized nodeAffinity node selector found
-					g.Expect(expectedNodeSelector.Key).To(Equal(actualNodeSelector.Key))
-					g.Expect(expectedNodeSelector.Operator).To(Equal(actualNodeSelector.Operator))
-					g.Expect(expectedNodeSelector.Values).To(BeEquivalentTo(actualNodeSelector.Values))
-
+					g.Expect(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions).To(ContainElement(expectedNodeSelector))
 				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 			})
 		})
@@ -359,28 +344,6 @@ var _ = Describe("SNR Config Test", func() {
 	})
 
 })
-
-func findNodeSelectorRequirement(expectedNodeSelector corev1.NodeSelectorRequirement, nodeSelectorTerm corev1.NodeSelectorTerm) corev1.NodeSelectorRequirement {
-	var actualNodeSelector corev1.NodeSelectorRequirement
-	for _, mx := range nodeSelectorTerm.MatchExpressions {
-		if mx.Key == expectedNodeSelector.Key && mx.Operator == expectedNodeSelector.Operator && slices.Equal(mx.Values, expectedNodeSelector.Values) {
-			actualNodeSelector = mx
-			break
-		}
-	}
-	return actualNodeSelector
-}
-
-func findToleration(expectedToleration corev1.Toleration, tolerations []corev1.Toleration) corev1.Toleration {
-	var actualToleration corev1.Toleration
-	for _, t := range tolerations {
-		if t.Key == expectedToleration.Key {
-			actualToleration = t
-			break
-		}
-	}
-	return actualToleration
-}
 
 func getEnvVarMap(vars []corev1.EnvVar) map[string]corev1.EnvVar {
 	m := map[string]corev1.EnvVar{}
