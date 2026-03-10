@@ -261,7 +261,7 @@ func validateNodeSelector(nodeSelector v1.NodeSelectorRequirement) error {
 		}
 	default:
 		err := fmt.Errorf("invalid operator for nodeSelector: %s", nodeSelector.Operator)
-		selfNodeRemediationConfigLog.Error(err, "invalid operator for nodeSelector", "valid values", []v1.NodeSelectorOperator{v1.NodeSelectorOpExists, v1.NodeSelectorOpDoesNotExist, v1.NodeSelectorOpIn, v1.NodeSelectorOpIn, v1.NodeSelectorOpGt, v1.NodeSelectorOpLt}, "received value", nodeSelector.Operator)
+		selfNodeRemediationConfigLog.Error(err, "invalid operator for nodeSelector", "valid values", []v1.NodeSelectorOperator{v1.NodeSelectorOpExists, v1.NodeSelectorOpDoesNotExist, v1.NodeSelectorOpIn, v1.NodeSelectorOpNotIn, v1.NodeSelectorOpGt, v1.NodeSelectorOpLt}, "received value", nodeSelector.Operator)
 		return err
 	}
 	return nil
