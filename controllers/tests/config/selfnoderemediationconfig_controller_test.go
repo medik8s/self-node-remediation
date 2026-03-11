@@ -159,10 +159,11 @@ var _ = Describe("SNR Config Test", func() {
 			})
 		})
 		When("Configuration has customized nodeAffinity node selector", func() {
-			var expectedNodeSelector corev1.NodeSelectorRequirement
+			var defaultNodeSelectorRequirement, customNodeSelectorRequirement corev1.NodeSelectorRequirement
 			BeforeEach(func() {
-				expectedNodeSelector = corev1.NodeSelectorRequirement{Key: "dummyLabel", Operator: corev1.NodeSelectorOpIn, Values: []string{"true"}}
-				config.Spec.CustomDsNodeSelectorRequirements = []corev1.NodeSelectorRequirement{expectedNodeSelector}
+				defaultNodeSelectorRequirement = corev1.NodeSelectorRequirement{Key: "remediation.medik8s.io/exclude-from-remediation", Operator: corev1.NodeSelectorOpNotIn, Values: []string{"true"}}
+				customNodeSelectorRequirement = corev1.NodeSelectorRequirement{Key: "dummyLabel", Operator: corev1.NodeSelectorOpIn, Values: []string{"true"}}
+				config.Spec.CustomDsNodeSelectorRequirements = []corev1.NodeSelectorRequirement{customNodeSelectorRequirement}
 			})
 			It("Daemonset should have customized nodeAffinity node selector", func() {
 				Eventually(func(g Gomega) {
@@ -172,8 +173,11 @@ var _ = Describe("SNR Config Test", func() {
 					g.Expect(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms).ToNot(BeNil())
 					g.Expect(len(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms)).To(Equal(1))
 
+					//Verify default nodeAffinity node selector found
+					g.Expect(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions).To(ContainElement(defaultNodeSelectorRequirement))
+
 					//Verify customized nodeAffinity node selector found
-					g.Expect(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions).To(ContainElement(expectedNodeSelector))
+					g.Expect(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions).To(ContainElement(customNodeSelectorRequirement))
 				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 
 				//update configuration
@@ -187,13 +191,16 @@ var _ = Describe("SNR Config Test", func() {
 					//verify ds has new configuration
 					envVars := getEnvVarMap(ds.Spec.Template.Spec.Containers[0].Env)
 					g.Expect(envVars["PEER_UPDATE_INTERVAL"].Value).To(Equal(strconv.Itoa(int(time.Second * 10))))
-					//verify node selector remains on ds
 
+					//verify node selector remains on ds
 					g.Expect(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms).ToNot(BeNil())
 					g.Expect(len(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms)).To(Equal(1))
 
+					//Verify default nodeAffinity node selector found
+					g.Expect(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions).To(ContainElement(defaultNodeSelectorRequirement))
+
 					//Verify customized nodeAffinity node selector found
-					g.Expect(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions).To(ContainElement(expectedNodeSelector))
+					g.Expect(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions).To(ContainElement(customNodeSelectorRequirement))
 				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 			})
 		})
