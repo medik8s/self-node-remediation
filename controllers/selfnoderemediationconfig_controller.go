@@ -170,12 +170,12 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 	}
 
 	if err := r.updateDsTolerations(objs, snrConfig.Spec.CustomDsTolerations); err != nil {
-		logger.Error(err, "Fail to update daemonset tolerations")
+		logger.Error(err, "Failed to update daemonset tolerations")
 		return err
 	}
 
 	if err := r.updateDsNodeSelectors(objs, snrConfig.Spec.CustomDsNodeSelectorRequirements); err != nil {
-		logger.Error(err, "Fail to update daemonset node selector match expression")
+		logger.Error(err, "Failed to update daemonset node selector match expression")
 		return err
 	}
 
