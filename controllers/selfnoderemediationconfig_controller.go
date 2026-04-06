@@ -256,11 +256,6 @@ func (r *SelfNodeRemediationConfigReconciler) checkNumberOfDSObjects(objs []*uns
 func (r *SelfNodeRemediationConfigReconciler) updateDsTolerations(objs []*unstructured.Unstructured, tolerations []corev1.Toleration) error {
 	r.Log.Info("Updating DS tolerations")
 
-	if len(objs) != 1 {
-		err := fmt.Errorf("/install folder does not contain exactly one ds object")
-		r.Log.Error(err, "expecting exactly one ds element in /install folder", "actual number of elements", len(objs))
-		return err
-	}
 	if len(tolerations) == 0 {
 		return nil
 	}
