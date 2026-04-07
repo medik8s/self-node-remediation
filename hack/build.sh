@@ -28,4 +28,13 @@ echo "cgo: ${CGO_ENABLED}"
 # export in case it was set
 export GOEXPERIMENT="${GOEXPERIMENT}"
 
-GOOS=linux GOARCH=amd64 go build -o bin/manager main.go
+# Use TARGETARCH from Docker buildx, or detect from system
+export GOARCH=${TARGETARCH:-$(go env GOARCH)}
+export GOOS=linux
+
+echo "Building for GOOS=${GOOS} GOARCH=${GOARCH}"
+
+go build -o bin/manager main.go
+
+echo "Build complete. Binary info:"
+file bin/manager || true
