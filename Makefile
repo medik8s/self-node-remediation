@@ -387,7 +387,17 @@ bundle-push: ## Push the bundle image.
 .PHONY: protoc
 PROTOC = $(shell pwd)/bin/proto/bin/protoc
 protoc: protoc-gen-go protoc-gen-go-grpc ## Download protoc (protocol buffers tool needed for gRPC)
-	test -f ${PROTOC} || (cd $(shell pwd)/bin/proto && curl -sSLo protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v3.16.0/protoc-3.16.0-linux-x86_64.zip && unzip protoc.zip && rm protoc.zip)
+	@if [ ! -f ${PROTOC} ]; then \
+		PROTOC_ARCH=$$(uname -m); \
+		case $$PROTOC_ARCH in \
+			x86_64) PROTOC_ARCH=x86_64 ;; \
+			s390x) PROTOC_ARCH=s390_64 ;; \
+			*) echo "Unsupported architecture: $$PROTOC_ARCH. Only x86_64 and s390x are supported." && exit 1 ;; \
+		esac; \
+		cd $(shell pwd)/bin/proto && \
+		curl -sSLo protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v3.16.0/protoc-3.16.0-linux-$$PROTOC_ARCH.zip && \
+		unzip protoc.zip && rm protoc.zip; \
+	fi
 
 .PHONY: protoc-gen-go
 PROTOC_GEN_GO = $(shell pwd)/bin/proto/bin/protoc-gen-go
@@ -419,7 +429,13 @@ ifeq (,$(wildcard $(OPERATOR_SDK)))
 	set -e ;\
 	rm -rf $(OPERATOR_SDK_BIN_FOLDER) ;\
 	mkdir -p $(dir $(OPERATOR_SDK)) ;\
-	OS=linux && ARCH=amd64 && \
+	OS=linux ;\
+	ARCH=$$(uname -m) ;\
+	case $$ARCH in \
+		x86_64) ARCH=amd64 ;; \
+		s390x) ARCH=s390x ;; \
+		*) echo "Unsupported architecture: $$ARCH. Only x86_64 and s390x are supported." && exit 1 ;; \
+	esac ;\
 	curl -sSLo $(OPERATOR_SDK) https://github.com/operator-framework/operator-sdk/releases/download/$(OPERATOR_SDK_VERSION)/operator-sdk_$${OS}_$${ARCH} ;\
 	chmod +x $(OPERATOR_SDK) ;\
 	}
@@ -434,7 +450,13 @@ ifeq (,$(wildcard $(OPM)))
 	set -e ;\
 	rm -rf $(OPM_BIN_FOLDER) ;\
 	mkdir -p $(dir $(OPM)) ;\
-	OS=linux && ARCH=amd64 && \
+	OS=linux ;\
+	ARCH=$$(uname -m) ;\
+	case $$ARCH in \
+		x86_64) ARCH=amd64 ;; \
+		s390x) ARCH=s390x ;; \
+		*) echo "Unsupported architecture: $$ARCH. Only x86_64 and s390x are supported." && exit 1 ;; \
+	esac ;\
 	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/$(OPM_VERSION)/$${OS}-$${ARCH}-opm ;\
 	chmod +x $(OPM) ;\
 	}
