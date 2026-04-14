@@ -96,7 +96,8 @@ spec:
       dnsPolicy: ClusterFirst
       restartPolicy: Always
       schedulerName: default-scheduler
-      securityContext: {}
+      securityContext:
+        runAsUser: 0
       terminationGracePeriodSeconds: 10
       tolerations:
         - key: "remediation.medik8s.io/self-node-remediation"
