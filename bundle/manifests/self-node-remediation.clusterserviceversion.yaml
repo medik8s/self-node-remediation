@@ -331,6 +331,10 @@ spec:
                     memory: 110Mi
                 securityContext:
                   allowPrivilegeEscalation: false
+                  capabilities:
+                    drop:
+                    - ALL
+                  readOnlyRootFilesystem: true
               - args:
                 - --secure-listen-address=0.0.0.0:8443
                 - --http2-disable
@@ -356,7 +360,10 @@ spec:
                     - ALL
               priorityClassName: system-cluster-critical
               securityContext:
-                runAsNonRoot: false
+                runAsNonRoot: true
+                runAsUser: 65532
+                seccompProfile:
+                  type: RuntimeDefault
               serviceAccountName: self-node-remediation-controller-manager
               terminationGracePeriodSeconds: 10
               topologySpreadConstraints:
