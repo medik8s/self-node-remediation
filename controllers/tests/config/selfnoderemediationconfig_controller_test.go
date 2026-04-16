@@ -132,11 +132,8 @@ var _ = Describe("SNR Config Test", func() {
 					g.Expect(ds.Spec.Template.Spec.Tolerations).ToNot(BeNil())
 					g.Expect(len(ds.Spec.Template.Spec.Tolerations)).To(Equal(4))
 
-					actualToleration := findToleration(expectedToleration, ds.Spec.Template.Spec.Tolerations)
 					//Verify customized toleration found
-					g.Expect(actualToleration).ToNot(BeNil())
-					g.Expect(string(expectedToleration.Effect)).To(Equal(string(actualToleration.Effect)))
-					g.Expect(string(expectedToleration.Operator)).To(Equal(string(actualToleration.Operator)))
+					g.Expect(ds.Spec.Template.Spec.Tolerations).To(ContainElement(expectedToleration))
 
 				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 
@@ -156,12 +153,54 @@ var _ = Describe("SNR Config Test", func() {
 					g.Expect(ds.Spec.Template.Spec.Tolerations).ToNot(BeNil())
 					g.Expect(len(ds.Spec.Template.Spec.Tolerations)).To(Equal(4))
 
-					actualToleration := findToleration(expectedToleration, ds.Spec.Template.Spec.Tolerations)
 					//Verify customized toleration found
-					g.Expect(actualToleration).ToNot(BeNil())
-					g.Expect(string(expectedToleration.Effect)).To(Equal(string(actualToleration.Effect)))
-					g.Expect(string(expectedToleration.Operator)).To(Equal(string(actualToleration.Operator)))
+					g.Expect(ds.Spec.Template.Spec.Tolerations).To(ContainElement(expectedToleration))
+				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+			})
+		})
+		When("Configuration has customized nodeAffinity node selector", func() {
+			var defaultNodeSelectorRequirement, customNodeSelectorRequirement corev1.NodeSelectorRequirement
+			BeforeEach(func() {
+				defaultNodeSelectorRequirement = corev1.NodeSelectorRequirement{Key: "remediation.medik8s.io/exclude-from-remediation", Operator: corev1.NodeSelectorOpNotIn, Values: []string{"true"}}
+				customNodeSelectorRequirement = corev1.NodeSelectorRequirement{Key: "dummyLabel", Operator: corev1.NodeSelectorOpIn, Values: []string{"true"}}
+				config.Spec.CustomDsNodeSelectorRequirements = []corev1.NodeSelectorRequirement{customNodeSelectorRequirement}
+			})
+			It("Daemonset should have customized nodeAffinity node selector", func() {
+				verifyNodeSelectorTerms := func(g Gomega) {
+					matchExpressions := ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions
+					// Exactly default + custom, no duplicates
+					g.Expect(matchExpressions).To(ConsistOf(defaultNodeSelectorRequirement, customNodeSelectorRequirement))
+				}
 
+				Eventually(func(g Gomega) {
+					ds = &appsv1.DaemonSet{}
+					g.Expect(k8sClient.Get(context.Background(), dsKey, ds)).Should(BeNil())
+
+					nodeSelectorTerms := ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+					g.Expect(nodeSelectorTerms).To(HaveLen(1))
+
+					// Default node selector must always be present when custom is specified
+					verifyNodeSelectorTerms(g)
+				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+
+				//update configuration
+				config.Spec.PeerUpdateInterval = &metav1.Duration{Duration: time.Second * 10}
+				Expect(k8sClient.Update(context.Background(), config)).To(Succeed())
+
+				Eventually(func(g Gomega) {
+					ds = &appsv1.DaemonSet{}
+					g.Expect(k8sClient.Get(context.Background(), dsKey, ds)).Should(BeNil())
+
+					//verify ds has new configuration
+					envVars := getEnvVarMap(ds.Spec.Template.Spec.Containers[0].Env)
+					g.Expect(envVars["PEER_UPDATE_INTERVAL"].Value).To(Equal(strconv.Itoa(int(time.Second * 10))))
+
+					//verify node selectors remain on ds after config update
+					nodeSelectorTerms := ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+					g.Expect(nodeSelectorTerms).To(HaveLen(1))
+
+					// Default node selector must always be present when custom is specified
+					verifyNodeSelectorTerms(g)
 				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 			})
 		})
@@ -312,17 +351,6 @@ var _ = Describe("SNR Config Test", func() {
 	})
 
 })
-
-func findToleration(expectedToleration corev1.Toleration, tolerations []corev1.Toleration) corev1.Toleration {
-	var actualToleration corev1.Toleration
-	for _, t := range tolerations {
-		if t.Key == expectedToleration.Key {
-			actualToleration = t
-			break
-		}
-	}
-	return actualToleration
-}
 
 func getEnvVarMap(vars []corev1.EnvVar) map[string]corev1.EnvVar {
 	m := map[string]corev1.EnvVar{}

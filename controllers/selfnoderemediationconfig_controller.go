@@ -165,8 +165,17 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 		return err
 	}
 
+	if err := r.checkNumberOfDSObjects(objs); err != nil {
+		return err
+	}
+
 	if err := r.updateDsTolerations(objs, snrConfig.Spec.CustomDsTolerations); err != nil {
-		logger.Error(err, "Fail update daemonset tolerations")
+		logger.Error(err, "Failed to update daemonset tolerations")
+		return err
+	}
+
+	if err := r.updateDsNodeSelectors(objs, snrConfig.Spec.CustomDsNodeSelectorRequirements); err != nil {
+		logger.Error(err, "Failed to update daemonset node selector match expression")
 		return err
 	}
 
@@ -234,14 +243,19 @@ func (r *SelfNodeRemediationConfigReconciler) syncCerts(cr *selfnoderemediationv
 	return nil
 }
 
-func (r *SelfNodeRemediationConfigReconciler) updateDsTolerations(objs []*unstructured.Unstructured, tolerations []corev1.Toleration) error {
-	r.Log.Info("Updating DS tolerations")
+func (r *SelfNodeRemediationConfigReconciler) checkNumberOfDSObjects(objs []*unstructured.Unstructured) error {
 	//Expecting to find a single DS object
 	if len(objs) != 1 {
-		err := fmt.Errorf("/install folder does not contain exectly one ds object")
+		err := fmt.Errorf("/install folder does not contain exactly one ds object")
 		r.Log.Error(err, "expecting exactly one ds element in /install folder", "actual number of elements", len(objs))
 		return err
 	}
+	return nil
+}
+
+func (r *SelfNodeRemediationConfigReconciler) updateDsTolerations(objs []*unstructured.Unstructured, tolerations []corev1.Toleration) error {
+	r.Log.Info("Updating DS tolerations")
+
 	if len(tolerations) == 0 {
 		return nil
 	}
@@ -278,6 +292,73 @@ func (r *SelfNodeRemediationConfigReconciler) convertTolerationsToUnstructed(tol
 		convertedTolerations = append(convertedTolerations, convertedToleration)
 	}
 	return convertedTolerations, nil
+}
+
+func (r *SelfNodeRemediationConfigReconciler) updateDsNodeSelectors(objs []*unstructured.Unstructured, nodeSelectors []corev1.NodeSelectorRequirement) error {
+	r.Log.Info("Updating DS node selectors")
+
+	if len(nodeSelectors) == 0 {
+		return nil
+	}
+
+	ds := objs[0]
+	existingNodeSelectorTerms, found, err := unstructured.NestedSlice(ds.Object, "spec", "template", "spec", "affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
+	if err != nil {
+		r.Log.Error(err, "error fetching node selector terms from ds")
+		return err
+	}
+	if !found || len(existingNodeSelectorTerms) == 0 {
+		err := fmt.Errorf("daemonset is missing required nodeSelectorTerms")
+		r.Log.Error(err, "error fetching node selector terms from ds")
+		return err
+	}
+
+	firstTerm, ok := existingNodeSelectorTerms[0].(map[string]interface{})
+	if !ok {
+		err := fmt.Errorf("unexpected nodeSelectorTerm type: %T", existingNodeSelectorTerms[0])
+		r.Log.Error(err, "invalid first nodeSelectorTerm type")
+		return err
+	}
+
+	// Always include the default exclude-from-remediation requirement together with
+	// the custom ones so the merged selector is explicit and consistent with what
+	// is defined in the DS template.
+	defaultNodeSelector := corev1.NodeSelectorRequirement{
+		Key:      excludeRemediationLabel,
+		Operator: corev1.NodeSelectorOpNotIn,
+		Values:   []string{"true"},
+	}
+	allSelectors := append([]corev1.NodeSelectorRequirement{defaultNodeSelector}, nodeSelectors...)
+
+	convertedNodeSelectors, err := r.convertNodeSelectorsToUnstructed(allSelectors)
+	if err != nil {
+		r.Log.Error(err, "error converting node selector term expressions")
+		return err
+	}
+
+	firstTerm["matchExpressions"] = convertedNodeSelectors
+	existingNodeSelectorTerms[0] = firstTerm
+
+	if err := unstructured.SetNestedSlice(ds.Object, existingNodeSelectorTerms, "spec", "template", "spec", "affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms"); err != nil {
+		r.Log.Error(err, "failed to set node affinity nodeSelectorTerms")
+		return err
+	}
+
+	return nil
+}
+
+func (r *SelfNodeRemediationConfigReconciler) convertNodeSelectorsToUnstructed(nodeSelectors []corev1.NodeSelectorRequirement) ([]interface{}, error) {
+	var convertedNodeSelectors []interface{}
+	for _, nodeSelector := range nodeSelectors {
+
+		convertedNodeSelector, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&nodeSelector)
+		if err != nil {
+			r.Log.Error(err, "couldn't convert nodeSelector to unstructured")
+			return nil, err
+		}
+		convertedNodeSelectors = append(convertedNodeSelectors, convertedNodeSelector)
+	}
+	return convertedNodeSelectors, nil
 }
 
 func (r *SelfNodeRemediationConfigReconciler) removeOldDsOnOperatorUpdate(ctx context.Context, dsName string, lastVersion string) error {
