@@ -320,20 +320,23 @@ func (r *SelfNodeRemediationConfigReconciler) updateDsNodeSelectors(objs []*unst
 		return err
 	}
 
-	existingMatchExpressions, _, err := unstructured.NestedSlice(firstTerm, "matchExpressions")
+	// Always include the default exclude-from-remediation requirement together with
+	// the custom ones so the merged selector is explicit and consistent with what
+	// is defined in the DS template.
+	defaultNodeSelector := corev1.NodeSelectorRequirement{
+		Key:      excludeRemediationLabel,
+		Operator: corev1.NodeSelectorOpNotIn,
+		Values:   []string{"true"},
+	}
+	allSelectors := append([]corev1.NodeSelectorRequirement{defaultNodeSelector}, nodeSelectors...)
+
+	convertedNodeSelectors, err := r.convertNodeSelectorsToUnstructed(allSelectors)
 	if err != nil {
-		r.Log.Error(err, "error fetching node selector terms matchExpressions from ds for the first term")
+		r.Log.Error(err, "error converting node selector term expressions")
 		return err
 	}
 
-	convertedNodeSelectors, err := r.convertNodeSelectorsToUnstructed(nodeSelectors)
-	if err != nil {
-		r.Log.Error(err, "error converting custom node selector term expressions")
-		return err
-	}
-
-	updatedMatchExpressions := append(existingMatchExpressions, convertedNodeSelectors...)
-	firstTerm["matchExpressions"] = updatedMatchExpressions
+	firstTerm["matchExpressions"] = convertedNodeSelectors
 	existingNodeSelectorTerms[0] = firstTerm
 
 	if err := unstructured.SetNestedSlice(ds.Object, existingNodeSelectorTerms, "spec", "template", "spec", "affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms"); err != nil {

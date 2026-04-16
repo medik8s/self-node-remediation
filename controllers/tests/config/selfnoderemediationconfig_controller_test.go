@@ -166,18 +166,21 @@ var _ = Describe("SNR Config Test", func() {
 				config.Spec.CustomDsNodeSelectorRequirements = []corev1.NodeSelectorRequirement{customNodeSelectorRequirement}
 			})
 			It("Daemonset should have customized nodeAffinity node selector", func() {
+				verifyNodeSelectorTerms := func(g Gomega) {
+					matchExpressions := ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions
+					// Exactly default + custom, no duplicates
+					g.Expect(matchExpressions).To(ConsistOf(defaultNodeSelectorRequirement, customNodeSelectorRequirement))
+				}
+
 				Eventually(func(g Gomega) {
 					ds = &appsv1.DaemonSet{}
 					g.Expect(k8sClient.Get(context.Background(), dsKey, ds)).Should(BeNil())
 
-					g.Expect(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms).ToNot(BeNil())
-					g.Expect(len(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms)).To(Equal(1))
+					nodeSelectorTerms := ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+					g.Expect(nodeSelectorTerms).To(HaveLen(1))
 
-					//Verify default nodeAffinity node selector found
-					g.Expect(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions).To(ContainElement(defaultNodeSelectorRequirement))
-
-					//Verify customized nodeAffinity node selector found
-					g.Expect(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions).To(ContainElement(customNodeSelectorRequirement))
+					// Default node selector must always be present when custom is specified
+					verifyNodeSelectorTerms(g)
 				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 
 				//update configuration
@@ -192,15 +195,12 @@ var _ = Describe("SNR Config Test", func() {
 					envVars := getEnvVarMap(ds.Spec.Template.Spec.Containers[0].Env)
 					g.Expect(envVars["PEER_UPDATE_INTERVAL"].Value).To(Equal(strconv.Itoa(int(time.Second * 10))))
 
-					//verify node selector remains on ds
-					g.Expect(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms).ToNot(BeNil())
-					g.Expect(len(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms)).To(Equal(1))
+					//verify node selectors remain on ds after config update
+					nodeSelectorTerms := ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+					g.Expect(nodeSelectorTerms).To(HaveLen(1))
 
-					//Verify default nodeAffinity node selector found
-					g.Expect(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions).To(ContainElement(defaultNodeSelectorRequirement))
-
-					//Verify customized nodeAffinity node selector found
-					g.Expect(ds.Spec.Template.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions).To(ContainElement(customNodeSelectorRequirement))
+					// Default node selector must always be present when custom is specified
+					verifyNodeSelectorTerms(g)
 				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 			})
 		})
