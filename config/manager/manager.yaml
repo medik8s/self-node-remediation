@@ -36,7 +36,10 @@ spec:
               control-plane: controller-manager
               self-node-remediation-operator: ""
       securityContext:
-        runAsNonRoot: false
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
       priorityClassName: system-cluster-critical
       containers:
       - command:
@@ -52,6 +55,10 @@ spec:
                 fieldPath: metadata.namespace
         securityContext:
           allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
         livenessProbe:
           httpGet:
             path: /healthz
