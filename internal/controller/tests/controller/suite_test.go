@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package testconfig
+package testcontroler
 
 import (
 	"context"
@@ -28,64 +28,95 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsServer "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	machinev1beta1 "github.com/openshift/api/machine/v1beta1"
+	_ "github.com/openshift/api/machine/v1beta1/zz_generated.crd-manifests"
+
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/controllers"
-	"github.com/medik8s/self-node-remediation/controllers/tests/shared"
+	"github.com/medik8s/self-node-remediation/internal/controller"
+	"github.com/medik8s/self-node-remediation/internal/controller/tests/shared"
 	"github.com/medik8s/self-node-remediation/pkg/apicheck"
-	"github.com/medik8s/self-node-remediation/pkg/certificates"
 	"github.com/medik8s/self-node-remediation/pkg/peers"
+	"github.com/medik8s/self-node-remediation/pkg/reboot"
+	"github.com/medik8s/self-node-remediation/pkg/watchdog"
 	//+kubebuilder:scaffold:imports
 )
 
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
-var testEnv *envtest.Environment
-var unhealthyNode, peerNode = &v1.Node{}, &v1.Node{}
-var cancelFunc context.CancelFunc
-var k8sClient *shared.K8sClientWrapper
-var certReader certificates.CertStorageReader
-var managerReconciler *controllers.SelfNodeRemediationReconciler
+var (
+	testEnv                    *envtest.Environment
+	dummyDog                   watchdog.FakeWatchdog
+	unhealthyNode, peerNode    = &v1.Node{}, &v1.Node{}
+	cancelFunc                 context.CancelFunc
+	k8sClient                  *shared.K8sClientWrapper
+	fakeRecorder               *record.FakeRecorder
+	snrConfig                  *selfnoderemediationv1alpha1.SelfNodeRemediationConfig
+	apiConnectivityCheckConfig *apicheck.ApiConnectivityCheckConfig
+)
+
+var unhealthyNodeNamespacedName = client.ObjectKey{
+	Name:      shared.UnhealthyNodeName,
+	Namespace: "",
+}
+var peerNodeNamespacedName = client.ObjectKey{
+	Name:      shared.PeerNodeName,
+	Namespace: "",
+}
 
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "SNR Config Test Suite")
+	RunSpecs(t, "SNR Controller Test Suite")
 }
 
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
+	testScheme := runtime.NewScheme()
+
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("../../..", "config", "crd", "bases")},
-		ErrorIfCRDPathMissing: true,
+		CRDInstallOptions: envtest.CRDInstallOptions{
+			Scheme: testScheme,
+			Paths: []string{
+				filepath.Join("../../../..", "vendor", "github.com", "openshift", "api", "machine", "v1beta1", "zz_generated.crd-manifests", "0000_10_machine-api_01_machinehealthchecks.crd.yaml"),
+				filepath.Join("../../../..", "vendor", "github.com", "openshift", "api", "machine", "v1beta1", "zz_generated.crd-manifests", "0000_10_machine-api_01_machines-Default.crd.yaml"),
+				filepath.Join("../../../..", "config", "crd", "bases"),
+			},
+			ErrorIfPathMissing: true,
+		},
 	}
 
 	cfg, err := testEnv.Start()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 
-	err = selfnoderemediationv1alpha1.AddToScheme(scheme.Scheme)
-	Expect(err).NotTo(HaveOccurred())
+	Expect(scheme.AddToScheme(testScheme)).To(Succeed())
+	Expect(machinev1beta1.Install(testScheme)).To(Succeed())
+	Expect(selfnoderemediationv1alpha1.AddToScheme(testScheme)).To(Succeed())
 
 	//+kubebuilder:scaffold:scheme
 
 	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:  scheme.Scheme,
+		Scheme:  testScheme,
 		Metrics: metricsServer.Options{BindAddress: "0"},
 	})
 	Expect(err).ToNot(HaveOccurred())
 
 	k8sClient = &shared.K8sClientWrapper{
-		Client: k8sManager.GetClient(),
-		Reader: k8sManager.GetAPIReader(),
+		Client:                  k8sManager.GetClient(),
+		Reader:                  k8sManager.GetAPIReader(),
+		SimulatedFailureMessage: "simulation of client error for delete when listing namespace",
 	}
 	Expect(k8sClient).ToNot(BeNil())
 
@@ -94,17 +125,21 @@ var _ = BeforeSuite(func() {
 			Name: shared.Namespace,
 		},
 	}
+	Expect(k8sClient.Create(context.Background(), nsToCreate)).To(Succeed())
 
+	//mock deployment ns
+	_ = os.Setenv("DEPLOYMENT_NAMESPACE", nsToCreate.Name)
 	_ = os.Setenv("SELF_NODE_REMEDIATION_IMAGE", shared.DsDummyImageName)
 
-	Expect(k8sClient.Create(context.Background(), nsToCreate)).To(Succeed())
+	dummyDog = watchdog.NewFake(true)
+	err = k8sManager.Add(dummyDog)
 	Expect(err).ToNot(HaveOccurred())
-	err = (&controllers.SelfNodeRemediationConfigReconciler{
+	err = (&controller.SelfNodeRemediationConfigReconciler{
 		Client:                   k8sManager.GetClient(),
 		Cache:                    k8sManager.GetCache(),
 		Log:                      ctrl.Log.WithName("controllers").WithName("self-node-remediation-config-controller"),
-		InstallFileFolder:        "../../../install/",
-		Scheme:                   scheme.Scheme,
+		InstallFileFolder:        "../../../../install/",
+		Scheme:                   testScheme,
 		Namespace:                shared.Namespace,
 		RebootDurationCalculator: shared.MockRebootDurationCalculator{},
 	}).SetupWithManager(k8sManager)
@@ -121,54 +156,52 @@ var _ = BeforeSuite(func() {
 	err = k8sManager.Add(peers)
 	Expect(err).ToNot(HaveOccurred())
 
-	certReader = certificates.NewSecretCertStorage(k8sClient, k8sManager.GetCache(), ctrl.Log.WithName("SecretCertStorage"), shared.Namespace)
-
-	apiConnectivityCheckConfig := &apicheck.ApiConnectivityCheckConfig{
+	rebooter := reboot.NewWatchdogRebooter(dummyDog, ctrl.Log.WithName("rebooter"))
+	apiConnectivityCheckConfig = &apicheck.ApiConnectivityCheckConfig{
 		Log:                    ctrl.Log.WithName("api-check"),
 		MyNodeName:             shared.UnhealthyNodeName,
 		CheckInterval:          shared.ApiCheckInterval,
 		MaxErrorsThreshold:     shared.MaxErrorThreshold,
-		MinPeersForRemediation: shared.MinPeersForRemediation,
 		Peers:                  peers,
+		Rebooter:               rebooter,
 		Cfg:                    cfg,
-		CertReader:             certReader,
+		MinPeersForRemediation: shared.MinPeersForRemediation,
 	}
 	apiCheck := apicheck.New(apiConnectivityCheckConfig, nil)
 	err = k8sManager.Add(apiCheck)
 	Expect(err).ToNot(HaveOccurred())
 
+	fakeRecorder = record.NewFakeRecorder(1000)
 	// reconciler for unhealthy node
 	err = ctrl.NewControllerManagedBy(k8sManager).
 		For(&selfnoderemediationv1alpha1.SelfNodeRemediation{}).
-		Named("config-test-unhealthy-node").
-		Complete(&controllers.SelfNodeRemediationReconciler{
-			Client:     k8sClient,
-			Log:        ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("unhealthy node"),
-			MyNodeName: shared.UnhealthyNodeName,
+		Named("controller-test-unhealthy-node").
+		Complete(&controller.SelfNodeRemediationReconciler{
+			Client:                   k8sClient,
+			Log:                      ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("unhealthy node"),
+			Rebooter:                 rebooter,
+			RebootDurationCalculator: nil,
+			MyNodeName:               shared.UnhealthyNodeName,
+			MyNamespace:              shared.Namespace,
+			Recorder:                 fakeRecorder,
+			IsAgent:                  true,
 		})
 	Expect(err).ToNot(HaveOccurred())
 
-	// reconciler for peer node
+	// reconciler for manager running on peer node
 	err = ctrl.NewControllerManagedBy(k8sManager).
 		For(&selfnoderemediationv1alpha1.SelfNodeRemediation{}).
-		Named("config-test-peer-node").
-		Complete(&controllers.SelfNodeRemediationReconciler{
-			Client:     k8sClient,
-			Log:        ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
-			MyNodeName: shared.PeerNodeName,
+		Named("controller-test-manager-node").
+		Complete(&controller.SelfNodeRemediationReconciler{
+			Client:                   k8sClient,
+			Log:                      ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("manager node"),
+			MyNodeName:               shared.PeerNodeName,
+			MyNamespace:              shared.Namespace,
+			Rebooter:                 nil,
+			RebootDurationCalculator: shared.MockRebootDurationCalculator{},
+			Recorder:                 fakeRecorder,
+			IsAgent:                  false,
 		})
-	Expect(err).ToNot(HaveOccurred())
-
-	// reconciler for manager on peer node
-	managerReconciler = &controllers.SelfNodeRemediationReconciler{
-		Client:     k8sClient,
-		Log:        ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("manager node"),
-		MyNodeName: shared.PeerNodeName,
-	}
-	err = ctrl.NewControllerManagedBy(k8sManager).
-		For(&selfnoderemediationv1alpha1.SelfNodeRemediation{}).
-		Named("config-test-manager-node").
-		Complete(managerReconciler)
 	Expect(err).ToNot(HaveOccurred())
 
 	var ctx context.Context

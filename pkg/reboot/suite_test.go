@@ -18,8 +18,8 @@ import (
 	metricsServer "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/controllers"
-	"github.com/medik8s/self-node-remediation/controllers/tests/shared"
+	"github.com/medik8s/self-node-remediation/internal/controller"
+	"github.com/medik8s/self-node-remediation/internal/controller/tests/shared"
 	"github.com/medik8s/self-node-remediation/pkg/reboot"
 )
 
@@ -66,7 +66,7 @@ var _ = BeforeSuite(func() {
 	calculator = reboot.NewCalculator(k8sClient, ctrl.Log.WithName("reboot-calculator"))
 	_ = os.Setenv("SELF_NODE_REMEDIATION_IMAGE", shared.DsDummyImageName)
 
-	err = (&controllers.SelfNodeRemediationConfigReconciler{
+	err = (&controller.SelfNodeRemediationConfigReconciler{
 		Client:                   k8sManager.GetClient(),
 		Cache:                    k8sManager.GetCache(),
 		Log:                      ctrl.Log.WithName("controllers").WithName("self-node-remediation-config-controller"),

@@ -9,40 +9,49 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	remediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
-var _ = Describe("SelfNodeRemediation Validation", func() {
+var _ = Describe("SelfNodeRemediationTemplate Validation", func() {
 
-	Context("a SNR", func() {
+	Context("a SNRT", func() {
 
-		var snrValid *SelfNodeRemediation
-		var outOfServiceStrategy *SelfNodeRemediation
+		var snrtValid *remediationv1alpha1.SelfNodeRemediationTemplate
+		var outOfServiceStrategy *remediationv1alpha1.SelfNodeRemediationTemplate
 		var validator admission.CustomValidator
 
 		BeforeEach(func() {
-			snrValid = &SelfNodeRemediation{
+			snrtValid = &remediationv1alpha1.SelfNodeRemediationTemplate{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
 				},
-				Spec: SelfNodeRemediationSpec{
-					RemediationStrategy: ResourceDeletionRemediationStrategy,
+				Spec: remediationv1alpha1.SelfNodeRemediationTemplateSpec{
+					Template: remediationv1alpha1.SelfNodeRemediationTemplateResource{
+						Spec: remediationv1alpha1.SelfNodeRemediationSpec{
+							RemediationStrategy: remediationv1alpha1.ResourceDeletionRemediationStrategy,
+						},
+					},
 				},
 			}
-			outOfServiceStrategy = &SelfNodeRemediation{
+			outOfServiceStrategy = &remediationv1alpha1.SelfNodeRemediationTemplate{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "test",
 				},
-				Spec: SelfNodeRemediationSpec{
-					RemediationStrategy: OutOfServiceTaintRemediationStrategy,
+				Spec: remediationv1alpha1.SelfNodeRemediationTemplateSpec{
+					Template: remediationv1alpha1.SelfNodeRemediationTemplateResource{
+						Spec: remediationv1alpha1.SelfNodeRemediationSpec{
+							RemediationStrategy: remediationv1alpha1.OutOfServiceTaintRemediationStrategy,
+						},
+					},
 				},
 			}
-			validator = &SNRValidator{}
+			validator = &SNRTemplateValidator{}
 		})
 
 		Context("with valid strategy", func() {
 			It("should be allowed", func() {
-				_, err := validator.ValidateCreate(context.Background(), snrValid)
+				_, err := validator.ValidateCreate(context.Background(), snrtValid)
 				Expect(err).To(Succeed())
 			})
 		})
@@ -60,7 +69,7 @@ var _ = Describe("SelfNodeRemediation Validation", func() {
 				It("should be allowed", func() {
 					_, err := validator.ValidateCreate(context.Background(), outOfServiceStrategy)
 					Expect(err).To(Succeed())
-					_, err = validator.ValidateUpdate(context.Background(), snrValid, outOfServiceStrategy)
+					_, err = validator.ValidateUpdate(context.Background(), snrtValid, outOfServiceStrategy)
 					Expect(err).To(Succeed())
 				})
 			})
@@ -71,7 +80,7 @@ var _ = Describe("SelfNodeRemediation Validation", func() {
 				It("should be denied", func() {
 					_, err := validator.ValidateCreate(context.Background(), outOfServiceStrategy)
 					Expect(err).To(MatchError(ContainSubstring("OutOfServiceTaint remediation strategy is not supported at kubernetes version lower than 1.26, please use a different remediation strategy")))
-					_, err = validator.ValidateUpdate(context.Background(), snrValid, outOfServiceStrategy)
+					_, err = validator.ValidateUpdate(context.Background(), snrtValid, outOfServiceStrategy)
 					Expect(err).To(MatchError(ContainSubstring("OutOfServiceTaint remediation strategy is not supported at kubernetes version lower than 1.26, please use a different remediation strategy")))
 				})
 			})

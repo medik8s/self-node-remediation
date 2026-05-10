@@ -52,7 +52,8 @@ import (
 	machinev1beta1 "github.com/openshift/api/machine/v1beta1"
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/controllers"
+	"github.com/medik8s/self-node-remediation/internal/controller"
+	webhookv1alpha1 "github.com/medik8s/self-node-remediation/internal/webhook/v1alpha1"
 	"github.com/medik8s/self-node-remediation/pkg/apicheck"
 	"github.com/medik8s/self-node-remediation/pkg/certificates"
 	"github.com/medik8s/self-node-remediation/pkg/controlplane"
@@ -173,17 +174,17 @@ func main() {
 func initSelfNodeRemediationManager(mgr manager.Manager) {
 	setupLog.Info("Starting as a manager that installs the daemonset")
 
-	if err := (&selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}).SetupWebhookWithManager(mgr); err != nil {
+	if err := webhookv1alpha1.SetupSNRConfigWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "SelfNodeRemediationConfig")
 		os.Exit(1)
 	}
 
-	if err := (&selfnoderemediationv1alpha1.SelfNodeRemediationTemplate{}).SetupWebhookWithManager(mgr); err != nil {
+	if err := webhookv1alpha1.SetupSNRTemplateWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "SelfNodeRemediationTemplate")
 		os.Exit(1)
 	}
 
-	if err := (&selfnoderemediationv1alpha1.SelfNodeRemediation{}).SetupWebhookWithManager(mgr); err != nil {
+	if err := webhookv1alpha1.SetupSNRWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "SelfNodeRemediation")
 		os.Exit(1)
 	}
@@ -199,10 +200,10 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 		ctrl.Log.WithName("rebootDurationCalculator"),
 	)
 
-	if err := (&controllers.SelfNodeRemediationConfigReconciler{
+	if err := (&controller.SelfNodeRemediationConfigReconciler{
 		Client:                   mgr.GetClient(),
 		Cache:                    mgr.GetCache(),
-		Log:                      ctrl.Log.WithName("controllers").WithName("SelfNodeRemediationConfig"),
+		Log:                      ctrl.Log.WithName("controller").WithName("SelfNodeRemediationConfig"),
 		Scheme:                   mgr.GetScheme(),
 		InstallFileFolder:        "./install",
 		Namespace:                ns,
@@ -230,9 +231,9 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 			"env var name", nodeNameEnvVar)
 	}
 
-	snrReconciler := &controllers.SelfNodeRemediationReconciler{
+	snrReconciler := &controller.SelfNodeRemediationReconciler{
 		Client:                   mgr.GetClient(),
-		Log:                      ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
+		Log:                      ctrl.Log.WithName("controller").WithName("SelfNodeRemediation"),
 		Scheme:                   mgr.GetScheme(),
 		Recorder:                 mgr.GetEventRecorderFor("SelfNodeRemediation"),
 		Rebooter:                 nil,
@@ -362,7 +363,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
-	snrReconciler := &controllers.SelfNodeRemediationReconciler{
+	snrReconciler := &controller.SelfNodeRemediationReconciler{
 		Client:      mgr.GetClient(),
 		Log:         ctrl.Log.WithName("controllers").WithName("SelfNodeRemediation"),
 		Scheme:      mgr.GetScheme(),

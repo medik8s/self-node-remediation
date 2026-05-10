@@ -22,8 +22,8 @@ import (
 	machinev1beta1 "github.com/openshift/api/machine/v1beta1"
 
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/controllers"
-	"github.com/medik8s/self-node-remediation/controllers/tests/shared"
+	"github.com/medik8s/self-node-remediation/internal/controller"
+	"github.com/medik8s/self-node-remediation/internal/controller/tests/shared"
 	"github.com/medik8s/self-node-remediation/pkg/utils"
 	"github.com/medik8s/self-node-remediation/pkg/watchdog"
 )
@@ -327,10 +327,10 @@ var _ = Describe("SNR Controller", func() {
 
 			It("should automatically remove out-of-service taint after timeout when workloads are not deleted", func() {
 				// Temporarily set a much shorter timeout for testing (instead of 1 minute)
-				originalTimeout := controllers.OutOfServiceTimeoutDuration
-				controllers.OutOfServiceTimeoutDuration = 3 * time.Second
+				originalTimeout := controller.OutOfServiceTimeoutDuration
+				controller.OutOfServiceTimeoutDuration = 3 * time.Second
 				DeferCleanup(func() {
-					controllers.OutOfServiceTimeoutDuration = originalTimeout
+					controller.OutOfServiceTimeoutDuration = originalTimeout
 				})
 
 				createSNR(snr, remediationStrategy)
@@ -561,34 +561,34 @@ func verifyFinalizerExists(snr *v1alpha1.SelfNodeRemediation) {
 	By("Verify that finalizer was added")
 	snrNamespacedName := client.ObjectKeyFromObject(snr)
 	ExpectWithOffset(1, k8sClient.Get(context.Background(), snrNamespacedName, snr)).To(Succeed(), "failed to get snr")
-	ExpectWithOffset(1, controllerutil.ContainsFinalizer(snr, controllers.SNRFinalizer)).Should(BeTrue(), "finalizer should be added")
+	ExpectWithOffset(1, controllerutil.ContainsFinalizer(snr, controller.SNRFinalizer)).Should(BeTrue(), "finalizer should be added")
 }
 
 func verifyNoScheduleTaintRemoved() {
 	By("Verify that node does not have NoSchedule taint")
 	Eventually(func() (bool, error) {
-		return isTaintExist(controllers.NodeNoScheduleTaint)
+		return isTaintExist(controller.NodeNoScheduleTaint)
 	}, 10*time.Second, 200*time.Millisecond).Should(BeFalse())
 }
 
 func verifyNoScheduleTaintExist() {
 	By("Verify that node has NoSchedule taint")
 	Eventually(func() (bool, error) {
-		return isTaintExist(controllers.NodeNoScheduleTaint)
+		return isTaintExist(controller.NodeNoScheduleTaint)
 	}, 10*time.Second, 200*time.Millisecond).Should(BeTrue())
 }
 
 func verifyOutOfServiceTaintRemoved() {
 	By("Verify that node does not have out-of-service taint")
 	Eventually(func() (bool, error) {
-		return isTaintExist(controllers.OutOfServiceTaint)
+		return isTaintExist(controller.OutOfServiceTaint)
 	}, 10*time.Second, 200*time.Millisecond).Should(BeFalse())
 }
 
 func verifyOutOfServiceTaintExist() {
 	By("Verify that node has out-of-service taint")
 	Eventually(func() (bool, error) {
-		return isTaintExist(controllers.OutOfServiceTaint)
+		return isTaintExist(controller.OutOfServiceTaint)
 	}, shared.CalculatedRebootDuration+10*time.Second, 200*time.Millisecond).Should(BeTrue())
 }
 

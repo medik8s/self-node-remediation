@@ -24,16 +24,18 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
+	remediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
 )
 
 var (
 	webhookRemediationLog = logf.Log.WithName("selfnoderemediation-resource")
 )
 
-func (r *SelfNodeRemediation) SetupWebhookWithManager(mgr ctrl.Manager) error {
+func SetupSNRWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
+		For(&remediationv1alpha1.SelfNodeRemediation{}).
 		WithValidator(&SNRValidator{}).
-		For(r).
 		Complete()
 }
 
@@ -45,7 +47,7 @@ var _ admission.CustomValidator = &SNRValidator{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
 func (v *SNRValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	snr, ok := obj.(*SelfNodeRemediation)
+	snr, ok := obj.(*remediationv1alpha1.SelfNodeRemediation)
 	if !ok {
 		return nil, fmt.Errorf("expected a SelfNodeRemediation but got a %T", obj)
 	}
@@ -55,7 +57,7 @@ func (v *SNRValidator) ValidateCreate(_ context.Context, obj runtime.Object) (ad
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (v *SNRValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
-	snr, ok := newObj.(*SelfNodeRemediation)
+	snr, ok := newObj.(*remediationv1alpha1.SelfNodeRemediation)
 	if !ok {
 		return nil, fmt.Errorf("expected a SelfNodeRemediation but got a %T", newObj)
 	}
@@ -65,7 +67,7 @@ func (v *SNRValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Objec
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
 func (v *SNRValidator) ValidateDelete(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	snr, ok := obj.(*SelfNodeRemediation)
+	snr, ok := obj.(*remediationv1alpha1.SelfNodeRemediation)
 	if !ok {
 		return nil, fmt.Errorf("expected a SelfNodeRemediation but got a %T", obj)
 	} // unused for now, add "delete" when needed to verbs in the kubebuilder annotation above

@@ -27,6 +27,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	remediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
@@ -35,11 +36,11 @@ var (
 	webhookTemplateLog = logf.Log.WithName("selfnoderemediationtemplate-resource")
 )
 
-func (r *SelfNodeRemediationTemplate) SetupWebhookWithManager(mgr ctrl.Manager) error {
+func SetupSNRTemplateWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
+		For(&remediationv1alpha1.SelfNodeRemediationTemplate{}).
 		WithDefaulter(&SNRTemplateDefaulter{}).
 		WithValidator(&SNRTemplateValidator{}).
-		For(r).
 		Complete()
 }
 
@@ -51,7 +52,7 @@ var _ admission.CustomDefaulter = &SNRTemplateDefaulter{}
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type
 func (d *SNRTemplateDefaulter) Default(_ context.Context, obj runtime.Object) error {
-	snrTemplate, ok := obj.(*SelfNodeRemediationTemplate)
+	snrTemplate, ok := obj.(*remediationv1alpha1.SelfNodeRemediationTemplate)
 	if !ok {
 		return fmt.Errorf("expected a SelfNodeRemediationTemplate but got a %T", obj)
 	}
@@ -73,7 +74,7 @@ var _ admission.CustomValidator = &SNRTemplateValidator{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
 func (v *SNRTemplateValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	snrTemplate, ok := obj.(*SelfNodeRemediationTemplate)
+	snrTemplate, ok := obj.(*remediationv1alpha1.SelfNodeRemediationTemplate)
 	if !ok {
 		return nil, fmt.Errorf("expected a SelfNodeRemediationTemplate but got a %T", obj)
 	}
@@ -83,7 +84,7 @@ func (v *SNRTemplateValidator) ValidateCreate(_ context.Context, obj runtime.Obj
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (v *SNRTemplateValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
-	snrTemplate, ok := newObj.(*SelfNodeRemediationTemplate)
+	snrTemplate, ok := newObj.(*remediationv1alpha1.SelfNodeRemediationTemplate)
 	if !ok {
 		return nil, fmt.Errorf("expected a SelfNodeRemediationTemplate but got a %T", newObj)
 	}
@@ -93,7 +94,7 @@ func (v *SNRTemplateValidator) ValidateUpdate(_ context.Context, _, newObj runti
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
 func (v *SNRTemplateValidator) ValidateDelete(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	snrTemplate, ok := obj.(*SelfNodeRemediationTemplate)
+	snrTemplate, ok := obj.(*remediationv1alpha1.SelfNodeRemediationTemplate)
 	if !ok {
 		return nil, fmt.Errorf("expected a SelfNodeRemediationTemplate but got a %T", obj)
 	}
@@ -102,9 +103,9 @@ func (v *SNRTemplateValidator) ValidateDelete(_ context.Context, obj runtime.Obj
 	return admission.Warnings{}, nil
 }
 
-func validateStrategy(snrSpec SelfNodeRemediationSpec) error {
-	if snrSpec.RemediationStrategy == OutOfServiceTaintRemediationStrategy && !utils.IsOutOfServiceTaintSupported {
-		return fmt.Errorf("%s remediation strategy is not supported at kubernetes version lower than 1.26, please use a different remediation strategy", OutOfServiceTaintRemediationStrategy)
+func validateStrategy(snrSpec remediationv1alpha1.SelfNodeRemediationSpec) error {
+	if snrSpec.RemediationStrategy == remediationv1alpha1.OutOfServiceTaintRemediationStrategy && !utils.IsOutOfServiceTaintSupported {
+		return fmt.Errorf("%s remediation strategy is not supported at kubernetes version lower than 1.26, please use a different remediation strategy", remediationv1alpha1.OutOfServiceTaintRemediationStrategy)
 	}
 	return nil
 }

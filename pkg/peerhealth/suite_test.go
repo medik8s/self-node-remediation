@@ -22,7 +22,7 @@ import (
 	metricsServer "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/controllers"
+	"github.com/medik8s/self-node-remediation/internal/controller"
 )
 
 func TestPeerHealth(t *testing.T) {
@@ -36,7 +36,7 @@ var cfg *rest.Config
 var k8sClient client.Client
 var reader *ReaderWrapper
 var testEnv *envtest.Environment
-var snrReconciler *controllers.SelfNodeRemediationReconciler
+var snrReconciler *controller.SelfNodeRemediationReconciler
 var cancelFunc context.CancelFunc
 
 var _ = BeforeSuite(func() {
@@ -83,7 +83,7 @@ var _ = BeforeSuite(func() {
 	}
 
 	// we need a reconciler for getting last SNR namespace
-	snrReconciler = &controllers.SelfNodeRemediationReconciler{
+	snrReconciler = &controller.SelfNodeRemediationReconciler{
 		Client:     k8sClient,
 		Log:        ctrl.Log.WithName("controllers").WithName("self-node-remediation-controller").WithName("peer node"),
 		MyNodeName: nodeName,

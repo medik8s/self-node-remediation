@@ -18,7 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/controllers/tests/shared"
+	"github.com/medik8s/self-node-remediation/internal/controller/tests/shared"
 )
 
 var _ = Describe("SNR Config Test", func() {

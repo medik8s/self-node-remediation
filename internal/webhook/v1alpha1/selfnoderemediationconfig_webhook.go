@@ -28,6 +28,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	remediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/pkg/utils"
 )
 
@@ -64,10 +65,10 @@ type field struct {
 // log is for logging in this package.
 var selfNodeRemediationConfigLog = logf.Log.WithName("selfnoderemediationconfig-resource")
 
-func (r *SelfNodeRemediationConfig) SetupWebhookWithManager(mgr ctrl.Manager) error {
+func SetupSNRConfigWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
+		For(&remediationv1alpha1.SelfNodeRemediationConfig{}).
 		WithValidator(&SNRConfigValidator{}).
-		For(r).
 		Complete()
 }
 
@@ -79,7 +80,7 @@ var _ admission.CustomValidator = &SNRConfigValidator{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
 func (v *SNRConfigValidator) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
-	snrConfig, ok := obj.(*SelfNodeRemediationConfig)
+	snrConfig, ok := obj.(*remediationv1alpha1.SelfNodeRemediationConfig)
 	if !ok {
 		return nil, fmt.Errorf("expected a SelfNodeRemediationConfig but got a %T", obj)
 	}
@@ -97,7 +98,7 @@ func (v *SNRConfigValidator) ValidateCreate(_ context.Context, obj runtime.Objec
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (v *SNRConfigValidator) ValidateUpdate(_ context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
-	snrConfig, ok := newObj.(*SelfNodeRemediationConfig)
+	snrConfig, ok := newObj.(*remediationv1alpha1.SelfNodeRemediationConfig)
 	if !ok {
 		return nil, fmt.Errorf("expected a SelfNodeRemediationConfig but got a %T", newObj)
 	}
@@ -113,12 +114,12 @@ func (v *SNRConfigValidator) ValidateUpdate(_ context.Context, _, newObj runtime
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
 func (v *SNRConfigValidator) ValidateDelete(_ context.Context, obj runtime.Object) (warnings admission.Warnings, err error) {
-	snrConfig, ok := obj.(*SelfNodeRemediationConfig)
+	snrConfig, ok := obj.(*remediationv1alpha1.SelfNodeRemediationConfig)
 	if !ok {
 		return nil, fmt.Errorf("expected a SelfNodeRemediationConfig but got a %T", obj)
 	}
 	selfNodeRemediationConfigLog.Info("validate delete", "name", snrConfig.Name)
-	if snrConfig.Name == ConfigCRName {
+	if snrConfig.Name == remediationv1alpha1.ConfigCRName {
 		if deploymentNs, err := utils.GetDeploymentNamespace(); err != nil {
 			selfNodeRemediationConfigLog.Error(err, "validate configuration delete failed", "config name", snrConfig.Name)
 			return admission.Warnings{}, err
@@ -131,7 +132,7 @@ func (v *SNRConfigValidator) ValidateDelete(_ context.Context, obj runtime.Objec
 
 // validateTimes validates that each time field in the SelfNodeRemediationConfig CR doesn't go below the minimum time
 // that was defined to it
-func validateTimes(snrConfig *SelfNodeRemediationConfig) error {
+func validateTimes(snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) error {
 	errMsg := ""
 
 	spec := snrConfig.Spec
@@ -166,7 +167,7 @@ func (f *field) validate() error {
 	return nil
 }
 
-func validateCustomTolerations(snrConfig *SelfNodeRemediationConfig) error {
+func validateCustomTolerations(snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) error {
 	customTolerations := snrConfig.Spec.CustomDsTolerations
 	for _, toleration := range customTolerations {
 		if err := validateToleration(toleration); err != nil {
@@ -209,7 +210,7 @@ func validateToleration(toleration v1.Toleration) error {
 
 // validatePeerTimeoutSafety checks if PeerRequestTimeout is safe relative to ApiServerTimeout
 // and returns warnings if the configuration might be unsafe
-func validatePeerTimeoutSafety(snrConfig *SelfNodeRemediationConfig) admission.Warnings {
+func validatePeerTimeoutSafety(snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) admission.Warnings {
 	var warnings admission.Warnings
 
 	spec := snrConfig.Spec
@@ -244,9 +245,9 @@ func validatePeerTimeoutSafety(snrConfig *SelfNodeRemediationConfig) admission.W
 	return warnings
 }
 
-func validateSingleton(snrConfig *SelfNodeRemediationConfig) error {
-	if snrConfig.Name != ConfigCRName {
-		return fmt.Errorf("to enforce only one SelfNodeRemediationConfig in the cluster, a name other than %s is not allowed", ConfigCRName)
+func validateSingleton(snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) error {
+	if snrConfig.Name != remediationv1alpha1.ConfigCRName {
+		return fmt.Errorf("to enforce only one SelfNodeRemediationConfig in the cluster, a name other than %s is not allowed", remediationv1alpha1.ConfigCRName)
 	} else if ns, err := utils.GetDeploymentNamespace(); err != nil {
 		return fmt.Errorf("failed to verify the deployment namespace SelfNodeRemediationConfig can not be created")
 	} else if ns != snrConfig.Namespace {

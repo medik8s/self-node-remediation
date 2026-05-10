@@ -13,6 +13,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
+	remediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
 )
 
 // default CR fields durations
@@ -112,7 +114,7 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 			When("CR name namespace does not match deployment namespace", func() {
 				It("create should be rejected", func() {
 					snrc := createTestSelfNodeRemediationConfigCR()
-					snrc.Name = ConfigCRName
+					snrc.Name = remediationv1alpha1.ConfigCRName
 					_ = os.Setenv("DEPLOYMENT_NAMESPACE", "mock-deployment-namespace")
 
 					_, err := validator.ValidateCreate(context.Background(), snrc)
@@ -127,7 +129,7 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 	})
 
 	Describe("deleting SelfNodeRemediationConfig CR", func() {
-		var conf *SelfNodeRemediationConfig
+		var conf *remediationv1alpha1.SelfNodeRemediationConfig
 		BeforeEach(func() {
 			conf = createTestSelfNodeRemediationConfigCR()
 		})
@@ -147,10 +149,10 @@ var _ = Describe("SelfNodeRemediationConfig Validation", func() {
 	})
 
 	Describe("PeerRequestTimeout Safety Validation", func() {
-		var snrc *SelfNodeRemediationConfig
+		var snrc *remediationv1alpha1.SelfNodeRemediationConfig
 		BeforeEach(func() {
 			snrc = createTestSelfNodeRemediationConfigCR()
-			snrc.Name = ConfigCRName
+			snrc.Name = remediationv1alpha1.ConfigCRName
 			_ = os.Setenv("DEPLOYMENT_NAMESPACE", snrc.Namespace)
 		})
 		It("should produce warning when PeerRequestTimeout is too low", func() {
@@ -271,7 +273,7 @@ func testMultipleInvalidFields(validator admission.CustomValidator, validationTy
 }
 
 func testValidCR(validator admission.CustomValidator, validationType validationType) {
-	snrc := &SelfNodeRemediationConfig{}
+	snrc := &remediationv1alpha1.SelfNodeRemediationConfig{}
 	snrc.Name = "self-node-remediation-config"
 	snrc.Namespace = "default"
 
@@ -306,8 +308,8 @@ func testValidCR(validator admission.CustomValidator, validationType validationT
 	})
 }
 
-func createTestSelfNodeRemediationConfigCR() *SelfNodeRemediationConfig {
-	snrc := &SelfNodeRemediationConfig{}
+func createTestSelfNodeRemediationConfigCR() *remediationv1alpha1.SelfNodeRemediationConfig {
+	snrc := &remediationv1alpha1.SelfNodeRemediationConfig{}
 	snrc.Name = "test"
 	snrc.Namespace = "default"
 
@@ -322,7 +324,7 @@ func createTestSelfNodeRemediationConfigCR() *SelfNodeRemediationConfig {
 	return snrc
 }
 
-func createSelfNodeRemediationConfigCRWithFieldValue(fieldName string, value time.Duration) *SelfNodeRemediationConfig {
+func createSelfNodeRemediationConfigCRWithFieldValue(fieldName string, value time.Duration) *remediationv1alpha1.SelfNodeRemediationConfig {
 	snrc := createTestSelfNodeRemediationConfigCR()
 
 	//set the tested field
@@ -331,7 +333,7 @@ func createSelfNodeRemediationConfigCRWithFieldValue(fieldName string, value tim
 	return snrc
 }
 
-func setFieldValue(snrc *SelfNodeRemediationConfig, fieldName string, value time.Duration) {
+func setFieldValue(snrc *remediationv1alpha1.SelfNodeRemediationConfig, fieldName string, value time.Duration) {
 	timeValue := &metav1.Duration{Duration: value}
 	switch fieldName {
 	case peerApiServerTimeout:
