@@ -309,11 +309,20 @@ spec:
                     fieldRef:
                       fieldPath: metadata.namespace
                 image: quay.io/medik8s/self-node-remediation-operator:latest
+                lifecycle:
+                  postStart:
+                    exec:
+                      command:
+                      - /bin/true
+                  preStop:
+                    exec:
+                      command:
+                      - sleep
+                      - "5"
                 livenessProbe:
                   httpGet:
                     path: /healthz
                     port: 8081
-                  initialDelaySeconds: 15
                   periodSeconds: 20
                 name: manager
                 ports:
@@ -339,6 +348,13 @@ spec:
                     drop:
                     - ALL
                   readOnlyRootFilesystem: true
+                startupProbe:
+                  failureThreshold: 12
+                  httpGet:
+                    path: /healthz
+                    port: 8081
+                  periodSeconds: 5
+                terminationMessagePolicy: FallbackToLogsOnError
               priorityClassName: system-cluster-critical
               securityContext:
                 runAsNonRoot: true
@@ -346,7 +362,7 @@ spec:
                 seccompProfile:
                   type: RuntimeDefault
               serviceAccountName: self-node-remediation-controller-manager
-              terminationGracePeriodSeconds: 10
+              terminationGracePeriodSeconds: 15
               topologySpreadConstraints:
               - labelSelector:
                   matchLabels:
