@@ -15,7 +15,7 @@ import (
 
 	"github.com/medik8s/self-node-remediation/api"
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/pkg/certificates"
+	"github.com/medik8s/self-node-remediation/internal/certificates"
 )
 
 var _ = Describe("Checking health using grpc client and server", func() {

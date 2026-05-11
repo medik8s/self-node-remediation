@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-logr/logr"
 
-	"github.com/medik8s/self-node-remediation/pkg/watchdog"
+	"github.com/medik8s/self-node-remediation/internal/watchdog"
 )
 
 const TimeToAssumeRebootHasStarted = time.Second * 30

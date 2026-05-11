@@ -24,8 +24,8 @@ import (
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/internal/controller"
 	"github.com/medik8s/self-node-remediation/internal/controller/tests/shared"
-	"github.com/medik8s/self-node-remediation/pkg/utils"
-	"github.com/medik8s/self-node-remediation/pkg/watchdog"
+	"github.com/medik8s/self-node-remediation/internal/utils"
+	"github.com/medik8s/self-node-remediation/internal/watchdog"
 )
 
 const (

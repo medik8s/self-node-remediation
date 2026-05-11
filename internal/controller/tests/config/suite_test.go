@@ -36,11 +36,11 @@ import (
 	metricsServer "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/internal/apicheck"
+	"github.com/medik8s/self-node-remediation/internal/certificates"
 	"github.com/medik8s/self-node-remediation/internal/controller"
 	"github.com/medik8s/self-node-remediation/internal/controller/tests/shared"
-	"github.com/medik8s/self-node-remediation/pkg/apicheck"
-	"github.com/medik8s/self-node-remediation/pkg/certificates"
-	"github.com/medik8s/self-node-remediation/pkg/peers"
+	"github.com/medik8s/self-node-remediation/internal/peers"
 	//+kubebuilder:scaffold:imports
 )
 

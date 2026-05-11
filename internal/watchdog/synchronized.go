@@ -10,7 +10,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/wait"
 
-	"github.com/medik8s/self-node-remediation/pkg/utils"
+	"github.com/medik8s/self-node-remediation/internal/utils"
 )
 
 var _ Watchdog = &synchronizedWatchdog{}

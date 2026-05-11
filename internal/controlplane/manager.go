@@ -17,8 +17,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/medik8s/self-node-remediation/pkg/certificates"
-	"github.com/medik8s/self-node-remediation/pkg/peers"
+	"github.com/medik8s/self-node-remediation/internal/certificates"
+	"github.com/medik8s/self-node-remediation/internal/peers"
 )
 
 const (

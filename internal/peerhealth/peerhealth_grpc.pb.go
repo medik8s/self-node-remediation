@@ -97,5 +97,5 @@ var PeerHealth_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "pkg/peerhealth/peerhealth.proto",
+	Metadata: "internal/peerhealth/peerhealth.proto",
 }

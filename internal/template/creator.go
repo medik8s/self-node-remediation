@@ -11,7 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/pkg/utils"
+	"github.com/medik8s/self-node-remediation/internal/utils"
 )
 
 type Creator struct {

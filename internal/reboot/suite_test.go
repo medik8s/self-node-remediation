@@ -20,7 +20,7 @@ import (
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/internal/controller"
 	"github.com/medik8s/self-node-remediation/internal/controller/tests/shared"
-	"github.com/medik8s/self-node-remediation/pkg/reboot"
+	"github.com/medik8s/self-node-remediation/internal/reboot"
 )
 
 var (

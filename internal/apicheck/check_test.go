@@ -11,7 +11,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/medik8s/self-node-remediation/api/v1alpha1"
+	snrwebhook "github.com/medik8s/self-node-remediation/internal/webhook/v1alpha1"
 )
 
 func TestApiCheck(t *testing.T) {
@@ -64,7 +64,7 @@ var _ = Describe("ApiConnectivityCheck", func() {
 
 				effectiveTimeout := apiCheck.getEffectivePeerRequestTimeout()
 
-				expectedMinimumTimeout := config.ApiServerTimeout + v1alpha1.MinimumBuffer // 7s
+				expectedMinimumTimeout := config.ApiServerTimeout + snrwebhook.MinimumBuffer // 7s
 				Expect(effectiveTimeout).To(Equal(expectedMinimumTimeout))
 
 				// Should emit a warning event

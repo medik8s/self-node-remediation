@@ -15,8 +15,8 @@ import (
 
 	selfNodeRemediationApis "github.com/medik8s/self-node-remediation/api"
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/internal/certificates"
 	"github.com/medik8s/self-node-remediation/internal/controller"
-	"github.com/medik8s/self-node-remediation/pkg/certificates"
 )
 
 const (

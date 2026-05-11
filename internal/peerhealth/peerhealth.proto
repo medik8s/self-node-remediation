@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 package selfnoderemediation.health;
-option go_package = "pkg/peerhealth";
+option go_package = "internal/peerhealth";
 
 service PeerHealth {
   rpc IsHealthy(HealthRequest) returns (HealthResponse) {}

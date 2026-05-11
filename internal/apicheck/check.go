@@ -21,12 +21,13 @@ import (
 
 	selfNodeRemediation "github.com/medik8s/self-node-remediation/api"
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/pkg/certificates"
-	"github.com/medik8s/self-node-remediation/pkg/controlplane"
-	"github.com/medik8s/self-node-remediation/pkg/peerhealth"
-	"github.com/medik8s/self-node-remediation/pkg/peers"
-	"github.com/medik8s/self-node-remediation/pkg/reboot"
-	"github.com/medik8s/self-node-remediation/pkg/utils"
+	"github.com/medik8s/self-node-remediation/internal/certificates"
+	"github.com/medik8s/self-node-remediation/internal/controlplane"
+	"github.com/medik8s/self-node-remediation/internal/peerhealth"
+	"github.com/medik8s/self-node-remediation/internal/peers"
+	"github.com/medik8s/self-node-remediation/internal/reboot"
+	"github.com/medik8s/self-node-remediation/internal/utils"
+	snrwebhook "github.com/medik8s/self-node-remediation/internal/webhook/v1alpha1"
 )
 
 const (
@@ -287,14 +288,14 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeers(addresses []corev1.PodIP
 // getEffectivePeerRequestTimeout calculates the effective peer request timeout
 // ensuring it's safe relative to the API server timeout by enforcing a minimum buffer
 func (c *ApiConnectivityCheck) getEffectivePeerRequestTimeout() time.Duration {
-	minimumSafeTimeout := c.config.ApiServerTimeout + v1alpha1.MinimumBuffer
+	minimumSafeTimeout := c.config.ApiServerTimeout + snrwebhook.MinimumBuffer
 
 	if c.config.PeerRequestTimeout < minimumSafeTimeout {
 		// Log warning about timeout adjustment
 		c.config.Log.Info("PeerRequestTimeout is too low, using adjusted value for safety",
 			"configuredTimeout", c.config.PeerRequestTimeout,
 			"apiServerTimeout", c.config.ApiServerTimeout,
-			"minimumBuffer", v1alpha1.MinimumBuffer,
+			"minimumBuffer", snrwebhook.MinimumBuffer,
 			"effectiveTimeout", minimumSafeTimeout)
 		events.WarningEventf(c.config.Recorder, &v1alpha1.SelfNodeRemediationConfig{ObjectMeta: metav1.ObjectMeta{Name: v1alpha1.ConfigCRName}}, eventReasonPeerTimeoutAdjusted, "PeerRequestTimeout (%s) was too low compared to ApiServerTimeout (%s), using safe value (%s) instead", c.config.PeerRequestTimeout, c.config.ApiServerTimeout, minimumSafeTimeout)
 		return minimumSafeTimeout

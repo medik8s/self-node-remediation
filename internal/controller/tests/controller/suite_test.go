@@ -42,12 +42,12 @@ import (
 	_ "github.com/openshift/api/machine/v1beta1/zz_generated.crd-manifests"
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/internal/apicheck"
 	"github.com/medik8s/self-node-remediation/internal/controller"
 	"github.com/medik8s/self-node-remediation/internal/controller/tests/shared"
-	"github.com/medik8s/self-node-remediation/pkg/apicheck"
-	"github.com/medik8s/self-node-remediation/pkg/peers"
-	"github.com/medik8s/self-node-remediation/pkg/reboot"
-	"github.com/medik8s/self-node-remediation/pkg/watchdog"
+	"github.com/medik8s/self-node-remediation/internal/peers"
+	"github.com/medik8s/self-node-remediation/internal/reboot"
+	"github.com/medik8s/self-node-remediation/internal/watchdog"
 	//+kubebuilder:scaffold:imports
 )
 

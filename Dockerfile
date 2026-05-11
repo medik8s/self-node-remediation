@@ -36,7 +36,6 @@ COPY api/ api/
 COPY internal/ internal/
 # for getting version info
 COPY .git/ .git/
-COPY pkg/ pkg/
 COPY install/ install/
 # Build
 RUN ./hack/build.sh

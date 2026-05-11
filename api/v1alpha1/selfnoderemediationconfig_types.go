@@ -17,8 +17,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"time"
-
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -31,10 +29,6 @@ const (
 	defaultWatchdogPath            = "/dev/watchdog"
 	defaultIsSoftwareRebootEnabled = true
 	defaultMinPeersForRemediation  = 1
-
-	// MinimumBuffer is the minimum buffer time between APIServerTimeout and PeerRequestTimeout
-	// It is required to make sure there is enough time for network communication between the peers in case the API Server is out
-	MinimumBuffer = 2 * time.Second
 )
 
 // SelfNodeRemediationConfigSpec defines the desired state of SelfNodeRemediationConfig
