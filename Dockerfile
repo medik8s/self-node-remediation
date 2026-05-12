@@ -30,13 +30,12 @@ RUN go version
 # Copy the go source
 COPY vendor/ vendor/
 COPY version/ version/
-COPY main.go main.go
+COPY cmd/ cmd/
 COPY hack/ hack/
 COPY api/ api/
-COPY controllers/ controllers/
+COPY internal/ internal/
 # for getting version info
 COPY .git/ .git/
-COPY pkg/ pkg/
 COPY install/ install/
 # Build
 RUN ./hack/build.sh

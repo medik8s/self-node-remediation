@@ -2,23 +2,23 @@
 SHELL := /bin/bash
 
 # versions at  https://github.com/kubernetes-sigs/controller-tools/releases
-CONTROLLER_GEN_VERSION =  v0.20.0
+CONTROLLER_GEN_VERSION =  v0.20.1
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary, align with k8s.io/client-go in go.mod
-ENVTEST_K8S_VERSION = 1.33
+ENVTEST_K8S_VERSION = 1.34
 
 # versions at https://github.com/operator-framework/operator-sdk/releases
 # Make sure to update /config/scorecard/patches/basic.config.yaml and /config/scorecard/patches/olm.config.yaml
-OPERATOR_SDK_VERSION = v1.37.0
+OPERATOR_SDK_VERSION = v1.42.2
 
 # versions at https://github.com/operator-framework/operator-registry/releases
-OPM_VERSION = v1.61.0
+OPM_VERSION = v1.66.0
 
 
 # update for major version updates to KUSTOMIZE_VERSION!
 KUSTOMIZE_API_VERSION = v5
 # versions at https://github.com/kubernetes-sigs/kustomize/releases
-KUSTOMIZE_VERSION = v5.8.0
+KUSTOMIZE_VERSION = v5.8.1
 
 # https://pkg.go.dev/sigs.k8s.io/controller-runtime/tools/setup-envtest/env?tab=versions
 ENVTEST_VERSION = v0.0.0-20260120065648-aebc15d7c689
@@ -34,7 +34,7 @@ OCP_VERSION = 4.20
 
 # update for major version updates to YQ_VERSION! see https://github.com/mikefarah/yq
 YQ_API_VERSION = v4
-YQ_VERSION = v4.50.1
+YQ_VERSION = v4.53.2
 
 OPERATOR_NAME ?= self-node-remediation
 OPERATOR_NAMESPACE ?= openshift-workload-availability
@@ -146,7 +146,7 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 .PHONY: generate
 generate: controller-gen protoc ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations. Also generate protoc / gRPC code
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
-	PATH='$(PATH)':$(shell pwd)/bin/proto/bin && $(PROTOC) --go_out=. --go-grpc_out=. pkg/peerhealth/peerhealth.proto
+	PATH='$(PATH)':$(shell pwd)/bin/proto/bin && $(PROTOC) --go_out=. --go-grpc_out=. internal/peerhealth/peerhealth.proto
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -175,7 +175,7 @@ export TEST_OPS ?= ""
 test: go-verify envtest generate fix-imports manifests fmt vet ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path --bin-dir $(PROJECT_DIR)/testbin)" \
 		KUBEBUILDER_CONTROLPLANE_STOP_TIMEOUT="60s"\
-		go test ./api/... ./controllers/... ./pkg/... -coverprofile cover.out -v ${TEST_OPS}
+		go test ./api/... ./internal/... -coverprofile cover.out -v ${TEST_OPS}
 
 .PHONY: bundle-run
 bundle-run: operator-sdk create-ns ## Run bundle image. Default NS is "openshift-workload-availability", redefine OPERATOR_NAMESPACE to override it.

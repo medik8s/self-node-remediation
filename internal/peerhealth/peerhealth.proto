@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package selfnoderemediation.health;
+option go_package = "internal/peerhealth";
+
+service PeerHealth {
+  rpc IsHealthy(HealthRequest) returns (HealthResponse) {}
+}
+
+message HealthRequest {
+  string nodeName = 1;
+  string machineName = 2;
+}
+
+message HealthResponse {
+  int32 status = 1;
+}

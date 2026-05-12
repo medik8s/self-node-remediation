@@ -21,8 +21,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/controllers"
 	"github.com/medik8s/self-node-remediation/e2e/utils"
+	"github.com/medik8s/self-node-remediation/internal/controller"
 )
 
 const (
@@ -306,12 +306,12 @@ func createSNR(node *v1.Node, remediationStrategy v1alpha1.RemediationStrategyTy
 
 func checkNoScheduleTaintRemoved(node *v1.Node) {
 	By("checking if Remediation NoSchedule taint was removed")
-	checkTaintRemoved(node, controllers.NodeNoScheduleTaint)
+	checkTaintRemoved(node, controller.NodeNoScheduleTaint)
 }
 
 func checkOutOfServiceTaintRemoved(node *v1.Node) {
 	By("checking if out-of-service taint was removed")
-	checkTaintRemoved(node, controllers.OutOfServiceTaint)
+	checkTaintRemoved(node, controller.OutOfServiceTaint)
 }
 
 func checkTaintRemoved(node *v1.Node, taintToCheck *v1.Taint) {
