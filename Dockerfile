@@ -5,6 +5,15 @@ FROM quay.io/centos/centos:stream9 AS builder
 ARG TARGETARCH
 ARG TARGETOS=linux
 
+# Validate and map TARGETARCH to GOARCH early to fail fast
+# Currently supporting amd64 (x86_64) and s390x (IBM Z) architectures
+# TARGETARCH is automatically set by Docker BuildKit during multi-platform builds
+RUN case ${TARGETARCH} in \
+        amd64|s390x) echo "Building for supported architecture: ${TARGETARCH}" ;; \
+        "") echo "ERROR: TARGETARCH not set. Use --platform flag or enable BuildKit." && exit 1 ;; \
+        *) echo "ERROR: Unsupported architecture: ${TARGETARCH}. Only amd64 and s390x are supported." && exit 1 ;; \
+    esac
+
 RUN yum install git jq -y && yum clean all
 
 WORKDIR /workspace

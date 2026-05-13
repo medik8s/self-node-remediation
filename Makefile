@@ -213,12 +213,14 @@ run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./main.go
 
 .PHONY: docker-build
-docker-build: test
-	docker build -t ${IMG} .
+docker-build: test ## Build docker image with BuildKit enabled for multi-arch support
+	# Enable BuildKit and set platform to ensure TARGETARCH is available in Dockerfile
+	DOCKER_BUILDKIT=1 docker build --platform linux/$$(uname -m | sed 's/x86_64/amd64/') -t ${IMG} .
 
 .PHONY: docker-build-check
-docker-build-check: check
-	docker build -t ${IMG} .
+docker-build-check: check ## Build docker image with BuildKit enabled (after checks)
+	# Enable BuildKit and set platform to ensure TARGETARCH is available in Dockerfile
+	DOCKER_BUILDKIT=1 docker build --platform linux/$$(uname -m | sed 's/x86_64/amd64/') -t ${IMG} .
 
 .PHONY: bundle-build-community
 bundle-build-community: bundle-community-k8s ## Run bundle community changes in CSV, and then build the bundle image.
@@ -389,6 +391,8 @@ PROTOC = $(shell pwd)/bin/proto/bin/protoc
 protoc: protoc-gen-go protoc-gen-go-grpc ## Download protoc (protocol buffers tool needed for gRPC)
 	@if [ ! -f ${PROTOC} ]; then \
 		PROTOC_ARCH=$$(uname -m); \
+		# Map system architecture to protobuf naming convention \
+		# Note: protobuf uses x86_64 and s390_64 (different from Docker/Go naming) \
 		case $$PROTOC_ARCH in \
 			x86_64) PROTOC_ARCH=x86_64 ;; \
 			s390x) PROTOC_ARCH=s390_64 ;; \
@@ -431,6 +435,7 @@ ifeq (,$(wildcard $(OPERATOR_SDK)))
 	mkdir -p $(dir $(OPERATOR_SDK)) ;\
 	OS=linux ;\
 	ARCH=$$(uname -m) ;\
+	# Map system architecture to Go/Docker naming convention (x86_64 -> amd64) \
 	case $$ARCH in \
 		x86_64) ARCH=amd64 ;; \
 		s390x) ARCH=s390x ;; \
@@ -452,6 +457,7 @@ ifeq (,$(wildcard $(OPM)))
 	mkdir -p $(dir $(OPM)) ;\
 	OS=linux ;\
 	ARCH=$$(uname -m) ;\
+	# Map system architecture to Go/Docker naming convention (x86_64 -> amd64) \
 	case $$ARCH in \
 		x86_64) ARCH=amd64 ;; \
 		s390x) ARCH=s390x ;; \
