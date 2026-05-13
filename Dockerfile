@@ -5,14 +5,18 @@ FROM quay.io/centos/centos:stream9 AS builder
 ARG TARGETARCH
 ARG TARGETOS=linux
 
-# Validate and map TARGETARCH to GOARCH early to fail fast
+# Validate TARGETARCH if set, or detect from system
 # Currently supporting amd64 (x86_64) and s390x (IBM Z) architectures
 # TARGETARCH is automatically set by Docker BuildKit during multi-platform builds
-RUN case ${TARGETARCH} in \
-        amd64|s390x) echo "Building for supported architecture: ${TARGETARCH}" ;; \
-        "") echo "ERROR: TARGETARCH not set. Use --platform flag or enable BuildKit." && exit 1 ;; \
-        *) echo "ERROR: Unsupported architecture: ${TARGETARCH}. Only amd64 and s390x are supported." && exit 1 ;; \
-    esac
+# If not set, we'll detect it from the system in the next step
+RUN if [ -n "${TARGETARCH}" ]; then \
+        case ${TARGETARCH} in \
+            amd64|s390x) echo "Building for specified architecture: ${TARGETARCH}" ;; \
+            *) echo "ERROR: Unsupported architecture: ${TARGETARCH}. Only amd64 and s390x are supported." && exit 1 ;; \
+        esac; \
+    else \
+        echo "TARGETARCH not set, will auto-detect from system"; \
+    fi
 
 RUN yum install git jq -y && yum clean all
 
@@ -26,12 +30,17 @@ ENV GOTOOLCHAIN=auto
 
 # Ensure correct Go version
 RUN \
-    # Map TARGETARCH to Go architecture naming (support amd64 and s390x)
-    case ${TARGETARCH} in \
-        amd64) GOARCH=amd64 ;; \
-        s390x) GOARCH=s390x ;; \
-        *) echo "Unsupported architecture: ${TARGETARCH}. Only amd64 and s390x are supported." && exit 1 ;; \
-    esac && \
+    # Use TARGETARCH if set by BuildKit, otherwise detect from system
+    if [ -n "${TARGETARCH}" ]; then \
+        GOARCH=${TARGETARCH}; \
+    else \
+        SYSTEM_ARCH=$(uname -m); \
+        case ${SYSTEM_ARCH} in \
+            x86_64) GOARCH=amd64 ;; \
+            s390x) GOARCH=s390x ;; \
+            *) echo "ERROR: Unsupported system architecture: ${SYSTEM_ARCH}. Only x86_64 and s390x are supported." && exit 1 ;; \
+        esac; \
+    fi && \
     # get Go version from mod file
     export GO_VERSION=$(grep -oE "toolchain go[[:digit:]]\.[[:digit:]]+\.[[:digit:]]" go.mod | awk '{print $2}') && \
     echo "Go version: ${GO_VERSION}" && \

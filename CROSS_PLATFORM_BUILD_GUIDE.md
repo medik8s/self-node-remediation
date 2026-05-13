@@ -10,11 +10,11 @@ The operator currently supports the following architectures:
 
 ## Prerequisites
 
-### Docker BuildKit
+### Docker BuildKit (Optional but Recommended)
 
-Multi-architecture builds require Docker BuildKit, which provides the `TARGETARCH` build argument automatically.
+For multi-architecture builds, Docker BuildKit is recommended as it provides the `TARGETARCH` build argument automatically. However, the build system will auto-detect your architecture if BuildKit is not available.
 
-**Enable BuildKit:**
+**Enable BuildKit (Optional):**
 ```bash
 # Temporary (current session only)
 export DOCKER_BUILDKIT=1
@@ -35,10 +35,13 @@ docker buildx version
 Build for your current platform (automatically detected):
 
 ```bash
-# Using Makefile (BuildKit enabled automatically)
+# Using Makefile
 make docker-build
 
-# Or manually with Docker
+# Or manually with Docker (auto-detects architecture)
+docker build -t ${IMG} .
+
+# Or with BuildKit for explicit platform
 DOCKER_BUILDKIT=1 docker build --platform linux/amd64 -t ${IMG} .
 ```
 
@@ -83,32 +86,9 @@ The build system handles these mappings automatically.
 
 ## Troubleshooting
 
-### Error: TARGETARCH not set
+### Build works without explicit architecture
 
-**Symptom:**
-```
-ERROR: TARGETARCH not set. Use --platform flag or enable BuildKit.
-```
-
-**Cause:** Building without BuildKit or without specifying a platform.
-
-**Solutions:**
-
-1. Enable BuildKit:
-   ```bash
-   export DOCKER_BUILDKIT=1
-   docker build -t myimage .
-   ```
-
-2. Specify platform explicitly:
-   ```bash
-   docker build --platform linux/amd64 -t myimage .
-   ```
-
-3. Use the Makefile (BuildKit enabled automatically):
-   ```bash
-   make docker-build
-   ```
+The build system now auto-detects your system architecture if BuildKit is not enabled. However, for explicit multi-architecture builds, you should use BuildKit with the `--platform` flag.
 
 ### Error: Unsupported architecture
 

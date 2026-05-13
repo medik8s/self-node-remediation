@@ -213,14 +213,12 @@ run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./main.go
 
 .PHONY: docker-build
-docker-build: test ## Build docker image with BuildKit enabled for multi-arch support
-	# Enable BuildKit and set platform to ensure TARGETARCH is available in Dockerfile
-	DOCKER_BUILDKIT=1 docker build --platform linux/$$(uname -m | sed 's/x86_64/amd64/') -t ${IMG} .
+docker-build: test ## Build docker image (supports multi-arch with BuildKit)
+	docker build -t ${IMG} .
 
 .PHONY: docker-build-check
-docker-build-check: check ## Build docker image with BuildKit enabled (after checks)
-	# Enable BuildKit and set platform to ensure TARGETARCH is available in Dockerfile
-	DOCKER_BUILDKIT=1 docker build --platform linux/$$(uname -m | sed 's/x86_64/amd64/') -t ${IMG} .
+docker-build-check: check ## Build docker image (supports multi-arch with BuildKit)
+	docker build -t ${IMG} .
 
 .PHONY: bundle-build-community
 bundle-build-community: bundle-community-k8s ## Run bundle community changes in CSV, and then build the bundle image.
