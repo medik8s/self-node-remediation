@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -91,6 +92,7 @@ func (v *SNRConfigValidator) ValidateCreate(_ context.Context, obj runtime.Objec
 	return warnings, errors.NewAggregate([]error{
 		validateTimes(snrConfig),
 		validateCustomTolerations(snrConfig),
+		validateCustomDsNodeSelectors(snrConfig),
 		validateSingleton(snrConfig),
 	})
 
@@ -109,6 +111,7 @@ func (v *SNRConfigValidator) ValidateUpdate(_ context.Context, _, newObj runtime
 	return warnings, errors.NewAggregate([]error{
 		validateTimes(snrConfig),
 		validateCustomTolerations(snrConfig),
+		validateCustomDsNodeSelectors(snrConfig),
 	})
 }
 
@@ -204,6 +207,63 @@ func validateToleration(toleration v1.Toleration) error {
 			selfNodeRemediationConfigLog.Error(err, "invalid taint effect for toleration", "valid values", []v1.TaintEffect{v1.TaintEffectNoSchedule, v1.TaintEffectPreferNoSchedule, v1.TaintEffectNoExecute}, "received value", toleration.Effect)
 			return err
 		}
+	}
+	return nil
+}
+
+func validateCustomDsNodeSelectors(snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) error {
+	customDsNodeSelectors := snrConfig.Spec.CustomDsNodeSelectorRequirements
+	for _, nodeSelector := range customDsNodeSelectors {
+		if err := validateNodeSelector(nodeSelector); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateNodeSelector(nodeSelector v1.NodeSelectorRequirement) error {
+	if len(nodeSelector.Key) == 0 {
+		err := fmt.Errorf("invalid key for nodeSelector: key must be non-empty")
+		selfNodeRemediationConfigLog.Error(err, "invalid key for nodeSelector: key must be non-empty")
+		return err
+	}
+	if len(nodeSelector.Operator) == 0 {
+		err := fmt.Errorf("invalid operator for nodeSelector: operator must be non-empty")
+		selfNodeRemediationConfigLog.Error(err, "invalid operator for nodeSelector: operator must be non-empty")
+		return err
+	}
+	switch nodeSelector.Operator {
+	case v1.NodeSelectorOpExists, v1.NodeSelectorOpDoesNotExist:
+		// values must not exist
+		if len(nodeSelector.Values) != 0 {
+			err := fmt.Errorf("invalid values for nodeSelector term, values must not exists when Operator value is %s", nodeSelector.Operator)
+			selfNodeRemediationConfigLog.Error(err, "invalid values for nodeSelector term, values must not exists when Operator value is", "operator", nodeSelector.Operator)
+			return err
+		}
+	case v1.NodeSelectorOpIn, v1.NodeSelectorOpNotIn:
+		// values need to be non-empty list of string values
+		if len(nodeSelector.Values) == 0 {
+			err := fmt.Errorf("invalid values for nodeSelector term, values must not be empty when Operator value is %s", nodeSelector.Operator)
+			selfNodeRemediationConfigLog.Error(err, "invalid values for nodeSelector term, values must not be empty for Operator value is", "operator", nodeSelector.Operator)
+			return err
+		}
+	case v1.NodeSelectorOpGt, v1.NodeSelectorOpLt:
+		// values array must have a single element, which will be interpreted as an integer
+		if len(nodeSelector.Values) != 1 {
+			err := fmt.Errorf("invalid values for nodeSelector term, array must have a single element, which will be interpreted as an integer when Operator value is %s", nodeSelector.Operator)
+			selfNodeRemediationConfigLog.Error(err, "invalid values for nodeSelector term, array must have a single element, which will be interpreted as an integer when Operator value is", "operator", nodeSelector.Operator)
+			return err
+		}
+		_, err := strconv.Atoi(nodeSelector.Values[0])
+		if err != nil {
+			err := fmt.Errorf("invalid value for nodeSelector term, first array element must be valid integer when Operator value is %s", nodeSelector.Operator)
+			selfNodeRemediationConfigLog.Error(err, "invalid value for nodeSelector term, first array element must be valid integer when Operator value is", "operator", nodeSelector.Operator)
+			return err
+		}
+	default:
+		err := fmt.Errorf("invalid operator for nodeSelector: %s", nodeSelector.Operator)
+		selfNodeRemediationConfigLog.Error(err, "invalid operator for nodeSelector", "valid values", []v1.NodeSelectorOperator{v1.NodeSelectorOpExists, v1.NodeSelectorOpDoesNotExist, v1.NodeSelectorOpIn, v1.NodeSelectorOpNotIn, v1.NodeSelectorOpGt, v1.NodeSelectorOpLt}, "received value", nodeSelector.Operator)
+		return err
 	}
 	return nil
 }
