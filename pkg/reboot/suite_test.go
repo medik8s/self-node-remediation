@@ -24,7 +24,7 @@ import (
 
 var (
 	testEnv    envtest.Environment
-	cancelFunc context.CancelFunc
+	cancelFunc context.CancelFunc = func() {}
 	k8sClient  client.Client
 	calculator reboot.Calculator
 )
