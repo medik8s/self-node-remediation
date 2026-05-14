@@ -46,7 +46,7 @@ import (
 var cfg *rest.Config
 var k8sClient client.Client
 var testEnv *envtest.Environment
-var cancel context.CancelFunc
+var cancel context.CancelFunc = func() {}
 
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)

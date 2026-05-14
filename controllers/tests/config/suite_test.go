@@ -48,7 +48,7 @@ import (
 
 var testEnv *envtest.Environment
 var unhealthyNode, peerNode = &v1.Node{}, &v1.Node{}
-var cancelFunc context.CancelFunc
+var cancelFunc context.CancelFunc = func() {}
 var k8sClient *shared.K8sClientWrapper
 var certReader certificates.CertStorageReader
 var managerReconciler *controllers.SelfNodeRemediationReconciler

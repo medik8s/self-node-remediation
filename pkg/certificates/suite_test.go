@@ -25,7 +25,7 @@ func TestCertificates(t *testing.T) {
 var cfg *rest.Config
 var k8sClient client.Client
 var testEnv *envtest.Environment
-var cancelFunc context.CancelFunc
+var cancelFunc context.CancelFunc = func() {}
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
 
