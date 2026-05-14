@@ -129,15 +129,14 @@ func (r *SelfNodeRemediationConfig) validateTimes() error {
 	}
 
 	if errMsg != "" {
-		return fmt.Errorf(errMsg)
+		return fmt.Errorf("%s", errMsg)
 	}
 	return nil
 }
 
 func (f *field) validate() error {
 	if f.durationValue < f.minDurationValue {
-		err := fmt.Errorf(f.name + " cannot be less than " + f.minDurationValue.String())
-		return err
+		return fmt.Errorf("%s cannot be less than %s", f.name, f.minDurationValue.String())
 	}
 
 	return nil

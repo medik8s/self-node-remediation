@@ -36,7 +36,7 @@ var k8sClient client.Client
 var reader *ReaderWrapper
 var testEnv *envtest.Environment
 var snrReconciler *controllers.SelfNodeRemediationReconciler
-var cancelFunc context.CancelFunc
+var cancelFunc context.CancelFunc = func() {}
 
 var _ = BeforeSuite(func() {
 	opts := zap.Options{

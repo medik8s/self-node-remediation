@@ -55,8 +55,8 @@ import (
 var (
 	testEnv                 *envtest.Environment
 	dummyDog                watchdog.Watchdog
-	unhealthyNode, peerNode = &v1.Node{}, &v1.Node{}
-	cancelFunc              context.CancelFunc
+	unhealthyNode, peerNode                    = &v1.Node{}, &v1.Node{}
+	cancelFunc              context.CancelFunc = func() {}
 	k8sClient               *shared.K8sClientWrapper
 	fakeRecorder            *record.FakeRecorder
 	snrConfig               *selfnoderemediationv1alpha1.SelfNodeRemediationConfig
