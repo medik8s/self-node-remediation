@@ -419,7 +419,7 @@ ifeq (,$(wildcard $(OPERATOR_SDK)))
 	set -e ;\
 	rm -rf $(OPERATOR_SDK_BIN_FOLDER) ;\
 	mkdir -p $(dir $(OPERATOR_SDK)) ;\
-	OS=linux && ARCH=amd64 && \
+	OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
 	curl -sSLo $(OPERATOR_SDK) https://github.com/operator-framework/operator-sdk/releases/download/$(OPERATOR_SDK_VERSION)/operator-sdk_$${OS}_$${ARCH} ;\
 	chmod +x $(OPERATOR_SDK) ;\
 	}
@@ -434,7 +434,7 @@ ifeq (,$(wildcard $(OPM)))
 	set -e ;\
 	rm -rf $(OPM_BIN_FOLDER) ;\
 	mkdir -p $(dir $(OPM)) ;\
-	OS=linux && ARCH=amd64 && \
+	OS=$(shell go env GOOS) && ARCH=$(shell go env GOARCH) && \
 	curl -sSLo $(OPM) https://github.com/operator-framework/operator-registry/releases/download/$(OPM_VERSION)/$${OS}-$${ARCH}-opm ;\
 	chmod +x $(OPM) ;\
 	}
