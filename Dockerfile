@@ -45,7 +45,7 @@ FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 WORKDIR /
 
 # nsenter is required by the self-node-remediation agent
-RUN microdnf install -y util-linux && microdnf clean all -y
+RUN microdnf install -y util-linux iproute && microdnf clean all -y
 
 COPY --from=builder /workspace/install/ install/
 COPY --from=builder /workspace/bin/manager .
