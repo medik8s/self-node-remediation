@@ -44,8 +44,9 @@ FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 
 WORKDIR /
 
-# nsenter is required by the self-node-remediation agent
-RUN microdnf install -y util-linux iproute && microdnf clean all -y
+# util-linux: nsenter is required by the self-node-remediation agent
+# iproute: ip command is needed by e2e tests to simulate API server disconnection
+RUN microdnf install -y --setopt=install_weak_deps=0 util-linux iproute && microdnf clean all -y
 
 COPY --from=builder /workspace/install/ install/
 COPY --from=builder /workspace/bin/manager .
