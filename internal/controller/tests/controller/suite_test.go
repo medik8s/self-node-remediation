@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -63,6 +64,7 @@ var (
 	fakeRecorder               *record.FakeRecorder
 	snrConfig                  *selfnoderemediationv1alpha1.SelfNodeRemediationConfig
 	apiConnectivityCheckConfig *apicheck.ApiConnectivityCheckConfig
+	cfg                        *rest.Config
 )
 
 var unhealthyNodeNamespacedName = client.ObjectKey{
@@ -97,7 +99,8 @@ var _ = BeforeSuite(func() {
 		},
 	}
 
-	cfg, err := testEnv.Start()
+	var err error
+	cfg, err = testEnv.Start()
 	Expect(err).NotTo(HaveOccurred())
 	Expect(cfg).NotTo(BeNil())
 

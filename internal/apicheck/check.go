@@ -125,10 +125,9 @@ func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
 	isWorkerNode := c.controlPlaneManager == nil || !c.controlPlaneManager.IsControlPlane()
 	if isWorkerNode {
 		return workerPeersResponse.IsHealthy
-	} else {
-		return c.controlPlaneManager.IsControlPlaneHealthy(workerPeersResponse, c.canOtherControlPlanesBeReached())
 	}
-
+	canBeReached, cpUnhealthy := c.getControlPlanePeersStatus()
+	return c.controlPlaneManager.IsControlPlaneHealthy(workerPeersResponse, canBeReached, cpUnhealthy)
 }
 
 func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
@@ -232,19 +231,24 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 
 }
 
-func (c *ApiConnectivityCheck) canOtherControlPlanesBeReached() bool {
+// getControlPlanePeersStatus contacts peer control plane nodes and returns whether they can be reached
+// and whether they consider this node unhealthy (i.e. a SNR CR exists for it).
+func (c *ApiConnectivityCheck) getControlPlanePeersStatus() (canBeReached bool, consideredUnhealthy bool) {
 	peersToAsk := c.config.Peers.GetPeersAddresses(peers.ControlPlane)
 	numOfControlPlanePeers := len(peersToAsk)
 	if numOfControlPlanePeers == 0 {
 		c.config.Log.Info("Peers list is empty and / or couldn't be retrieved from server, other control planes can't be reached")
-		return false
+		return false, false
 	}
 
 	chosenPeersIPs := c.popPeerIPs(&peersToAsk, numOfControlPlanePeers)
 	healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenPeersIPs)
 
+	c.config.Log.Info("Control plane peers status", "healthyResponses", healthyResponses,
+		"unhealthyResponses", unhealthyResponses, "apiErrorsResponses", apiErrorsResponses)
+
 	// Any response is an indication of communication with a peer
-	return (healthyResponses + unhealthyResponses + apiErrorsResponses) > 0
+	return (healthyResponses + unhealthyResponses + apiErrorsResponses) > 0, unhealthyResponses > 0
 }
 
 func (c *ApiConnectivityCheck) popPeerIPs(peersIPs *[]corev1.PodIP, count int) []corev1.PodIP {
