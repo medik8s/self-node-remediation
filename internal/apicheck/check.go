@@ -127,7 +127,12 @@ func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
 		return workerPeersResponse.IsHealthy
 	}
 	canBeReached, cpUnhealthy := c.getControlPlanePeersStatus()
-	return c.controlPlaneManager.IsControlPlaneHealthy(workerPeersResponse, canBeReached, cpUnhealthy)
+	if cpUnhealthy {
+		c.config.Log.Info("Peer control plane nodes reported this node as unhealthy, triggering remediation")
+		return false
+	}
+
+	return c.controlPlaneManager.IsControlPlaneHealthy(workerPeersResponse, canBeReached)
 }
 
 func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {

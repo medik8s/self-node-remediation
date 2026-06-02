@@ -525,7 +525,6 @@ var _ = Describe("SNR Controller", func() {
 				patch := client.MergeFrom(node.DeepCopy())
 				node.Labels[commonlabels.ControlPlaneRole] = ""
 				Expect(k8sClient.Client.Patch(context.Background(), node, patch)).To(Succeed())
-				nodeName := nodeName
 				DeferCleanup(func() {
 					n := &corev1.Node{}
 					Expect(k8sClient.Client.Get(context.Background(), client.ObjectKey{Name: nodeName}, n)).To(Succeed())
@@ -606,8 +605,11 @@ var _ = Describe("SNR Controller", func() {
 			cpManager := controlplane.NewManager(shared.UnhealthyNodeName, k8sClient.Client)
 			Expect(cpManager.Start(context.Background())).To(Succeed())
 
-			// 8. Give Peers time to run its first update and populate controlPlanePeersAddresses.
-			time.Sleep(2 * time.Second)
+			// 8. Wait until Peers has run its first update and populated controlPlanePeersAddresses.
+			Eventually(func() bool {
+				return len(cpPeers.GetPeersAddresses(peerspkg.ControlPlane)) > 0
+			}, 10*time.Second, 250*time.Millisecond).Should(BeTrue(),
+				"cpPeers should have at least one CP peer address populated")
 
 			// 9. Start a dedicated watchdog for the CP apiCheck and wait until it is Armed.
 			//    Without calling Start(), GetTimeout() returns 0 and Reboot() skips Stop().

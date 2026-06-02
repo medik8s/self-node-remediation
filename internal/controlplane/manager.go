@@ -57,11 +57,7 @@ func (manager *Manager) IsControlPlane() bool {
 	return manager.nodeRole == peers.ControlPlane
 }
 
-func (manager *Manager) IsControlPlaneHealthy(workerPeerResponse peers.Response, canOtherControlPlanesBeReached bool, cpUnhealthy bool) bool {
-	if cpUnhealthy {
-		manager.log.Info("Peer control plane nodes reported this node as unhealthy, triggering remediation")
-		return false
-	}
+func (manager *Manager) IsControlPlaneHealthy(workerPeerResponse peers.Response, canOtherControlPlanesBeReached bool) bool {
 	switch workerPeerResponse.Reason {
 	//reported unhealthy by worker peers
 	case peers.UnHealthyBecausePeersResponse:
