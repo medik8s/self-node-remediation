@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"time"
 
+	commonlabels "github.com/medik8s/common/pkg/labels"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -16,14 +17,21 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	machinev1beta1 "github.com/openshift/api/machine/v1beta1"
 
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/internal/apicheck"
+	"github.com/medik8s/self-node-remediation/internal/certificates"
 	"github.com/medik8s/self-node-remediation/internal/controller"
 	"github.com/medik8s/self-node-remediation/internal/controller/tests/shared"
+	"github.com/medik8s/self-node-remediation/internal/controlplane"
+	"github.com/medik8s/self-node-remediation/internal/peerhealth"
+	peerspkg "github.com/medik8s/self-node-remediation/internal/peers"
+	"github.com/medik8s/self-node-remediation/internal/reboot"
 	"github.com/medik8s/self-node-remediation/internal/utils"
 	"github.com/medik8s/self-node-remediation/internal/watchdog"
 )
@@ -498,6 +506,154 @@ var _ = Describe("SNR Controller", func() {
 		})
 		It("verify remediation updated snr status", func() {
 			shared.VerifySNRStatusExist(k8sClient, snr, "Disabled", metav1.ConditionTrue)
+		})
+	})
+
+	// Regression test for https://github.com/medik8s/self-node-remediation/issues/251:
+	// A control-plane node whose worker-peer path yields no result (isolated from workers)
+	// must still remediate when peer CP nodes have a SNR CR for it (consider it unhealthy).
+	Context("Control plane node - API server down - CP peer reports it unhealthy", func() {
+		const cpPeerHealthPort = 9001
+
+		var cpDummyDog watchdog.FakeWatchdog
+
+		BeforeEach(func() {
+			// 1. Label both nodes as control-plane so the Peers selector works correctly.
+			for _, nodeName := range []string{shared.UnhealthyNodeName, shared.PeerNodeName} {
+				node := &corev1.Node{}
+				Expect(k8sClient.Client.Get(context.Background(), client.ObjectKey{Name: nodeName}, node)).To(Succeed())
+				patch := client.MergeFrom(node.DeepCopy())
+				node.Labels[commonlabels.ControlPlaneRole] = ""
+				Expect(k8sClient.Client.Patch(context.Background(), node, patch)).To(Succeed())
+				DeferCleanup(func() {
+					n := &corev1.Node{}
+					Expect(k8sClient.Client.Get(context.Background(), client.ObjectKey{Name: nodeName}, n)).To(Succeed())
+					p := client.MergeFrom(n.DeepCopy())
+					delete(n.Labels, commonlabels.ControlPlaneRole)
+					Expect(k8sClient.Client.Patch(context.Background(), n, p)).To(Succeed())
+				})
+			}
+
+			// 2. Generate TLS certs shared between the peerhealth server and the apiCheck client.
+			caPem, certPem, keyPem, err := certificates.CreateCerts()
+			Expect(err).ToNot(HaveOccurred())
+			certReader := &certificates.MemoryCertStorage{
+				CaPem:   caPem,
+				CertPem: certPem,
+				KeyPem:  keyPem,
+			}
+
+			// 3. Start a real peerhealth gRPC server on localhost representing the peer CP node.
+			//    It uses the direct API reader (not the failure-simulation wrapper) so it can
+			//    still list SNR CRs even when ShouldSimulateFailure is true.
+			phServer, err := peerhealth.NewServer(
+				k8sClient.Client,
+				k8sClient.Reader,
+				ctrl.Log.WithName("cp-peer-health-server"),
+				cpPeerHealthPort,
+				certReader,
+				5*time.Second,
+			)
+			Expect(err).ToNot(HaveOccurred())
+			serverCtx, cancelServer := context.WithCancel(context.Background())
+			go func() { _ = phServer.Start(serverCtx) }()
+			DeferCleanup(cancelServer)
+
+			// 4. Create a fake SNR-agent pod on the peer node with podIP=127.0.0.1 so that
+			//    GetPeersAddresses(ControlPlane) resolves to the test gRPC server above.
+			cpPeerPod := &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "cp-peer-snr-pod",
+					Namespace: shared.Namespace,
+					Labels: map[string]string{
+						"app.kubernetes.io/name":      "self-node-remediation",
+						"app.kubernetes.io/component": "agent",
+					},
+				},
+				Spec: corev1.PodSpec{
+					NodeName:   shared.PeerNodeName,
+					Containers: []corev1.Container{{Name: "snr", Image: "dummy"}},
+				},
+			}
+			Expect(k8sClient.Client.Create(context.Background(), cpPeerPod)).To(Succeed())
+			cpPeerPod.Status.PodIPs = []corev1.PodIP{{IP: "127.0.0.1"}}
+			Expect(k8sClient.Client.Status().Update(context.Background(), cpPeerPod)).To(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Client.Delete(context.Background(), cpPeerPod)
+			})
+
+			// 5. Create the SNR CR for the unhealthy CP node so the peerhealth server returns Unhealthy.
+			createSNR(snr, v1alpha1.ResourceDeletionRemediationStrategy)
+			DeferCleanup(func() { deleteSNR(snr) })
+
+			// 6. Build a dedicated Peers instance for the CP apiCheck.
+			//    It must be started AFTER the CP labels are applied so that
+			//    controlPlanePeerSelector is built correctly.
+			cpPeers := peerspkg.New(
+				shared.UnhealthyNodeName,
+				shared.ApiCheckInterval, // short interval so the first update happens quickly
+				k8sClient.Reader,
+				ctrl.Log.WithName("cp-peers"),
+				5*time.Second,
+			)
+			cpPeersCtx, cancelCpPeers := context.WithCancel(context.Background())
+			go func() { _ = cpPeers.Start(cpPeersCtx) }()
+			DeferCleanup(cancelCpPeers)
+
+			// 7. Initialise the controlplane.Manager for the unhealthy CP node and call Start
+			//    while the API is still reachable.
+			cpManager := controlplane.NewManager(shared.UnhealthyNodeName, k8sClient.Client)
+			Expect(cpManager.Start(context.Background())).To(Succeed())
+
+			// 8. Wait until Peers has run its first update and populated controlPlanePeersAddresses.
+			Eventually(func() bool {
+				return len(cpPeers.GetPeersAddresses(peerspkg.ControlPlane)) > 0
+			}, 10*time.Second, 250*time.Millisecond).Should(BeTrue(),
+				"cpPeers should have at least one CP peer address populated")
+
+			// 9. Start a dedicated watchdog for the CP apiCheck and wait until it is Armed.
+			//    Without calling Start(), GetTimeout() returns 0 and Reboot() skips Stop().
+			cpDummyDog = watchdog.NewFake(true)
+			cpDogCtx, cancelCpDog := context.WithCancel(context.Background())
+			go func() { _ = cpDummyDog.Start(cpDogCtx) }()
+			DeferCleanup(cancelCpDog)
+			Eventually(func() bool {
+				return cpDummyDog.Status() == watchdog.Armed
+			}, 5*time.Second, 100*time.Millisecond).Should(BeTrue(), "cpDummyDog should reach Armed state")
+
+			// 10. Build and start the CP apiCheck.
+			//     Use an unreachable host so the REST /readyz check always fails immediately.
+			//     ShouldSimulateFailure only intercepts List() calls and has no effect on
+			//     the raw REST request, so a fake host is the reliable way to force failure.
+			fakeCfg := *cfg
+			fakeCfg.Host = "https://127.0.0.1:1"
+			cpRebooter := reboot.NewWatchdogRebooter(cpDummyDog, ctrl.Log.WithName("cp-rebooter"))
+			cpApiCheckCfg := &apicheck.ApiConnectivityCheckConfig{
+				Log:                    ctrl.Log.WithName("cp-api-check"),
+				MyNodeName:             shared.UnhealthyNodeName,
+				CheckInterval:          shared.ApiCheckInterval,
+				MaxErrorsThreshold:     shared.MaxErrorThreshold,
+				Peers:                  cpPeers,
+				Rebooter:               cpRebooter,
+				Cfg:                    &fakeCfg,
+				MinPeersForRemediation: 0, // forces UnHealthyBecauseNodeIsIsolated path (the bug path from issue #251)
+				CertReader:             certReader,
+				PeerHealthPort:         cpPeerHealthPort,
+				PeerDialTimeout:        5 * time.Second,
+				PeerRequestTimeout:     7 * time.Second,
+				ApiServerTimeout:       5 * time.Second,
+			}
+			cpApiCheck := apicheck.New(cpApiCheckCfg, cpManager)
+			cpCheckCtx, cancelCpCheck := context.WithCancel(context.Background())
+			go func() { _ = cpApiCheck.Start(cpCheckCtx) }()
+			DeferCleanup(cancelCpCheck)
+		})
+
+		It("should trigger the watchdog when CP peers report this node unhealthy (fix for issue #251)", func() {
+			EventuallyWithOffset(1, func(g Gomega) {
+				g.Expect(cpDummyDog.Status()).To(Equal(watchdog.Triggered))
+			}, 30*time.Second, 1*time.Second).Should(Succeed(),
+				"watchdog should be triggered: CP peers reported node unhealthy but watchdog was not triggered")
 		})
 	})
 })
