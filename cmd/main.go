@@ -322,6 +322,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	peerDialTimeout := getDurEnvVarOrDie("PEER_DIAL_TIMEOUT")         //timeout for establishing connection to peer
 	peerRequestTimeout := getDurEnvVarOrDie("PEER_REQUEST_TIMEOUT")   //timeout for each peer request
 	peerHealthDefaultPort := getIntEnvVarOrDie("HOST_PORT")
+	minPeersForRemediation := getIntEnvVarOrDie("MIN_PEERS_FOR_REMEDIATION") //minimum peers required to remediate; if fewer peers are found the node will not self-remediate on API errors
 
 	// it's fine when the watchdog is nil!
 	rebooter := reboot.NewWatchdogRebooter(wd, ctrl.Log.WithName("rebooter"))
@@ -349,6 +350,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		PeerDialTimeout:           peerDialTimeout,
 		PeerRequestTimeout:        peerRequestTimeout,
 		PeerHealthPort:            peerHealthDefaultPort,
+		MinPeersForRemediation:    minPeersForRemediation,
 		MaxTimeForNoPeersResponse: reboot.MaxTimeForNoPeersResponse,
 		Recorder:                  mgr.GetEventRecorderFor("ApiConnectivityCheck"),
 	}
