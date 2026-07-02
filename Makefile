@@ -542,3 +542,20 @@ fix-imports: sort-imports ## Sort imports
 
 .PHONY: full-gen
 full-gen:  tidy vendor generate manifests bundle fix-imports bundle-reset ## generates all automatically generated content
+
+# Shared dev environment
+# Uses a local sibling checkout if available (e.g. ../tools),
+# otherwise downloads the tools repo into .tools/ on first dev-* target use.
+TOOLS_DIR ?= $(shell cd .. && pwd)/tools
+DEV_MK := $(TOOLS_DIR)/dev/dev.mk
+ifeq ($(wildcard $(DEV_MK)),)
+  TOOLS_DIR := $(shell pwd)/.tools
+  DEV_MK := $(TOOLS_DIR)/dev/dev.mk
+endif
+-include $(DEV_MK)
+ifeq ($(wildcard $(DEV_MK)),)
+dev-%:
+	@echo "Downloading medik8s/tools into $(TOOLS_DIR)..."
+	@git clone --depth 1 https://github.com/medik8s/tools.git $(TOOLS_DIR)
+	@$(MAKE) $@
+endif
