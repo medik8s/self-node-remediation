@@ -45,7 +45,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 	controlPlaneNodes := &v1.NodeList{}
 
 	var nodeUnderTest *v1.Node
-	var oldBootTime *time.Time
+	var oldBootID string
 	var oldSnrPodName string
 
 	BeforeEach(func() {
@@ -73,16 +73,14 @@ var _ = Describe("Self Node Remediation E2E", func() {
 	})
 
 	JustBeforeEach(func() {
-		var err error
-		oldBootTime, err = utils.GetBootTime(context.Background(), k8sClientSet, nodeUnderTest, testNamespace)
-		Expect(err).ToNot(HaveOccurred())
+		oldBootID = utils.GetBootID(context.Background(), k8sClientSet, nodeUnderTest)
 		oldSnrPodName = findSnrPod(nodeUnderTest).GetName()
 	})
 
 	verifyRemediationSucceeds := func(snr *v1alpha1.SelfNodeRemediation) {
 		// this does not 100% check if the pod was deleted by SNR, could be by reboot...
 		checkPodDeleted(oldSnrPodName)
-		utils.CheckReboot(context.Background(), k8sClientSet, nodeUnderTest, oldBootTime, testNamespace)
+		utils.CheckReboot(context.Background(), k8sClientSet, nodeUnderTest, oldBootID)
 		// Simulate NHC deleting SNR
 		deleteAndWait(snr)
 		checkNoScheduleTaintRemoved(nodeUnderTest)
@@ -151,7 +149,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				})
 
 				It("should not remediate", func() {
-					utils.CheckNoReboot(context.Background(), k8sClientSet, nodeUnderTest, oldBootTime, testNamespace)
+					utils.CheckNoReboot(context.Background(), k8sClientSet, nodeUnderTest, oldBootID)
 					checkSnrLogs(nodeUnderTest, []string{"failed to check api server", "There is at least one peer " +
 						"who thinks this node healthy"}, testStartTime)
 				})
@@ -164,7 +162,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				//    - kill connectivity on all nodes
 				//    - verify nodeUnderTest does not reboot and isn't deleted
 
-				bootTimes := make(map[string]*time.Time)
+				bootIDs := make(map[string]string)
 
 				BeforeEach(func() {
 					wg := sync.WaitGroup{}
@@ -172,10 +170,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 						wg.Add(1)
 						worker := &workerNodes.Items[i]
 
-						// and the last boot time
-						t, err := utils.GetBootTime(context.Background(), k8sClientSet, worker, testNamespace)
-						Expect(err).ToNot(HaveOccurred())
-						bootTimes[worker.GetName()] = t
+						bootIDs[worker.GetName()] = utils.GetBootID(context.Background(), k8sClientSet, worker)
 
 						go func() {
 							defer GinkgoRecover()
@@ -198,7 +193,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 						go func() {
 							defer GinkgoRecover()
 							defer wg.Done()
-							utils.CheckNoReboot(context.Background(), k8sClientSet, worker, bootTimes[worker.GetName()], testNamespace)
+							utils.CheckNoReboot(context.Background(), k8sClientSet, worker, bootIDs[worker.GetName()])
 							checkSnrLogs(worker, []string{"failed to check api server", "nodes couldn't access the api-server"}, testStartTime)
 						}()
 					}
