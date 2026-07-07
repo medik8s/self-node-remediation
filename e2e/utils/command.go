@@ -37,56 +37,52 @@ var (
 	log = ctrl.Log.WithName("testutils")
 )
 
-func CheckReboot(ctx context.Context, c *kubernetes.Clientset, node *corev1.Node, oldBootTime *time.Time, testNamespace string) {
-	By("checking reboot")
-	log.Info("boot time", "old", oldBootTime)
-	EventuallyWithOffset(1, func() time.Time {
-		newBootTime, err := getBootTime(ctx, c, node.GetName(), testNamespace)
-		if err != nil {
-			return time.Time{}
-		}
-		log.Info("boot time", "new", newBootTime)
-		return *newBootTime
-	}, nodeRebootedTimeout, 1*time.Minute).Should(BeTemporally(">", *oldBootTime))
-}
-
-func CheckNoReboot(ctx context.Context, c *kubernetes.Clientset, node *corev1.Node, oldBootTime *time.Time, testNamespace string) {
-	By("checking no reboot")
-	log.Info("boot time", "old", oldBootTime)
-	ConsistentlyWithOffset(1, func() time.Time {
-		newBootTime, err := getBootTime(ctx, c, node.GetName(), testNamespace)
-		if err != nil {
-			log.Error(err, "failed to get boot time, might retry")
-			return time.Time{}
-		}
-		log.Info("boot time", "new", newBootTime)
-		return *newBootTime
-	}, nodeRebootedTimeout, 1*time.Minute).Should(BeTemporally("==", *oldBootTime))
-}
-
-// GetBootTime gets the boot time of the given node by running a pod on it executing uptime command
-func GetBootTime(ctx context.Context, c *kubernetes.Clientset, node *corev1.Node, testNamespace string) (*time.Time, error) {
-	var bootTime *time.Time
+// GetBootID returns the boot ID of the node from the Kubernetes Node API.
+// Boot ID is a kernel-generated UUID that changes on every reboot.
+func GetBootID(ctx context.Context, c *kubernetes.Clientset, node *corev1.Node) string {
+	var bootID string
 	EventuallyWithOffset(1, func() error {
-		var err error
-		bootTime, err = getBootTime(ctx, c, node.GetName(), testNamespace)
-		return err
-	}, nodeExecTimeout, 30*time.Second).ShouldNot(HaveOccurred(), "Could not get boot time on target node")
-	return bootTime, nil
+		n, err := c.CoreV1().Nodes().Get(ctx, node.GetName(), metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		bootID = n.Status.NodeInfo.BootID
+		if bootID == "" {
+			return fmt.Errorf("boot ID is empty for node %s", node.GetName())
+		}
+		return nil
+	}, 1*time.Minute, 5*time.Second).ShouldNot(HaveOccurred(), "Could not get boot ID on node %s", node.GetName())
+	return bootID
 }
 
-func getBootTime(ctx context.Context, c *kubernetes.Clientset, nodeName string, ns string) (*time.Time, error) {
-	output, err := RunCommandInCluster(ctx, c, nodeName, ns, "dnf install procps -y >/dev/null 2>&1 && uptime -s")
-	if err != nil {
-		return nil, err
-	}
+func CheckReboot(ctx context.Context, c *kubernetes.Clientset, node *corev1.Node, oldBootID string) {
+	By("checking reboot")
+	log.Info("boot ID", "old", oldBootID)
+	EventuallyWithOffset(1, func() string {
+		n, err := c.CoreV1().Nodes().Get(ctx, node.GetName(), metav1.GetOptions{})
+		if err != nil {
+			log.Info("failed to get node for boot ID, will retry", "error", err)
+			return oldBootID
+		}
+		newBootID := n.Status.NodeInfo.BootID
+		log.Info("boot ID", "new", newBootID)
+		return newBootID
+	}, nodeRebootedTimeout, 10*time.Second).ShouldNot(Equal(oldBootID))
+}
 
-	bootTime, err := time.Parse("2006-01-02 15:04:05", output)
-	if err != nil {
-		return nil, err
-	}
-
-	return &bootTime, nil
+func CheckNoReboot(ctx context.Context, c *kubernetes.Clientset, node *corev1.Node, oldBootID string) {
+	By("checking no reboot")
+	log.Info("boot ID", "old", oldBootID)
+	ConsistentlyWithOffset(1, func() string {
+		n, err := c.CoreV1().Nodes().Get(ctx, node.GetName(), metav1.GetOptions{})
+		if err != nil {
+			log.Error(err, "failed to get node for boot ID")
+			return oldBootID
+		}
+		newBootID := n.Status.NodeInfo.BootID
+		log.Info("boot ID", "new", newBootID)
+		return newBootID
+	}, nodeRebootedTimeout, 1*time.Minute).Should(Equal(oldBootID))
 }
 
 // RunCommandInCluster runs a command in a new pod in the cluster and returns the output
