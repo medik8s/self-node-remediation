@@ -33,6 +33,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	pkgruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -42,6 +43,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/tools/cache"
 	ctrl "sigs.k8s.io/controller-runtime"
+	runtimecache "sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -128,6 +130,64 @@ func main() {
 		setupLog.Info("HTTP/2 for metrics and webhook server enabled")
 	}
 
+	// Configure cache options based on manager vs agent mode
+	// Motivation: In large clusters (e.g., 1000+ nodes), each agent pod's cache can consume
+	// significant memory by watching and storing cluster-wide resources. Node-scoped caching
+	// reduces per-agent memory footprint by limiting the cache to only the resources needed
+	// for this specific node, preventing memory bloat as cluster size grows.
+	var cacheOpts runtimecache.Options
+	if !isManager {
+		// Agent mode: scope cache to node-local resources only
+		myNodeName := os.Getenv(nodeNameEnvVar)
+		if myNodeName == "" {
+			setupLog.Error(errors.New("failed to get own node name"), "node name was empty",
+				"env var name", nodeNameEnvVar)
+			os.Exit(1)
+		}
+
+		ns, err := utils.GetDeploymentNamespace()
+		if err != nil {
+			setupLog.Error(err, "unable to get the deployment namespace for cache scoping")
+			os.Exit(1)
+		}
+
+		setupLog.Info("Configuring node-scoped cache for agent mode", "nodeName", myNodeName, "namespace", ns)
+		cacheOpts = runtimecache.Options{
+			ByObject: map[client.Object]runtimecache.ByObject{
+				// Scope Pods to this node only
+				// Without scoping: cache would watch all pods in the cluster
+				// With scoping: cache only stores pods scheduled on this node
+				&corev1.Pod{}: {
+					Field: fields.SelectorFromSet(fields.Set{
+						"spec.nodeName": myNodeName,
+					}),
+				},
+				// Scope Nodes to this node only
+				// Note: Peers component needs all nodes, so it uses GetAPIReader() to bypass cache
+				&corev1.Node{}: {
+					Field: fields.SelectorFromSet(fields.Set{
+						"metadata.name": myNodeName,
+					}),
+				},
+				// Scope Secrets to SNR namespace only
+				// Prevents caching secrets from all namespaces cluster-wide
+				&corev1.Secret{}: {
+					Namespaces: map[string]runtimecache.Config{
+						ns: {},
+					},
+				},
+				// VolumeAttachment: No cache scoping available
+				// - API server doesn't support spec.nodeName field selector (only metadata.name/namespace)
+			},
+		}
+	}
+	// Manager mode uses default (cluster-wide) cache
+
+	// Note: In agent mode with scoped cache, reads of out-of-scope resources
+	// (e.g., Pods on other nodes) will return NotFound from the cache.
+	// This is intentional - agents should only need node-local resources.
+	// If out-of-scope reads are needed, use mgr.GetAPIReader() for direct API access.
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
 		Metrics: server.Options{
@@ -140,6 +200,7 @@ func main() {
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "547f6cb6.medik8s.io",
 		WebhookServer:          getWebhookServer(tlsOpts, setupLog),
+		Cache:                  cacheOpts,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
@@ -309,7 +370,13 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	peerUpdateInterval := getDurEnvVarOrDie("PEER_UPDATE_INTERVAL")
 	peerApiServerTimeout := getDurEnvVarOrDie("PEER_API_SERVER_TIMEOUT")
 
-	myPeers := peers.New(myNodeName, peerUpdateInterval, mgr.GetClient(), ctrl.Log.WithName("peers"), peerApiServerTimeout)
+	// Use GetAPIReader() instead of GetClient() for peers component
+	// Reason: The agent's cache is node-scoped (only caches this node's data), but the peers
+	// component needs to read ALL nodes in the cluster to monitor peer health. GetAPIReader()
+	// bypasses the scoped cache and reads directly from the API server, allowing peers to access
+	// cluster-wide node data. This is an intentional trade-off: accept some direct API calls for
+	// peers rather than caching all nodes on every agent pod (which would defeat the memory savings).
+	myPeers := peers.New(myNodeName, peerUpdateInterval, mgr.GetAPIReader(), ctrl.Log.WithName("peers"), peerApiServerTimeout)
 	if err = mgr.Add(myPeers); err != nil {
 		setupLog.Error(err, "failed to add peers to the manager")
 		os.Exit(1)
