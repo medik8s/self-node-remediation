@@ -95,17 +95,6 @@ var _ = Describe("Self Node Remediation E2E", func() {
 			ensureSnrRunning(workerNodes)
 		})
 
-		Describe("DaemonSet Security Configuration", func() {
-			It("should not expose hostPort on agent container", func() {
-				pod := findSnrPod(nodeUnderTest)
-				Expect(pod.Spec.Containers).ToNot(BeEmpty())
-				container := pod.Spec.Containers[0]
-				for _, port := range container.Ports {
-					Expect(port.HostPort).To(BeZero(), fmt.Sprintf("port %q should not have hostPort set", port.Name))
-				}
-			})
-		})
-
 		Describe("With API connectivity", func() {
 			// normal remediation
 			// - create SNR
@@ -465,7 +454,15 @@ func ensureSnrRunning(nodes *v1.NodeList) {
 			defer wg.Done()
 			pod := findSnrPod(node)
 			utils.WaitForPodReady(k8sClient, pod)
+			verifyNoHostPort(pod)
 		}()
 	}
 	wg.Wait()
+}
+
+func verifyNoHostPort(pod *v1.Pod) {
+	ExpectWithOffset(1, pod.Spec.Containers).ToNot(BeEmpty())
+	for _, port := range pod.Spec.Containers[0].Ports {
+		ExpectWithOffset(1, port.HostPort).To(BeZero(), fmt.Sprintf("port %q should not have hostPort set", port.Name))
+	}
 }
