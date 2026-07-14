@@ -84,7 +84,6 @@ spec:
         name: manager
         ports:
         - containerPort: {{.HostPort}}
-          hostPort: {{.HostPort}}
           name: self-n-r-port
           protocol: TCP
         resources:

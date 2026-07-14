@@ -449,7 +449,15 @@ func ensureSnrRunning(nodes *v1.NodeList) {
 			defer wg.Done()
 			pod := findSnrPod(node)
 			utils.WaitForPodReady(k8sClient, pod)
+			verifyNoHostPort(pod)
 		}()
 	}
 	wg.Wait()
+}
+
+func verifyNoHostPort(pod *v1.Pod) {
+	ExpectWithOffset(1, pod.Spec.Containers).ToNot(BeEmpty())
+	for _, port := range pod.Spec.Containers[0].Ports {
+		ExpectWithOffset(1, port.HostPort).To(BeZero(), fmt.Sprintf("port %q should not have hostPort set", port.Name))
+	}
 }

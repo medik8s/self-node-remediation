@@ -116,7 +116,7 @@ var _ = Describe("SNR Config Test", func() {
 			Expect(len(container.Ports)).To(BeNumerically("==", 1))
 			port := container.Ports[0]
 			Expect(port.ContainerPort).To(BeEquivalentTo(30111))
-			Expect(port.HostPort).To(BeEquivalentTo(30111))
+			Expect(port.HostPort).To(BeZero())
 		})
 		When("Configuration has customized tolerations", func() {
 			var expectedToleration corev1.Toleration
