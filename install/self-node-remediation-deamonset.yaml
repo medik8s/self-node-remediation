@@ -81,6 +81,7 @@ spec:
             mountPath: /dev
         securityContext:
           privileged: true
+          readOnlyRootFilesystem: true
         name: manager
         ports:
         - containerPort: {{.HostPort}}
