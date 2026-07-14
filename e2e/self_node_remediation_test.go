@@ -449,15 +449,28 @@ func ensureSnrRunning(nodes *v1.NodeList) {
 			defer wg.Done()
 			pod := findSnrPod(node)
 			utils.WaitForPodReady(k8sClient, pod)
-			verifyNoHostPort(pod)
+			verifyPodSecurity(pod)
 		}()
 	}
 	wg.Wait()
 }
 
-func verifyNoHostPort(pod *v1.Pod) {
+func verifyPodSecurity(pod *v1.Pod) {
 	ExpectWithOffset(1, pod.Spec.Containers).ToNot(BeEmpty())
-	for _, port := range pod.Spec.Containers[0].Ports {
+	container := pod.Spec.Containers[0]
+
+	for _, port := range container.Ports {
 		ExpectWithOffset(1, port.HostPort).To(BeZero(), fmt.Sprintf("port %q should not have hostPort set", port.Name))
 	}
+
+	ExpectWithOffset(1, container.SecurityContext).ToNot(BeNil(), "agent container should have a securityContext")
+	ExpectWithOffset(1, container.SecurityContext.ReadOnlyRootFilesystem).ToNot(BeNil(), "readOnlyRootFilesystem should be set")
+	ExpectWithOffset(1, *container.SecurityContext.ReadOnlyRootFilesystem).To(BeTrue(), "readOnlyRootFilesystem should be true")
+
+	ExpectWithOffset(1, pod.Spec.SecurityContext).ToNot(BeNil(), "pod should have a securityContext")
+	ExpectWithOffset(1, pod.Spec.SecurityContext.RunAsUser).ToNot(BeNil(), "runAsUser should be set")
+	ExpectWithOffset(1, *pod.Spec.SecurityContext.RunAsUser).To(Equal(int64(0)), "pod should run as root (uid 0)")
+
+	ExpectWithOffset(1, pod.Spec.ServiceAccountName).ToNot(BeEmpty())
+	ExpectWithOffset(1, pod.Spec.ServiceAccountName).ToNot(Equal("default"), "should not use the default service account")
 }

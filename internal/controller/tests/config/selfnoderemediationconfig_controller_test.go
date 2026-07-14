@@ -50,13 +50,14 @@ var _ = Describe("SNR Config Test", func() {
 		}, timeToWaitForDSToCreate, 250*time.Millisecond).Should(Succeed())
 
 		Expect(k8sClient.Delete(context.TODO(), tmpConfig)).To(Succeed())
-		Expect(k8sClient.Delete(context.TODO(), tmpDs)).To(Succeed())
+		Eventually(func(g Gomega) {
+			err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(config), &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{})
+			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 
-		//verify delete is done
+		Expect(k8sClient.Delete(context.TODO(), tmpDs)).To(Succeed())
 		Eventually(func(g Gomega) {
 			err := k8sClient.Get(context.Background(), dsKey, &appsv1.DaemonSet{})
-			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
-			err = k8sClient.Get(context.Background(), client.ObjectKeyFromObject(config), &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{})
 			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 	})
@@ -117,6 +118,10 @@ var _ = Describe("SNR Config Test", func() {
 			port := container.Ports[0]
 			Expect(port.ContainerPort).To(BeEquivalentTo(30111))
 			Expect(port.HostPort).To(BeZero())
+
+			Expect(container.SecurityContext).ToNot(BeNil())
+			Expect(container.SecurityContext.Privileged).To(Equal(pointer.Bool(true)))
+			Expect(container.SecurityContext.ReadOnlyRootFilesystem).To(Equal(pointer.Bool(true)))
 		})
 		When("Configuration has customized tolerations", func() {
 			var expectedToleration corev1.Toleration
