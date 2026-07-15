@@ -33,8 +33,8 @@ func GetLogs(c *kubernetes.Clientset, pod *corev1.Pod, since *metav1.Time) (stri
 }
 
 func WaitForPodReady(c client.Client, pod *corev1.Pod) {
-	EventuallyWithOffset(1, func() corev1.ConditionStatus {
-		ExpectWithOffset(1, c.Get(context.Background(), client.ObjectKeyFromObject(pod), pod)).ToNot(HaveOccurred())
+	EventuallyWithOffset(1, func(g Gomega) corev1.ConditionStatus {
+		g.Expect(c.Get(context.Background(), client.ObjectKeyFromObject(pod), pod)).ToNot(HaveOccurred())
 		for _, cond := range pod.Status.Conditions {
 			if cond.Type == corev1.PodReady {
 				return cond.Status

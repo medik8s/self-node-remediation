@@ -61,7 +61,11 @@ func CheckReboot(ctx context.Context, c *kubernetes.Clientset, node *corev1.Node
 			log.Info("boot ID is empty, treating as transient and retaining old boot ID", "node", node.GetName())
 			return oldBootID
 		}
-		log.Info("boot ID", "new", newBootID)
+		if newBootID != oldBootID {
+			log.Info("boot ID changed", "old", oldBootID, "new", newBootID)
+		} else {
+			log.Info("boot ID unchanged, waiting for reboot", "current", newBootID)
+		}
 		return newBootID
 	}, nodeRebootedTimeout, 10*time.Second).ShouldNot(Equal(oldBootID))
 }
@@ -80,7 +84,11 @@ func CheckNoReboot(ctx context.Context, c *kubernetes.Clientset, node *corev1.No
 			log.Info("boot ID is empty, treating as transient and retaining old boot ID", "node", node.GetName())
 			return oldBootID
 		}
-		log.Info("boot ID", "new", newBootID)
+		if newBootID != oldBootID {
+			log.Info("boot ID changed unexpectedly", "old", oldBootID, "new", newBootID)
+		} else {
+			log.Info("boot ID unchanged", "current", newBootID)
+		}
 		return newBootID
 	}, nodeRebootedTimeout, 1*time.Minute).Should(Equal(oldBootID))
 }

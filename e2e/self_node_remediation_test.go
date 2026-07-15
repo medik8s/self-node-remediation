@@ -293,7 +293,7 @@ func createSNR(node *v1.Node, remediationStrategy v1alpha1.RemediationStrategyTy
 		_ = k8sClient.Delete(context.Background(), snr)
 		Eventually(func(g Gomega) {
 			err := k8sClient.Get(context.Background(), client.ObjectKeyFromObject(snr), snr)
-			Expect(errors.IsNotFound(err)).To(BeTrue())
+			g.Expect(errors.IsNotFound(err)).To(BeTrue())
 		}, 2*time.Minute, 10*time.Second).Should(Succeed())
 	})
 	return snr
@@ -395,7 +395,7 @@ func findSnrPod(node *v1.Node) *v1.Pod {
 		}
 		for i := range pods.Items {
 			pod := pods.Items[i]
-			if pod.Spec.NodeName == node.GetName() {
+			if pod.Spec.NodeName == node.GetName() && pod.DeletionTimestamp == nil {
 				snrPod = &pod
 				return true
 			}
