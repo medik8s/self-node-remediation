@@ -203,6 +203,14 @@ spec:
           - patch
           - update
         - apiGroups:
+          - networking.k8s.io
+          resources:
+          - networkpolicies
+          verbs:
+          - create
+          - delete
+          - update
+        - apiGroups:
           - security.openshift.io
           resourceNames:
           - privileged
