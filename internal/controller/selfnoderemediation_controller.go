@@ -143,6 +143,7 @@ func (r *SelfNodeRemediationReconciler) SetupWithManager(mgr ctrl.Manager) error
 //+kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=machine.openshift.io,resources=machines,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=namespaces,verbs=list;get;watch
+//+kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=create;delete;update
 
 func (r *SelfNodeRemediationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (returnResult ctrl.Result, returnErr error) {
 	if r.IsAgent {
