@@ -3,6 +3,7 @@ package apicheck
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -32,16 +33,43 @@ import (
 
 const (
 	eventReasonPeerTimeoutAdjusted = "PeerTimeoutAdjusted"
+
+	peerReachabilityTimeout = 2 * time.Second
+	maxPeersToSample        = 3
 )
+
+// PeerDialer abstracts TCP dialing for peer reachability checks.
+type PeerDialer interface {
+	Dial(address string, timeout time.Duration) error
+}
+
+type netPeerDialer struct{}
+
+func (d *netPeerDialer) Dial(address string, timeout time.Duration) error {
+	conn, err := net.DialTimeout("tcp", address, timeout)
+	if err != nil {
+		return err
+	}
+	conn.Close()
+	return nil
+}
+
+// PeerAddressProvider abstracts peer address retrieval.
+// *peers.Peers satisfies this interface.
+type PeerAddressProvider interface {
+	GetPeersAddresses(role peers.Role) []corev1.PodIP
+}
 
 type ApiConnectivityCheck struct {
 	client.Reader
 	config                 *ApiConnectivityCheckConfig
 	errorCount             int
+	cpUnreachableCount     int
 	timeOfLastPeerResponse time.Time
 	clientCreds            credentials.TransportCredentials
 	mutex                  sync.Mutex
 	controlPlaneManager    *controlplane.Manager
+	peerDialer             PeerDialer
 }
 
 type ApiConnectivityCheckConfig struct {
@@ -50,7 +78,7 @@ type ApiConnectivityCheckConfig struct {
 	MyMachineName             string
 	CheckInterval             time.Duration
 	MaxErrorsThreshold        int
-	Peers                     *peers.Peers
+	Peers                     PeerAddressProvider
 	Rebooter                  reboot.Rebooter
 	Cfg                       *rest.Config
 	CertReader                certificates.CertStorageReader
@@ -69,6 +97,7 @@ func New(config *ApiConnectivityCheckConfig, controlPlaneManager *controlplane.M
 		mutex:                  sync.Mutex{},
 		controlPlaneManager:    controlPlaneManager,
 		timeOfLastPeerResponse: time.Now(),
+		peerDialer:             &netPeerDialer{},
 	}
 }
 
@@ -110,12 +139,96 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 			return
 		}
 
-		// reset error count after a successful API call
+		// On control plane nodes, a passing readyz check is necessary but not
+		// sufficient: the local API server may respond 200 even when the node
+		// is network-isolated (the readyz sub-checks don't include etcd quorum).
+		// Verify that we can actually reach at least one peer before concluding
+		// we are healthy.
+		if c.isControlPlane() && !c.canReachAnyPeer() {
+			c.config.Log.Info("CP node: readyz passed but no peers are reachable, treating as connectivity failure")
+			if isHealthy := c.isConsideredHealthy(); !isHealthy {
+				c.config.Log.Info("CP isolation detected despite passing readyz, triggering a reboot")
+				if err := c.config.Rebooter.Reboot(); err != nil {
+					c.config.Log.Error(err, "failed to trigger reboot")
+				}
+			} else {
+				c.config.Log.Info("peers did not confirm CP isolation, ignoring")
+			}
+			return
+		}
+
+		// reset error count after a fully successful check
 		c.errorCount = 0
+		c.cpUnreachableCount = 0
 
 	}, c.config.CheckInterval)
 
 	return nil
+}
+
+// isControlPlane returns true if this node is a control plane node.
+func (c *ApiConnectivityCheck) isControlPlane() bool {
+	return c.controlPlaneManager != nil && c.controlPlaneManager.IsControlPlane()
+}
+
+// canReachAnyPeer performs a lightweight TCP dial to a sample of peers to verify
+// network connectivity. Returns true if at least one peer is reachable.
+func (c *ApiConnectivityCheck) canReachAnyPeer() bool {
+	allPeers := c.getAllPeerAddresses()
+	if len(allPeers) == 0 {
+		// No peers exist — we cannot determine isolation without peers.
+		// Return true to avoid false positives on single-node clusters.
+		c.config.Log.Info("canReachAnyPeer: no peers available, assuming reachable")
+		return true
+	}
+
+	// Sample up to maxPeersToSample peers
+	sampleSize := len(allPeers)
+	if sampleSize > maxPeersToSample {
+		sampleSize = maxPeersToSample
+	}
+
+	results := make(chan bool, sampleSize)
+	for i := 0; i < sampleSize; i++ {
+		peerAddr := fmt.Sprintf("%s:%d", allPeers[i].IP, c.config.PeerHealthPort)
+		go func(addr string) {
+			results <- c.peerDialer.Dial(addr, peerReachabilityTimeout) == nil
+		}(peerAddr)
+	}
+
+	for i := 0; i < sampleSize; i++ {
+		if <-results {
+			return true
+		}
+	}
+
+	c.config.Log.Info("canReachAnyPeer: no peers reachable",
+		"peersChecked", sampleSize, "totalPeers", len(allPeers))
+	return false
+}
+
+// getAllPeerAddresses returns a combined, deduplicated list of peer addresses.
+func (c *ApiConnectivityCheck) getAllPeerAddresses() []corev1.PodIP {
+	workerPeers := c.config.Peers.GetPeersAddresses(peers.Worker)
+	cpPeers := c.config.Peers.GetPeersAddresses(peers.ControlPlane)
+
+	// Deduplicate: on compact clusters, the same node may appear in both lists.
+	seen := make(map[string]struct{}, len(workerPeers)+len(cpPeers))
+	combined := make([]corev1.PodIP, 0, len(workerPeers)+len(cpPeers))
+
+	for _, p := range workerPeers {
+		if _, exists := seen[p.IP]; !exists && p.IP != "" {
+			seen[p.IP] = struct{}{}
+			combined = append(combined, p)
+		}
+	}
+	for _, p := range cpPeers {
+		if _, exists := seen[p.IP]; !exists && p.IP != "" {
+			seen[p.IP] = struct{}{}
+			combined = append(combined, p)
+		}
+	}
+	return combined
 }
 
 // isConsideredHealthy keeps track of the number of errors reported, and when a certain amount of error occur within a certain
@@ -130,6 +243,23 @@ func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
 	if cpUnhealthy {
 		c.config.Log.Info("Peer control plane nodes reported this node as unhealthy, triggering remediation")
 		return false
+	}
+
+	// Track CP peer unreachability independently of the worker error threshold.
+	// When CP peers are consistently unreachable, this is a strong isolation
+	// signal that should not be masked by the worker threshold not being reached.
+	if !canBeReached {
+		c.cpUnreachableCount++
+		if c.cpUnreachableCount >= c.config.MaxErrorsThreshold {
+			c.config.Log.Info("CP peers consistently unreachable, escalating to isolation-based health assessment",
+				"cpUnreachableCount", c.cpUnreachableCount, "threshold", c.config.MaxErrorsThreshold)
+			return c.controlPlaneManager.IsControlPlaneHealthy(
+				peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecauseNodeIsIsolated},
+				false,
+			)
+		}
+	} else {
+		c.cpUnreachableCount = 0
 	}
 
 	return c.controlPlaneManager.IsControlPlaneHealthy(workerPeersResponse, canBeReached)
