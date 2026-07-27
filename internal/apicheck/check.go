@@ -3,6 +3,7 @@ package apicheck
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"net"
 	"net/http"
 	"sync"
@@ -50,7 +51,7 @@ func (d *netPeerDialer) Dial(address string, timeout time.Duration) error {
 	if err != nil {
 		return err
 	}
-	conn.Close()
+	_ = conn.Close()
 	return nil
 }
 
@@ -64,7 +65,6 @@ type ApiConnectivityCheck struct {
 	client.Reader
 	config                 *ApiConnectivityCheckConfig
 	errorCount             int
-	cpUnreachableCount     int
 	timeOfLastPeerResponse time.Time
 	clientCreds            credentials.TransportCredentials
 	mutex                  sync.Mutex
@@ -141,7 +141,8 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 
 		// On control plane nodes, a passing readyz check is necessary but not
 		// sufficient: the local API server may respond 200 even when the node
-		// is network-isolated (the readyz sub-checks don't include etcd quorum).
+		// is network-isolated (/readyz does not provide a signal that detects
+		// loss of connectivity to the rest of the cluster).
 		// Verify that we can actually reach at least one peer before concluding
 		// we are healthy.
 		if c.isControlPlane() && !c.canReachAnyPeer() {
@@ -159,7 +160,6 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 
 		// reset error count after a fully successful check
 		c.errorCount = 0
-		c.cpUnreachableCount = 0
 
 	}, c.config.CheckInterval)
 
@@ -182,7 +182,10 @@ func (c *ApiConnectivityCheck) canReachAnyPeer() bool {
 		return true
 	}
 
-	// Sample up to maxPeersToSample peers
+	// Shuffle to avoid always checking the same peers, then sample.
+	rand.Shuffle(len(allPeers), func(i, j int) {
+		allPeers[i], allPeers[j] = allPeers[j], allPeers[i]
+	})
 	sampleSize := len(allPeers)
 	if sampleSize > maxPeersToSample {
 		sampleSize = maxPeersToSample
@@ -190,7 +193,7 @@ func (c *ApiConnectivityCheck) canReachAnyPeer() bool {
 
 	results := make(chan bool, sampleSize)
 	for i := 0; i < sampleSize; i++ {
-		peerAddr := fmt.Sprintf("%s:%d", allPeers[i].IP, c.config.PeerHealthPort)
+		peerAddr := net.JoinHostPort(allPeers[i].IP, fmt.Sprintf("%d", c.config.PeerHealthPort))
 		go func(addr string) {
 			results <- c.peerDialer.Dial(addr, peerReachabilityTimeout) == nil
 		}(peerAddr)
@@ -243,23 +246,6 @@ func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
 	if cpUnhealthy {
 		c.config.Log.Info("Peer control plane nodes reported this node as unhealthy, triggering remediation")
 		return false
-	}
-
-	// Track CP peer unreachability independently of the worker error threshold.
-	// When CP peers are consistently unreachable, this is a strong isolation
-	// signal that should not be masked by the worker threshold not being reached.
-	if !canBeReached {
-		c.cpUnreachableCount++
-		if c.cpUnreachableCount >= c.config.MaxErrorsThreshold {
-			c.config.Log.Info("CP peers consistently unreachable, escalating to isolation-based health assessment",
-				"cpUnreachableCount", c.cpUnreachableCount, "threshold", c.config.MaxErrorsThreshold)
-			return c.controlPlaneManager.IsControlPlaneHealthy(
-				peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecauseNodeIsIsolated},
-				false,
-			)
-		}
-	} else {
-		c.cpUnreachableCount = 0
 	}
 
 	return c.controlPlaneManager.IsControlPlaneHealthy(workerPeersResponse, canBeReached)

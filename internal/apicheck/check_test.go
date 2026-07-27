@@ -379,45 +379,6 @@ var _ = Describe("ApiConnectivityCheck", func() {
 			// for worker nodes.
 		})
 
-		It("should not track cpUnreachableCount on worker nodes", func() {
-			apiCheck.cpUnreachableCount = 0
-			// isConsideredHealthy for worker nodes returns workerPeersResponse.IsHealthy
-			// directly, without touching cpUnreachableCount
-			Expect(apiCheck.cpUnreachableCount).To(Equal(0))
-		})
-	})
-
-	// Tests for the CP isolation escalation logic in isConsideredHealthy.
-	// These test the cpUnreachableCount behavior at the field level since
-	// full isConsideredHealthy requires real gRPC peer infrastructure.
-	Describe("CP isolation escalation — cpUnreachableCount", func() {
-		It("should start at zero", func() {
-			apiCheck = newTestApiCheck(log, &mockPeerAddressProvider{}, newMockPeerDialer(), nil)
-			Expect(apiCheck.cpUnreachableCount).To(Equal(0))
-		})
-
-		It("should be independent of errorCount", func() {
-			apiCheck = newTestApiCheck(log, &mockPeerAddressProvider{}, newMockPeerDialer(), nil)
-			apiCheck.errorCount = 5
-			apiCheck.cpUnreachableCount = 2
-
-			// They track different signals
-			Expect(apiCheck.errorCount).To(Equal(5))
-			Expect(apiCheck.cpUnreachableCount).To(Equal(2))
-		})
-
-		It("should be reset when errorCount is reset (healthy path)", func() {
-			apiCheck = newTestApiCheck(log, &mockPeerAddressProvider{}, newMockPeerDialer(), nil)
-			apiCheck.errorCount = 3
-			apiCheck.cpUnreachableCount = 3
-
-			// Simulating what Start() does when readyz passes and peers are reachable
-			apiCheck.errorCount = 0
-			apiCheck.cpUnreachableCount = 0
-
-			Expect(apiCheck.errorCount).To(Equal(0))
-			Expect(apiCheck.cpUnreachableCount).To(Equal(0))
-		})
 	})
 
 	// Integration-style tests that verify the complete canReachAnyPeer +
@@ -446,7 +407,6 @@ var _ = Describe("ApiConnectivityCheck", func() {
 			It("should reset errorCount when readyz passes and peers are reachable", func() {
 				apiCheck = newTestApiCheck(log, peerProvider, dialer, nil)
 				apiCheck.errorCount = 2
-				apiCheck.cpUnreachableCount = 1
 
 				// Simulate: readyz passed, peers reachable (this is what Start does)
 				dialer.SetReachable("10.0.0.1:30001")
@@ -455,11 +415,9 @@ var _ = Describe("ApiConnectivityCheck", func() {
 				// Worker path: just reset
 				if !apiCheck.isControlPlane() || apiCheck.canReachAnyPeer() {
 					apiCheck.errorCount = 0
-					apiCheck.cpUnreachableCount = 0
 				}
 
 				Expect(apiCheck.errorCount).To(Equal(0))
-				Expect(apiCheck.cpUnreachableCount).To(Equal(0))
 			})
 		})
 
@@ -488,7 +446,6 @@ var _ = Describe("ApiConnectivityCheck", func() {
 				// reachability check is skipped entirely
 				if !apiCheck.isControlPlane() {
 					apiCheck.errorCount = 0
-					apiCheck.cpUnreachableCount = 0
 				}
 
 				Expect(apiCheck.errorCount).To(Equal(0))
@@ -499,18 +456,15 @@ var _ = Describe("ApiConnectivityCheck", func() {
 			It("should recover when peers become reachable again", func() {
 				apiCheck = newTestApiCheck(log, peerProvider, dialer, nil)
 				apiCheck.errorCount = 2
-				apiCheck.cpUnreachableCount = 2
 
 				// Network recovers — peers become reachable
 				dialer.SetReachable("10.0.0.1:30001")
 
 				if apiCheck.canReachAnyPeer() {
 					apiCheck.errorCount = 0
-					apiCheck.cpUnreachableCount = 0
 				}
 
 				Expect(apiCheck.errorCount).To(Equal(0))
-				Expect(apiCheck.cpUnreachableCount).To(Equal(0))
 			})
 		})
 	})
