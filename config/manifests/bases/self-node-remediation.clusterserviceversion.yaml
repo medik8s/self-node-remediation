@@ -97,6 +97,17 @@ spec:
     mediatype: image/png
   install:
     spec:
+      clusterPermissions:
+      - rules:
+        - apiGroups:
+          - networking.k8s.io
+          resources:
+          - networkpolicies
+          verbs:
+          - create
+          - delete
+          - update
+        serviceAccountName: controller-manager
       deployments: null
     strategy: ""
   installModes:
