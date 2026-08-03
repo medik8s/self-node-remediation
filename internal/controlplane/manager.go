@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	kubeletPort         = "10250"
+	defaultKubeletPort  = "10250"
 	nodeNameAddressType = "NodeName"
 )
 
@@ -34,6 +34,7 @@ type Manager struct {
 	nodeRole                     peers.Role
 	preferredAddressTypes        []string
 	nodeAddresses                []corev1.NodeAddress
+	kubeletPort                  string
 	endpointHealthCheckUrl       string
 	wasEndpointAccessibleAtStart bool
 	client                       client.Client
@@ -57,6 +58,7 @@ func NewManager(nodeName string, myClient client.Client) *Manager {
 		nodeName:                     nodeName,
 		endpointHealthCheckUrl:       os.Getenv("END_POINT_HEALTH_CHECK_URL"),
 		preferredAddressTypes:        preferredAddressTypes,
+		kubeletPort:                  defaultKubeletPort,
 		client:                       myClient,
 		wasEndpointAccessibleAtStart: false,
 		log:                          ctrl.Log.WithName("controlPlane").WithName("Manager"),
@@ -205,7 +207,7 @@ func (manager *Manager) isKubeletServiceRunning() bool {
 }
 
 func (manager *Manager) isKubeletServiceRunningOnAddress(address string) bool {
-	url := fmt.Sprintf("https://%s/pods", net.JoinHostPort(address, kubeletPort))
+	url := fmt.Sprintf("https://%s/pods", net.JoinHostPort(address, manager.kubeletPort))
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,

@@ -110,6 +110,7 @@ var _ = Describe("SNR Config Test", func() {
 			Expect(container.Image).To(Equal(shared.DsDummyImageName))
 			envVars := getEnvVarMap(container.Env)
 			Expect(envVars["WATCHDOG_PATH"].Value).To(Equal(config.Spec.WatchdogFilePath))
+			Expect(envVars["PREFERRED_ADDRESS_TYPES"].Value).To(Equal(""))
 
 			Expect(len(ds.OwnerReferences)).To(Equal(1))
 			Expect(ds.OwnerReferences[0].Name).To(Equal(config.Name))
@@ -122,6 +123,23 @@ var _ = Describe("SNR Config Test", func() {
 			Expect(container.SecurityContext).ToNot(BeNil())
 			Expect(container.SecurityContext.Privileged).To(Equal(pointer.Bool(true)))
 			Expect(container.SecurityContext.ReadOnlyRootFilesystem).To(Equal(pointer.Bool(true)))
+		})
+		When("Configuration has customized address types", func() {
+			BeforeEach(func() {
+				config.Spec.PreferredAddressTypes = []string{"InternalDNS", "InternalIP"}
+			})
+			It("Daemonset should have comma-separated address types in env var", func() {
+				Eventually(func(g Gomega) {
+					ds = &appsv1.DaemonSet{}
+					g.Expect(k8sClient.Get(context.Background(), dsKey, ds)).Should(BeNil())
+
+					dsContainers := ds.Spec.Template.Spec.Containers
+					g.Expect(len(dsContainers)).To(BeNumerically("==", 1))
+					container := dsContainers[0]
+					envVars := getEnvVarMap(container.Env)
+					g.Expect(envVars["PREFERRED_ADDRESS_TYPES"].Value).To(Equal("InternalDNS,InternalIP"))
+				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+			})
 		})
 		When("Configuration has customized tolerations", func() {
 			var expectedToleration corev1.Toleration
