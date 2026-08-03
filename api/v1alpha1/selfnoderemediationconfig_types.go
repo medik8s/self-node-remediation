@@ -119,6 +119,13 @@ type SelfNodeRemediationConfigSpec struct {
 	// +optional
 	EndpointHealthCheckUrl string `json:"endpointHealthCheckUrl,omitempty"`
 
+	// PreferredAddressTypes is a list of node address types, that self node remediation agents which run on control-plane nodes will use to try to access the kubelet if they can't contact their peers.
+	// Takes the values accepted on `node.status.addresses.type`, or the special value `"NodeName"`, in which case the node's `metadata.name` will be used.
+	// This is a part of self diagnostics which will decide whether the node should be remediated or not.
+	// If empty, it will be equivalent to ["NodeName"] (the previous behaviour).
+	// +optional
+	PreferredAddressTypes []string `json:"preferredAddressTypes,omitempty"`
+
 	// HostPort is used for internal communication between SNR agents.
 	// +kubebuilder:default:=30001
 	// +kubebuilder:validation:Minimum=1

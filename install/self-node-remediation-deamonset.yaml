@@ -70,6 +70,8 @@ spec:
             value: {{.IsSoftwareRebootEnabled}}
           - name: END_POINT_HEALTH_CHECK_URL
             value: {{.EndpointHealthCheckUrl}}
+          - name: PREFERRED_ADDRESS_TYPES
+            value: {{.PreferredAddressTypes | join ","}}
           - name: HOST_PORT
             value: "{{.HostPort}}"
           - name: MIN_PEERS_FOR_REMEDIATION
