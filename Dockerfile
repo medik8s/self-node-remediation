@@ -40,7 +40,7 @@ COPY install/ install/
 # Build
 RUN ./hack/build.sh
 
-FROM registry.redhat.io/ubi9/ubi-minimal-pqc:latest
+FROM registry.access.redhat.com/ubi9/ubi-minimal-pqc:latest
 
 WORKDIR /
 
