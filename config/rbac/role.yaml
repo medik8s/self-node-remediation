@@ -16,15 +16,15 @@ rules:
   - ""
   resources:
   - nodes
-  - secrets
   verbs:
-  - create
-  - delete
   - get
   - list
   - patch
   - update
   - watch
+# NOTE: Secret permissions moved to namespace-scoped Role (secrets_role.yaml)
+# to follow principle of least privilege. SNR only needs access to the
+# self-node-remediation-certificates secret in the operator's namespace.
 - apiGroups:
   - ""
   resources:
