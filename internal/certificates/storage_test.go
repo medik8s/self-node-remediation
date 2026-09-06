@@ -208,6 +208,6 @@ var _ = Describe("Certificate Namespace Scoping", func() {
 		Expect(err.Error()).To(ContainSubstring("not found"))
 
 		// Cleanup
-		_ = directClient.Delete(ctx, secretInOperatorNs)
+		Expect(directClient.Delete(ctx, secretInOperatorNs)).To(Succeed())
 	})
 })
