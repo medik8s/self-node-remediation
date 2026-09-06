@@ -13,6 +13,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.28.3
 	github.com/onsi/gomega v1.40.0
 	github.com/openshift/api v0.0.0-20260715165912-72066cc9718b // release-4.22
+	github.com/openshift/controller-runtime-common v0.0.0-20260722095319-fea68df23430
 	github.com/pkg/errors v0.9.1
 	go.uber.org/zap v1.27.1
 	golang.org/x/sys v0.47.0
@@ -24,9 +25,8 @@ require (
 	k8s.io/client-go v0.36.2
 	k8s.io/utils v0.0.0-20260707023825-cf1189d6abe3
 	sigs.k8s.io/controller-runtime v0.24.1 // matches k8s 1.34
+	sigs.k8s.io/yaml v1.6.0
 )
-
-require github.com/openshift/controller-runtime-common v0.0.0-20260722095319-fea68df23430
 
 require (
 	cel.dev/expr v0.25.1 // indirect
@@ -116,7 +116,6 @@ require (
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.2 // indirect
-	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
 replace (
