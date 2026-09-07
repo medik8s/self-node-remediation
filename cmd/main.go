@@ -409,19 +409,14 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		setupLog.Error(err, "failed to init watchdog, using soft reboot")
 	}
 
-	wasWatchdogInitiated := false
-	watchdogTimeout := time.Duration(0)
 	if wd != nil {
 		if err = mgr.Add(wd); err != nil {
 			setupLog.Error(err, "failed to add watchdog to the manager")
 			os.Exit(1)
 		}
-		wasWatchdogInitiated = true
-		watchdogTimeout = wd.GetTimeout()
 	}
-
-	if err = utils.UpdateNodeAnnotations(wasWatchdogInitiated, watchdogTimeout, myNodeName, mgr); err != nil {
-		setupLog.Error(err, "failed to update node's annotation", "annotation", utils.IsRebootCapableAnnotation)
+	if err = mgr.Add(utils.NewAnnotationUpdater(wd, myNodeName, mgr.GetAPIReader(), mgr.GetClient())); err != nil {
+		setupLog.Error(err, "failed to queue annotation update", "annotation", utils.IsRebootCapableAnnotation)
 		os.Exit(1)
 	}
 

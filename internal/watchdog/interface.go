@@ -9,6 +9,10 @@ import (
 type Watchdog interface {
 	// Start should be called by the manager and block on the given context
 	Start(ctx context.Context) error
+	// Returns a channel that is closed when initialization is complete,
+	// regardless of outcome. Callers should check `Status()` to determine
+	// whether the watchdog armed successfully.
+	Started() <-chan struct{}
 	// Status shows current watchdog status
 	Status() watchdogStatus
 	// Stop stops feeding the watchdog, which results in a reboot of the node
