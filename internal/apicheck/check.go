@@ -115,6 +115,8 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 		// /readyz does not check etcd connectivity. Verify CP peer health before
 		// concluding the node is healthy.
 		if c.isControlPlane() {
+			// Directly check peer reachability to detect isolation.
+			// Skip errorCount threshold since readyz succeeded (not an API error).
 			canBeReached, cpUnhealthy := c.getControlPlanePeersStatus()
 
 			// If CP peers say we're unhealthy, trigger remediation immediately
@@ -130,6 +132,8 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 			// BUT: only treat as isolation if peers actually exist
 			peersExist := len(c.config.Peers.GetPeersAddresses(peers.ControlPlane)) > 0
 			if !canBeReached && peersExist {
+				// Note: If 2/3 CPs are dead (not isolated), this remediates the survivor.
+				// Acceptable since cluster already lacks quorum and is non-functional.
 				c.config.Log.Info("CP node: readyz passed but no CP peers reachable, treating as failure")
 				if isHealthy := c.isConsideredHealthy(); !isHealthy {
 					c.config.Log.Info("CP isolation detected despite passing readyz, triggering reboot")
