@@ -144,7 +144,6 @@ spec:
           - ""
           resources:
           - nodes
-          - secrets
           verbs:
           - create
           - delete
@@ -410,6 +409,22 @@ spec:
           verbs:
           - create
           - patch
+        - apiGroups:
+          - ""
+          resources:
+          - secrets
+          verbs:
+          - create
+        - apiGroups:
+          - ""
+          resourceNames:
+          - self-node-remediation-certificates
+          resources:
+          - secrets
+          verbs:
+          - get
+          - list
+          - watch
         serviceAccountName: self-node-remediation-controller-manager
     strategy: deployment
   installModes:

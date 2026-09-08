@@ -16,7 +16,6 @@ rules:
   - ""
   resources:
   - nodes
-  - secrets
   verbs:
   - create
   - delete
