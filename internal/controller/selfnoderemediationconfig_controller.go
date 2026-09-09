@@ -28,6 +28,7 @@ import (
 
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -68,6 +69,7 @@ type SelfNodeRemediationConfigReconciler struct {
 //+kubebuilder:rbac:groups=self-node-remediation.medik8s.io,resources=selfnoderemediationconfigs/finalizers,verbs=update
 //+kubebuilder:rbac:groups="apps",resources=daemonsets,verbs=get;list;watch;update;patch;create;delete
 //+kubebuilder:rbac:groups="apps",resources=daemonsets/finalizers,verbs=update
+//+kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups="security.openshift.io",resources=securitycontextconstraints,verbs=use,resourceNames=privileged
 //+kubebuilder:rbac:groups=machine.openshift.io,resources=machines,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=machine.openshift.io,resources=machines/status,verbs=get;update;patch
@@ -131,6 +133,16 @@ func (r *SelfNodeRemediationConfigReconciler) SetupWithManager(mgr ctrl.Manager)
 				DeleteFunc: func(_ event.DeleteEvent) bool { return true },
 			}),
 		).
+		Owns(&networkingv1.NetworkPolicy{}, builder.WithPredicates(
+			predicate.Funcs{
+				// skip reconcile for status only changes
+				UpdateFunc: func(ev event.UpdateEvent) bool {
+					return generationChangePredicate.Update(ev)
+				},
+				// we want to recreate the NetworkPolicy in case someone deletes it
+				DeleteFunc: func(_ event.DeleteEvent) bool { return true },
+			}),
+		).
 		Complete(r)
 }
 
@@ -173,7 +185,7 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 		return err
 	}
 
-	if err := r.checkNumberOfDSObjects(objs); err != nil {
+	if err := r.checkInstallObjects(objs); err != nil {
 		return err
 	}
 
@@ -187,10 +199,12 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 		return err
 	}
 
-	// Sync DaemonSets
+	// Sync the DaemonSet and its accompanying NetworkPolicy
 	for _, obj := range objs {
-		if err := r.removeOldDsOnOperatorUpdate(ctx, obj.GetName(), obj.GetAnnotations()[lastChangedAnnotationKey]); err != nil {
-			return err
+		if obj.GetKind() == "DaemonSet" {
+			if err := r.removeOldDsOnOperatorUpdate(ctx, obj.GetName(), obj.GetAnnotations()[lastChangedAnnotationKey]); err != nil {
+				return err
+			}
 		}
 		err = r.syncK8sResource(ctx, snrConfig, obj)
 		if err != nil {
@@ -251,14 +265,45 @@ func (r *SelfNodeRemediationConfigReconciler) syncCerts(cr *selfnoderemediationv
 	return nil
 }
 
-func (r *SelfNodeRemediationConfigReconciler) checkNumberOfDSObjects(objs []*unstructured.Unstructured) error {
+// checkInstallObjects validates that the rendered /install manifests contain the
+// resources the reconciler knows how to handle: a DaemonSet and its NetworkPolicy
+func (r *SelfNodeRemediationConfigReconciler) checkInstallObjects(objs []*unstructured.Unstructured) error {
+	dsCount := 0
+	networkPolicyCount := 0
+	for _, obj := range objs {
+		switch obj.GetKind() {
+		case "DaemonSet":
+			dsCount++
+		case "NetworkPolicy":
+			networkPolicyCount++
+		}
+	}
+
 	//Expecting to find a single DS object
-	if len(objs) != 1 {
+	if dsCount != 1 {
 		err := fmt.Errorf("/install folder does not contain exactly one ds object")
-		r.Log.Error(err, "expecting exactly one ds element in /install folder", "actual number of elements", len(objs))
+		r.Log.Error(err, "expecting exactly one ds element in /install folder", "actual number of elements", dsCount)
+		return err
+	}
+
+	//Expecting to find a single NetworkPolicy object, restricting ingress/egress for the DS agent pods
+	if networkPolicyCount != 1 {
+		err := fmt.Errorf("/install folder does not contain exactly one NetworkPolicy object")
+		r.Log.Error(err, "expecting exactly one NetworkPolicy element in /install folder", "actual number of elements", networkPolicyCount)
 		return err
 	}
 	return nil
+}
+
+// findDaemonSetObject returns the DaemonSet object among the rendered /install manifests.
+// checkInstallObjects must be called beforehand to guarantee exactly one such object exists.
+func (r *SelfNodeRemediationConfigReconciler) findDaemonSetObject(objs []*unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	for _, obj := range objs {
+		if obj.GetKind() == "DaemonSet" {
+			return obj, nil
+		}
+	}
+	return nil, fmt.Errorf("/install folder does not contain a ds object")
 }
 
 func (r *SelfNodeRemediationConfigReconciler) updateDsTolerations(objs []*unstructured.Unstructured, tolerations []corev1.Toleration) error {
@@ -268,7 +313,10 @@ func (r *SelfNodeRemediationConfigReconciler) updateDsTolerations(objs []*unstru
 		return nil
 	}
 
-	ds := objs[0]
+	ds, err := r.findDaemonSetObject(objs)
+	if err != nil {
+		return err
+	}
 	existingTolerations, _, err := unstructured.NestedSlice(ds.Object, "spec", "template", "spec", "tolerations")
 	if err != nil {
 		r.Log.Error(err, "error fetching tolerations from ds")
@@ -309,7 +357,10 @@ func (r *SelfNodeRemediationConfigReconciler) updateDsNodeSelectors(objs []*unst
 		return nil
 	}
 
-	ds := objs[0]
+	ds, err := r.findDaemonSetObject(objs)
+	if err != nil {
+		return err
+	}
 	existingNodeSelectorTerms, found, err := unstructured.NestedSlice(ds.Object, "spec", "template", "spec", "affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
 	if err != nil {
 		r.Log.Error(err, "error fetching node selector terms from ds")
