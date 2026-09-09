@@ -6,13 +6,13 @@ This document justifies Self Node Remediation (SNR) operator configurations that
 
 ## 1. [`access-control-cluster-role-bindings`](https://github.com/redhat-best-practices-for-k8s/certsuite/blob/main/CATALOG.md#access-control-cluster-role-bindings)
 
-The SNR operator requires the system:auth-delegator pattern for secure metrics serving and webhook authentication.
+The SNR operator creates ClusterRoleBinding `metrics-auth-rolebinding` for secure metrics serving.
 
 ### Justification
 
-These ClusterRoleBindings delegate token review and subject access review to the API server, a standard Kubernetes pattern for operators with conversion webhooks. Without these bindings, the operator cannot authenticate incoming requests to its metrics and webhook endpoints.
+The `metrics-auth-rolebinding` ClusterRoleBinding binds the custom `metrics-auth-role` ClusterRole, which grants permissions for token review and subject access review (tokenreviews.authentication.k8s.io, subjectaccessreviews.authorization.k8s.io). This follows the standard Kubernetes pattern for operators serving authenticated metrics endpoints.
 
-The operator has CRD conversion webhooks that require auth delegation. [RHWA-1743](https://redhat.atlassian.net/browse/RHWA-1743) further reduces cluster-wide permissions by moving secret RBAC from ClusterRole to namespace-scoped Role.
+Without this ClusterRoleBinding, the operator cannot authenticate incoming requests to its metrics endpoint. [RHWA-1743](https://redhat.atlassian.net/browse/RHWA-1743) further reduces cluster-wide permissions by moving secret RBAC from ClusterRole to namespace-scoped Role.
 
 ---
 
@@ -110,11 +110,11 @@ A ReplicaSet or StatefulSet cannot guarantee per-node coverage and could leave n
 
 ## 9. [`lifecycle-pod-toleration-bypass`](https://github.com/redhat-best-practices-for-k8s/certsuite/blob/main/CATALOG.md#lifecycle-pod-toleration-bypass)
 
-The SNR DaemonSet agent uses non-default tolerations for control-plane and infrastructure node taints.
+The SNR DaemonSet agent uses 3 non-default tolerations: `remediation.medik8s.io/self-node-remediation`, `node-role.kubernetes.io/master`, and `node-role.kubernetes.io/control-plane`.
 
 ### Justification
 
-SNR must monitor ALL nodes including control-plane. Without these tolerations, control-plane nodes would lack self-remediation capability.
+SNR must monitor ALL nodes including control-plane. Without the master and control-plane tolerations, control-plane nodes would lack self-remediation capability.
 
 The `remediation.medik8s.io/self-node-remediation` toleration enables SNR's isolation mechanism during active remediation. All Medik8s node-level operators use identical tolerations.
 
@@ -134,7 +134,7 @@ This is a direct consequence of exceptions 2, 3, and 5 above. Only the DS agent 
 
 ## Summary
 
-All 10 configurations are architectural requirements for node-level self-remediation:
+These 10 configurations include 8 architectural requirements and 2 design choices:
 
 **HARD exceptions (8):** Architecturally required, cannot be changed without breaking core functionality
 - Exceptions 1-5, 8-10
