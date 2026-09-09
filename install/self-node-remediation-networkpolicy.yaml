@@ -1,0 +1,52 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: self-node-remediation-ds
+  namespace: {{.Namespace}}
+  labels:
+    k8s-app: self-node-remediation
+spec:
+  # Applies only to the self-node-remediation agent pods created by the
+  # self-node-remediation-ds DaemonSet (not the operator/controller-manager pods).
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: self-node-remediation
+      app.kubernetes.io/component: agent
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Agents dial each other on the peer health-checking hostPort. Only allow
+    # that traffic to originate from other agent pods in this namespace.
+    # (Note: kubelet liveness/readiness/startup probes to this pod are not
+    # pod-to-pod traffic and are not subject to this ingress restriction.)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: self-node-remediation
+              app.kubernetes.io/component: agent
+      ports:
+        - protocol: TCP
+          port: {{.HostPort}}
+  egress:
+    # Allow outbound peer-to-peer health check calls to other agent pods.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: self-node-remediation
+              app.kubernetes.io/component: agent
+      ports:
+        - protocol: TCP
+          port: {{.HostPort}}
+    # Allow DNS resolution, required to resolve Kubernetes node names.
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow HTTPS egress, needed to reach the Kubernetes API server (via the
+    # in-cluster kubernetes.default.svc, always on port 443) and any optional
+    # HTTPS EndpointHealthCheckUrl.
+    - ports:
+        - protocol: TCP
+          port: 443
