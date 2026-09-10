@@ -406,8 +406,10 @@ bundle-push: ## Push the bundle image.
 
 .PHONY: protoc
 PROTOC = $(shell pwd)/bin/proto/bin/protoc
+# map Go arch names to the ones used by protobuf release artifacts
+PROTOC_ARCH = $(shell go env GOARCH | sed -e 's/amd64/x86_64/' -e 's/arm64/aarch_64/')
 protoc: protoc-gen-go protoc-gen-go-grpc ## Download protoc (protocol buffers tool needed for gRPC)
-	test -f ${PROTOC} || (cd $(shell pwd)/bin/proto && curl -sSLo protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v3.16.0/protoc-3.16.0-linux-x86_64.zip && unzip protoc.zip && rm protoc.zip)
+	test -f ${PROTOC} || (cd $(shell pwd)/bin/proto && curl -sSLo protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v3.16.0/protoc-3.16.0-linux-$(PROTOC_ARCH).zip && unzip -o protoc.zip && rm protoc.zip)
 
 .PHONY: protoc-gen-go
 PROTOC_GEN_GO = $(shell pwd)/bin/proto/bin/protoc-gen-go

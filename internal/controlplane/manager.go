@@ -5,8 +5,10 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -22,13 +24,17 @@ import (
 )
 
 const (
-	kubeletPort = "10250"
+	defaultKubeletPort  = "10250"
+	nodeNameAddressType = "NodeName"
 )
 
 // Manager contains logic and info needed to fence and remediate controlplane nodes
 type Manager struct {
 	nodeName                     string
 	nodeRole                     peers.Role
+	preferredAddressTypes        []string
+	nodeAddresses                []corev1.NodeAddress
+	kubeletPort                  string
 	endpointHealthCheckUrl       string
 	wasEndpointAccessibleAtStart bool
 	client                       client.Client
@@ -37,9 +43,22 @@ type Manager struct {
 
 // NewManager inits a new Manager return nil if init fails
 func NewManager(nodeName string, myClient client.Client) *Manager {
+	var preferredAddressTypes []string
+	rawPreferredAddressTypes := os.Getenv("PREFERRED_ADDRESS_TYPES")
+	if rawPreferredAddressTypes != "" {
+		preferredAddressTypes = strings.Split(rawPreferredAddressTypes, ",")
+	} else {
+		preferredAddressTypes = []string{nodeNameAddressType}
+	}
+	for i, addressType := range preferredAddressTypes {
+		preferredAddressTypes[i] = strings.TrimSpace(addressType)
+	}
+
 	return &Manager{
 		nodeName:                     nodeName,
 		endpointHealthCheckUrl:       os.Getenv("END_POINT_HEALTH_CHECK_URL"),
+		preferredAddressTypes:        preferredAddressTypes,
+		kubeletPort:                  defaultKubeletPort,
 		client:                       myClient,
 		wasEndpointAccessibleAtStart: false,
 		log:                          ctrl.Log.WithName("controlPlane").WithName("Manager"),
@@ -125,6 +144,7 @@ func (manager *Manager) initializeManager() error {
 		return wrapWithInitError(err)
 	}
 	manager.setNodeRole(node)
+	manager.nodeAddresses = node.Status.Addresses
 
 	manager.wasEndpointAccessibleAtStart = manager.isEndpointAccessible()
 	return nil
@@ -166,24 +186,45 @@ func (manager *Manager) isEndpointAccessible() bool {
 }
 
 func (manager *Manager) isKubeletServiceRunning() bool {
-	url := fmt.Sprintf("https://%s:%s/pods", manager.nodeName, kubeletPort)
+	for _, addressType := range manager.preferredAddressTypes {
+		if addressType == nodeNameAddressType {
+			if manager.isKubeletServiceRunningOnAddress(manager.nodeName) {
+				return true
+			}
+		} else {
+			nodeAddressType := corev1.NodeAddressType(addressType)
+			for _, address := range manager.nodeAddresses {
+				if address.Type == nodeAddressType {
+					if manager.isKubeletServiceRunningOnAddress(address.Address) {
+						return true
+					}
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+func (manager *Manager) isKubeletServiceRunningOnAddress(address string) bool {
+	url := fmt.Sprintf("https://%s/pods", net.JoinHostPort(address, manager.kubeletPort))
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
 			MinVersion:         certificates.TLSMinVersion,
 		},
 	}
-	httpClient := &http.Client{Transport: tr}
+	httpClient := &http.Client{Transport: tr, Timeout: 10 * time.Second}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		manager.log.Error(err, "failed to create a kubelet service request", "node name", manager.nodeName)
+		manager.log.Error(err, "failed to create a kubelet service request", "address", address)
 		return false
 	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		manager.log.Error(err, "kubelet service is down", "node name", manager.nodeName)
+		manager.log.Error(err, "kubelet service is down", "address", address)
 		return false
 	}
 	defer resp.Body.Close()

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -133,6 +134,10 @@ func (r *SelfNodeRemediationConfigReconciler) SetupWithManager(mgr ctrl.Manager)
 		Complete(r)
 }
 
+func join(sep string, s []string) string {
+	return strings.Join(s, sep)
+}
+
 func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Context, snrConfig *selfnoderemediationv1alpha1.SelfNodeRemediationConfig) error {
 	logger := r.Log.WithName("syncConfigDaemonset")
 	logger.Info("Start to sync config daemonset")
@@ -155,9 +160,12 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 	data.Data["PeerRequestTimeout"] = snrConfig.Spec.PeerRequestTimeout.Nanoseconds()
 	data.Data["MaxApiErrorThreshold"] = snrConfig.Spec.MaxApiErrorThreshold
 	data.Data["EndpointHealthCheckUrl"] = snrConfig.Spec.EndpointHealthCheckUrl
+	data.Data["PreferredAddressTypes"] = snrConfig.Spec.PreferredAddressTypes
 	data.Data["MinPeersForRemediation"] = snrConfig.Spec.MinPeersForRemediation
 	data.Data["HostPort"] = snrConfig.Spec.HostPort
 	data.Data["IsSoftwareRebootEnabled"] = fmt.Sprintf("\"%t\"", snrConfig.Spec.IsSoftwareRebootEnabled)
+
+	data.Funcs["join"] = join
 
 	objs, err := render.Dir(r.InstallFileFolder, &data)
 	if err != nil {

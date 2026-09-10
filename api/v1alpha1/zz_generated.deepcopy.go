@@ -150,6 +150,11 @@ func (in *SelfNodeRemediationConfigSpec) DeepCopyInto(out *SelfNodeRemediationCo
 		*out = new(v1.Duration)
 		**out = **in
 	}
+	if in.PreferredAddressTypes != nil {
+		in, out := &in.PreferredAddressTypes, &out.PreferredAddressTypes
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.CustomDsTolerations != nil {
 		in, out := &in.CustomDsTolerations, &out.CustomDsTolerations
 		*out = make([]corev1.Toleration, len(*in))
