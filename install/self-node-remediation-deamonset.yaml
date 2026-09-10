@@ -39,6 +39,7 @@ spec:
       containers:
       - args:
         - --is-manager=false
+        - --health-probe-bind-address=:8081
         command:
         - /manager
         env:
