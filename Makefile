@@ -578,3 +578,7 @@ fix-imports: sort-imports ## Sort imports
 
 .PHONY: full-gen
 full-gen:  tidy vendor generate manifests bundle fix-imports bundle-reset ## generates all automatically generated content
+
+# Source-to-OLM deployment is kept in a separate makefile so the existing
+# development and release targets above retain their current behavior.
+-include Makefile.olm
