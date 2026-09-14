@@ -13,11 +13,13 @@ import (
 	. "github.com/onsi/gomega"
 	gomegatypes "github.com/onsi/gomega/types"
 
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/medik8s/self-node-remediation/api/v1alpha1"
@@ -440,6 +442,40 @@ func deleteAndWait(resource client.Object) {
 }
 
 func ensureSnrRunning(nodes *v1.NodeList) {
+	// Wait for DaemonSet rollout to complete after operator upgrade
+	// This ensures we're checking pods from the current template, not old ones
+	ctx := context.Background()
+	dsName := "self-node-remediation-ds"
+
+	EventuallyWithOffset(1, func() bool {
+		ds := &appsv1.DaemonSet{}
+		err := k8sClient.Get(ctx, types.NamespacedName{
+			Name:      dsName,
+			Namespace: testNamespace,
+		}, ds)
+		if err != nil {
+			GinkgoWriter.Printf("Failed to get DaemonSet %s: %v\n", dsName, err)
+			return false
+		}
+
+		// Check if rollout is complete: all pods updated and ready
+		isComplete := ds.Status.DesiredNumberScheduled > 0 &&
+			ds.Status.DesiredNumberScheduled == ds.Status.UpdatedNumberScheduled &&
+			ds.Status.DesiredNumberScheduled == ds.Status.NumberReady &&
+			ds.Status.NumberUnavailable == 0
+
+		if !isComplete {
+			GinkgoWriter.Printf("DaemonSet %s rollout in progress: desired=%d, updated=%d, ready=%d, unavailable=%d\n",
+				dsName,
+				ds.Status.DesiredNumberScheduled,
+				ds.Status.UpdatedNumberScheduled,
+				ds.Status.NumberReady,
+				ds.Status.NumberUnavailable)
+		}
+
+		return isComplete
+	}, 5*time.Minute, 10*time.Second).Should(BeTrue(), "DaemonSet rollout did not complete")
+
 	wg := sync.WaitGroup{}
 	for i := range nodes.Items {
 		wg.Add(1)

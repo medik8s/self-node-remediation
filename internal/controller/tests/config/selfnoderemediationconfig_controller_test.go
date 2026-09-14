@@ -123,6 +123,23 @@ var _ = Describe("SNR Config Test", func() {
 			Expect(container.SecurityContext).ToNot(BeNil())
 			Expect(container.SecurityContext.Privileged).To(Equal(pointer.Bool(true)))
 			Expect(container.SecurityContext.ReadOnlyRootFilesystem).To(Equal(pointer.Bool(true)))
+
+			Expect(container.ImagePullPolicy).To(Equal(corev1.PullIfNotPresent))
+
+			Expect(container.LivenessProbe).ToNot(BeNil())
+			Expect(container.LivenessProbe.HTTPGet.Path).To(Equal("/healthz"))
+			Expect(container.LivenessProbe.HTTPGet.Port.IntValue()).To(Equal(8081))
+
+			Expect(container.ReadinessProbe).ToNot(BeNil())
+			Expect(container.ReadinessProbe.HTTPGet.Path).To(Equal("/readyz"))
+			Expect(container.ReadinessProbe.HTTPGet.Port.IntValue()).To(Equal(8081))
+
+			Expect(container.StartupProbe).ToNot(BeNil())
+			Expect(container.StartupProbe.HTTPGet.Path).To(Equal("/healthz"))
+			Expect(container.StartupProbe.HTTPGet.Port.IntValue()).To(Equal(8081))
+			Expect(container.StartupProbe.FailureThreshold).To(BeEquivalentTo(12))
+
+			Expect(container.TerminationMessagePolicy).To(Equal(corev1.TerminationMessageFallbackToLogsOnError))
 		})
 		When("Configuration has customized address types", func() {
 			BeforeEach(func() {
