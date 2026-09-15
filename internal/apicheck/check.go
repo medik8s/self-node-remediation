@@ -110,7 +110,44 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 			return
 		}
 
-		// reset error count after a successful API call
+		// On control plane nodes, a passing readyz check may be a false positive:
+		// the local API server responds 200 even when network-isolated because
+		// /readyz does not check etcd connectivity. Verify CP peer health before
+		// concluding the node is healthy.
+		if c.isControlPlane() {
+			// Directly check peer reachability to detect isolation.
+			// Skip errorCount threshold since readyz succeeded (not an API error).
+			canBeReached, cpUnhealthy := c.getControlPlanePeersStatus()
+
+			// If CP peers say we're unhealthy, trigger remediation immediately
+			if cpUnhealthy {
+				c.config.Log.Info("CP peers report this node as unhealthy, triggering reboot")
+				if err := c.config.Rebooter.Reboot(); err != nil {
+					c.config.Log.Error(err, "failed to trigger reboot")
+				}
+				return
+			}
+
+			// If no CP peers are reachable, readyz was a false positive
+			// BUT: only treat as isolation if peers actually exist
+			peersExist := len(c.config.Peers.GetPeersAddresses(peers.ControlPlane)) > 0
+			if !canBeReached && peersExist {
+				// Note: If 2/3 CPs are dead (not isolated), this remediates the survivor.
+				// Acceptable since cluster already lacks quorum and is non-functional.
+				c.config.Log.Info("CP node: readyz passed but no CP peers reachable, treating as failure")
+				if isHealthy := c.isConsideredHealthy(); !isHealthy {
+					c.config.Log.Info("CP isolation detected despite passing readyz, triggering reboot")
+					if err := c.config.Rebooter.Reboot(); err != nil {
+						c.config.Log.Error(err, "failed to trigger reboot")
+					}
+				} else {
+					c.config.Log.Info("not all peers confirmed isolation, waiting for threshold")
+				}
+				return
+			}
+		}
+
+		// reset error count after a fully successful check
 		c.errorCount = 0
 
 	}, c.config.CheckInterval)
@@ -118,12 +155,16 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 	return nil
 }
 
+// isControlPlane returns true if this node is a control plane node.
+func (c *ApiConnectivityCheck) isControlPlane() bool {
+	return c.controlPlaneManager != nil && c.controlPlaneManager.IsControlPlane()
+}
+
 // isConsideredHealthy keeps track of the number of errors reported, and when a certain amount of error occur within a certain
 // time, ask peers if this node is healthy. Returns if the node is considered to be healthy or not.
 func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
 	workerPeersResponse := c.getWorkerPeersResponse()
-	isWorkerNode := c.controlPlaneManager == nil || !c.controlPlaneManager.IsControlPlane()
-	if isWorkerNode {
+	if !c.isControlPlane() {
 		return workerPeersResponse.IsHealthy
 	}
 	canBeReached, cpUnhealthy := c.getControlPlanePeersStatus()
