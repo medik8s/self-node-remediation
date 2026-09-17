@@ -407,9 +407,15 @@ bundle-push: ## Push the bundle image.
 .PHONY: protoc
 PROTOC = $(shell pwd)/bin/proto/bin/protoc
 # map Go arch names to the ones used by protobuf release artifacts
-PROTOC_ARCH = $(shell go env GOARCH | sed -e 's/amd64/x86_64/' -e 's/arm64/aarch_64/')
+PROTOC_OS = $(shell go env GOHOSTOS | sed -e 's/darwin/osx/')
+PROTOC_ARCH = $(shell go env GOHOSTARCH | sed -e 's/amd64/x86_64/' -e 's/arm64/aarch_64/')
+ifeq ($(PROTOC_OS),osx)
+# Protobuf 3.16.0 only provides an x86_64 macOS binary (requires Rosetta on Apple Silicon).
+PROTOC_ARCH = x86_64
+endif
 protoc: protoc-gen-go protoc-gen-go-grpc ## Download protoc (protocol buffers tool needed for gRPC)
-	test -f ${PROTOC} || (cd $(shell pwd)/bin/proto && curl -sSLo protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v3.16.0/protoc-3.16.0-linux-$(PROTOC_ARCH).zip && unzip -o protoc.zip && rm protoc.zip)
+	$(PROTOC) --version >/dev/null 2>&1 || (cd $(shell pwd)/bin/proto && curl -fsSLo protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v3.16.0/protoc-3.16.0-$(PROTOC_OS)-$(PROTOC_ARCH).zip && unzip -o protoc.zip && rm protoc.zip)
+	$(PROTOC) --version
 
 .PHONY: protoc-gen-go
 PROTOC_GEN_GO = $(shell pwd)/bin/proto/bin/protoc-gen-go
