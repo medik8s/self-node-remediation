@@ -151,6 +151,18 @@ type SelfNodeRemediationConfigSpec struct {
 	// +kubebuilder:default:=1
 	// +kubebuilder:validation:Minimum=0
 	MinPeersForRemediation int `json:"minPeersForRemediation,omitempty"`
+
+	// PeerTopologyKey is the name of a node label that identifies the failure domain a node belongs to
+	// (e.g. "topology.kubernetes.io/zone"). When set, an "API server unreachable" answer coming from a peer
+	// located in the same failure domain as the node running the agent is not taken as evidence that the node
+	// is not isolated, because such a peer shares the same network fate. This lets a whole failure domain that
+	// got partitioned from the rest of the cluster detect its isolation and self-remediate, instead of its
+	// nodes keeping each other alive.
+	// Answers of type "healthy" or "unhealthy" are always taken into account, whatever the domain of the peer.
+	// The behavior is unchanged when this field is empty, when the node has no such label, or when no peer
+	// exists outside of the node's own failure domain (e.g. single-domain clusters).
+	// +optional
+	PeerTopologyKey string `json:"peerTopologyKey,omitempty"`
 }
 
 // SelfNodeRemediationConfigStatus defines the observed state of SelfNodeRemediationConfig

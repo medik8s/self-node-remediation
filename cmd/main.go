@@ -431,6 +431,8 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	// cluster-wide node data. This is an intentional trade-off: accept some direct API calls for
 	// peers rather than caching all nodes on every agent pod (which would defeat the memory savings).
 	myPeers := peers.New(myNodeName, peerUpdateInterval, mgr.GetAPIReader(), ctrl.Log.WithName("peers"), peerApiServerTimeout)
+	// optional: node label identifying the failure domain of each peer, see SelfNodeRemediationConfig.Spec.PeerTopologyKey
+	myPeers.SetTopologyKey(os.Getenv("PEER_TOPOLOGY_KEY"))
 	if err = mgr.Add(myPeers); err != nil {
 		setupLog.Error(err, "failed to add peers to the manager")
 		os.Exit(1)

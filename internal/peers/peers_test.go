@@ -681,3 +681,108 @@ func TestStartVerifiesPeerAddresses(t *testing.T) {
 		})
 	}
 }
+
+func TestTopologyDomains(t *testing.T) {
+	const topologyKey = "topology.kubernetes.io/zone"
+
+	node := func(name, zone string) v1.Node {
+		labels := map[string]string{hostnameLabelName: name, "node-role.kubernetes.io/worker": ""}
+		if zone != "" {
+			labels[topologyKey] = zone
+		}
+		return v1.Node{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels}}
+	}
+	pod := func(nodeName, ip string) v1.Pod {
+		return v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "snr-" + nodeName},
+			Spec:       v1.PodSpec{NodeName: nodeName},
+			Status:     v1.PodStatus{PodIPs: []v1.PodIP{{IP: ip}}},
+		}
+	}
+
+	nodes := v1.NodeList{Items: []v1.Node{node("same", "zone-a"), node("other", "zone-b"), node("unlabeled", "")}}
+	pods := v1.PodList{Items: []v1.Pod{pod("same", "10.0.0.1"), pod("other", "10.0.0.2"), pod("unlabeled", "10.0.0.3")}}
+	addresses := []v1.PodIP{{IP: "10.0.0.1"}, {IP: "10.0.0.2"}, {IP: "10.0.0.3"}}
+
+	testCases := []struct {
+		name                 string
+		topologyKey          string
+		myDomain             string
+		expectSameDomain     map[string]bool
+		expectOutsideMyCount int
+	}{
+		{
+			name:                 "feature disabled: nobody is in my domain, nobody is outside",
+			topologyKey:          "",
+			myDomain:             "",
+			expectSameDomain:     map[string]bool{"10.0.0.1": false, "10.0.0.2": false, "10.0.0.3": false},
+			expectOutsideMyCount: 0,
+		},
+		{
+			name:                 "feature enabled but own node has no label: disabled on this node",
+			topologyKey:          topologyKey,
+			myDomain:             "",
+			expectSameDomain:     map[string]bool{"10.0.0.1": false, "10.0.0.2": false, "10.0.0.3": false},
+			expectOutsideMyCount: 0,
+		},
+		{
+			name:                 "feature enabled: same-domain peer detected, other and unlabeled peers count as outside",
+			topologyKey:          topologyKey,
+			myDomain:             "zone-a",
+			expectSameDomain:     map[string]bool{"10.0.0.1": true, "10.0.0.2": false, "10.0.0.3": false},
+			expectOutsideMyCount: 2,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := New("me", time.Minute, nil, logr.Discard(), time.Second)
+			p.SetTopologyKey(tc.topologyKey)
+			p.myTopologyDomain = tc.myDomain
+			p.workerPeersAddresses = addresses
+			p.updateTopologyDomains(nodes, pods)
+
+			snapshot := p.GetPeersSnapshot(Worker)
+			if !reflect.DeepEqual(snapshot.Addresses, addresses) {
+				t.Errorf("snapshot addresses = %v, expected %v", snapshot.Addresses, addresses)
+			}
+			for ip, expected := range tc.expectSameDomain {
+				if got := snapshot.InMyDomain[ip]; got != expected {
+					t.Errorf("InMyDomain[%s] = %v, expected %v", ip, got, expected)
+				}
+			}
+			if snapshot.OutsideMyDomain != tc.expectOutsideMyCount {
+				t.Errorf("OutsideMyDomain = %d, expected %d", snapshot.OutsideMyDomain, tc.expectOutsideMyCount)
+			}
+		})
+	}
+
+	t.Run("an update scoped to another role does not forget the peers of this role", func(t *testing.T) {
+		p := New("me", time.Minute, nil, logr.Discard(), time.Second)
+		p.SetTopologyKey(topologyKey)
+		p.myTopologyDomain = "zone-a"
+		p.workerPeersAddresses = addresses
+		p.updateTopologyDomains(nodes, pods) // workers
+		controlPlanes := v1.NodeList{Items: []v1.Node{node("cp", "zone-a")}}
+		p.updateTopologyDomains(controlPlanes, pods) // control planes, same pod list, none of them on "cp"
+		if !p.GetPeersSnapshot(Worker).InMyDomain["10.0.0.1"] {
+			t.Error("expected the worker peer domain to survive a control plane peers update")
+		}
+	})
+
+	t.Run("a peer that loses its label is forgotten on the next update", func(t *testing.T) {
+		p := New("me", time.Minute, nil, logr.Discard(), time.Second)
+		p.SetTopologyKey(topologyKey)
+		p.myTopologyDomain = "zone-a"
+		p.workerPeersAddresses = addresses
+		p.updateTopologyDomains(nodes, pods)
+		if !p.GetPeersSnapshot(Worker).InMyDomain["10.0.0.1"] {
+			t.Fatal("expected 10.0.0.1 to be in my domain before the update")
+		}
+		relabeled := v1.NodeList{Items: []v1.Node{node("same", ""), node("other", "zone-b"), node("unlabeled", "")}}
+		p.updateTopologyDomains(relabeled, pods)
+		if p.GetPeersSnapshot(Worker).InMyDomain["10.0.0.1"] {
+			t.Error("expected 10.0.0.1 to be forgotten after its node lost the label")
+		}
+	})
+}

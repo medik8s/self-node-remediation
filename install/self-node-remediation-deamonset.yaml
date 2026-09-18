@@ -77,6 +77,8 @@ spec:
             value: "{{.HostPort}}"
           - name: MIN_PEERS_FOR_REMEDIATION
             value: "{{.MinPeersForRemediation}}"
+          - name: PEER_TOPOLOGY_KEY
+            value: "{{.PeerTopologyKey}}"
         image: {{.Image}}
         imagePullPolicy: IfNotPresent
         livenessProbe:

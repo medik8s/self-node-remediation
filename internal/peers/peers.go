@@ -42,6 +42,12 @@ type Peers struct {
 	mutex                                            sync.Mutex
 	apiServerTimeout                                 time.Duration
 	workerPeersAddresses, controlPlanePeersAddresses []v1.PodIP
+	// topologyKey is the node label identifying the failure domain of a node, empty when the feature is disabled
+	topologyKey string
+	// myTopologyDomain is the value of topologyKey on our own node, empty when unknown
+	myTopologyDomain string
+	// topologyDomains maps a peer pod IP to the failure domain of its node, only for peers whose node carries the label
+	topologyDomains map[string]string
 }
 
 func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Reader, log logr.Logger, apiServerTimeout time.Duration) *Peers {
@@ -54,7 +60,14 @@ func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Read
 		apiServerTimeout:           apiServerTimeout,
 		workerPeersAddresses:       []v1.PodIP{},
 		controlPlanePeersAddresses: []v1.PodIP{},
+		topologyDomains:            map[string]string{},
 	}
+}
+
+// SetTopologyKey enables failure domain awareness: peers are grouped by the value of the given node label.
+// An empty key disables the feature. Must be called before Start.
+func (p *Peers) SetTopologyKey(key string) {
+	p.topologyKey = key
 }
 
 func (p *Peers) Start(ctx context.Context) error {
@@ -79,6 +92,14 @@ func (p *Peers) Start(ctx context.Context) error {
 	} else {
 		p.workerPeerSelector = createSelector(hostname, commonlabels.WorkerRole)
 		p.controlPlanePeerSelector = createSelector(hostname, getControlPlaneLabel(myNode))
+	}
+	if p.topologyKey != "" {
+		p.myTopologyDomain = myNode.Labels[p.topologyKey]
+		if p.myTopologyDomain == "" {
+			p.log.Info("topology key is set but own node does not carry the label, failure domain awareness is disabled on this node", "topologyKey", p.topologyKey)
+		} else {
+			p.log.Info("failure domain awareness enabled", "topologyKey", p.topologyKey, "myTopologyDomain", p.myTopologyDomain)
+		}
 	}
 
 	p.log.Info("peer starting", "name", p.myNodeName)
@@ -145,7 +166,37 @@ func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selec
 
 	addresses, err := p.mapNodesToPrimaryPodIPs(nodes, pods)
 	setAddresses(addresses)
+	p.updateTopologyDomains(nodes, pods)
 	return err
+}
+
+// updateTopologyDomains records the failure domain of every peer whose node carries the topology label.
+// Peers without the label are deliberately left out of the map: they are treated as being outside of our own domain.
+// Only the pods running on the given nodes are considered: this is called once per role (workers, control planes)
+// with the nodes of that role, and must not forget what was learned for the other role.
+func (p *Peers) updateTopologyDomains(nodes v1.NodeList, pods v1.PodList) {
+	if p.topologyKey == "" {
+		return
+	}
+	domainByNode := map[string]string{}
+	for _, node := range nodes.Items {
+		domainByNode[node.Name] = node.Labels[p.topologyKey] // empty when the node has no label
+	}
+	for _, pod := range pods.Items {
+		if len(pod.Status.PodIPs) == 0 || pod.Status.PodIPs[0].IP == "" {
+			continue
+		}
+		domain, onListedNode := domainByNode[pod.Spec.NodeName]
+		if !onListedNode {
+			continue
+		}
+		ip := pod.Status.PodIPs[0].IP
+		if domain != "" {
+			p.topologyDomains[ip] = domain
+		} else {
+			delete(p.topologyDomains, ip)
+		}
+	}
 }
 
 func (p *Peers) mapNodesToPrimaryPodIPs(nodes v1.NodeList, pods v1.PodList) ([]v1.PodIP, error) {
@@ -189,6 +240,49 @@ func (p *Peers) GetPeersAddresses(role Role) []v1.PodIP {
 	copy(addressesCopy, addresses)
 
 	return addressesCopy
+}
+
+// Snapshot is a consistent view of the peers of one role, taken under a single lock, so that the addresses,
+// the failure domain classification and the number of peers outside of our own domain all describe the
+// same peer list even if a peer refresh happens meanwhile.
+type Snapshot struct {
+	// Addresses are the pod IPs of the peers
+	Addresses []v1.PodIP
+	// InMyDomain tells, per pod IP, whether the peer is known to be in our own failure domain.
+	// Empty when failure domain awareness is disabled or our own domain is unknown.
+	InMyDomain map[string]bool
+	// OutsideMyDomain is the number of peers that are not in our own failure domain (including peers whose
+	// domain is unknown), or 0 when failure domain awareness is disabled or our own domain is unknown.
+	OutsideMyDomain int
+}
+
+// GetPeersSnapshot returns a consistent snapshot of the peers of the given role, see Snapshot.
+func (p *Peers) GetPeersSnapshot(role Role) Snapshot {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	addresses := p.workerPeersAddresses
+	if role == ControlPlane {
+		addresses = p.controlPlanePeersAddresses
+	}
+	snapshot := Snapshot{
+		Addresses:  make([]v1.PodIP, len(addresses)),
+		InMyDomain: map[string]bool{},
+	}
+	copy(snapshot.Addresses, addresses)
+
+	if p.myTopologyDomain == "" {
+		return snapshot
+	}
+	for _, address := range addresses {
+		domain, known := p.topologyDomains[address.IP]
+		if known && domain == p.myTopologyDomain {
+			snapshot.InMyDomain[address.IP] = true
+		} else {
+			snapshot.OutsideMyDomain++
+		}
+	}
+	return snapshot
 }
 
 func createSelector(hostNameToExclude string, nodeTypeLabel string) labels.Selector {
