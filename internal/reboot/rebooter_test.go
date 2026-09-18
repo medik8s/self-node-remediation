@@ -78,3 +78,54 @@ func fakeSoftwareReboot() error {
 	isSoftwareRebootCalled = true
 	return nil
 }
+
+var _ = Describe("Software reboot command override", func() {
+	var rebooter *watchdogRebooter
+
+	BeforeEach(func() {
+		rebooter = &watchdogRebooter{
+			log: ctrl.Log.WithName("override rebooter"),
+		}
+		// Use the real softwareReboot method (not the fake hook)
+		rebooter.softwareRebootHook = rebooter.softwareReboot
+	})
+
+	Context("when REBOOT_COMMAND_OVERRIDE is set", func() {
+		BeforeEach(func() {
+			prev, existed := os.LookupEnv(rebootCommandOverrideEnvVar)
+			Expect(os.Setenv(rebootCommandOverrideEnvVar, "/bin/true")).To(Succeed())
+			DeferCleanup(func() {
+				if existed {
+					os.Setenv(rebootCommandOverrideEnvVar, prev)
+				} else {
+					os.Unsetenv(rebootCommandOverrideEnvVar)
+				}
+			})
+		})
+
+		It("should run the override command successfully", func() {
+			err := rebooter.softwareReboot()
+			Expect(err).ToNot(HaveOccurred())
+		})
+	})
+
+	Context("when REBOOT_COMMAND_OVERRIDE is set to an invalid command", func() {
+		BeforeEach(func() {
+			prev, existed := os.LookupEnv(rebootCommandOverrideEnvVar)
+			Expect(os.Setenv(rebootCommandOverrideEnvVar, "/nonexistent/command")).To(Succeed())
+			DeferCleanup(func() {
+				if existed {
+					os.Setenv(rebootCommandOverrideEnvVar, prev)
+				} else {
+					os.Unsetenv(rebootCommandOverrideEnvVar)
+				}
+			})
+		})
+
+		It("should not return an error but log it", func() {
+			// softwareReboot logs errors but always returns nil
+			err := rebooter.softwareReboot()
+			Expect(err).ToNot(HaveOccurred())
+		})
+	})
+})

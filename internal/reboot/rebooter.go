@@ -2,7 +2,9 @@ package reboot
 
 import (
 	"errors"
+	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -11,6 +13,11 @@ import (
 )
 
 const TimeToAssumeRebootHasStarted = time.Second * 30
+
+// rebootCommandOverrideEnvVar allows overriding the default software reboot command.
+// This is intended for testing on environments where real reboots don't work (e.g. kind clusters).
+// Example: REBOOT_COMMAND_OVERRIDE="/bin/systemctl start kubelet"
+const rebootCommandOverrideEnvVar = "REBOOT_COMMAND_OVERRIDE"
 
 type Rebooter interface {
 	// Reboot triggers a node reboot
@@ -68,11 +75,24 @@ func (r *watchdogRebooter) Reboot() error {
 	}
 }
 
-// softwareReboot performs software reboot by running systemctl reboot
+// softwareReboot performs software reboot by running systemctl reboot.
+// If REBOOT_COMMAND_OVERRIDE is set, it runs that command instead (useful for kind clusters).
 func (r *watchdogRebooter) softwareReboot() error {
 	r.log.Info("about to try software reboot")
-	// privileged:true required to run this
-	rebootCmd := exec.Command("/usr/bin/nsenter", "-m/proc/1/ns/mnt", "/bin/bash", "-c", "echo b > /proc/sysrq-trigger")
+
+	var rebootCmd *exec.Cmd
+	if override := os.Getenv(rebootCommandOverrideEnvVar); override != "" {
+		args := strings.Fields(override)
+		if len(args) == 0 {
+			r.log.Error(errors.New("invalid reboot command override"), "override contains only whitespace", "value", override)
+			return nil
+		}
+		r.log.Info("using reboot command override", "command", override)
+		rebootCmd = exec.Command(args[0], args[1:]...) //nolint:gosec // hidden env var for testing only
+	} else {
+		// privileged:true required to run this
+		rebootCmd = exec.Command("/usr/bin/nsenter", "-m/proc/1/ns/mnt", "/bin/bash", "-c", "echo b > /proc/sysrq-trigger")
+	}
 
 	if err := rebootCmd.Run(); err != nil {
 		r.log.Error(err, "failed to run reboot command")
