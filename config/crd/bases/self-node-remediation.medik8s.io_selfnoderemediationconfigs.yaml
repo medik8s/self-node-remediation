@@ -191,6 +191,18 @@ spec:
                   Valid time units are "ms", "s", "m", "h".
                 pattern: ^([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$
                 type: string
+              peerTopologyKey:
+                description: |-
+                  PeerTopologyKey is the name of a node label that identifies the failure domain a node belongs to
+                  (e.g. "topology.kubernetes.io/zone"). When set, an "API server unreachable" answer coming from a peer
+                  located in the same failure domain as the node running the agent is not taken as evidence that the node
+                  is not isolated, because such a peer shares the same network fate. This lets a whole failure domain that
+                  got partitioned from the rest of the cluster detect its isolation and self-remediate, instead of its
+                  nodes keeping each other alive.
+                  Answers of type "healthy" or "unhealthy" are always taken into account, whatever the domain of the peer.
+                  The behavior is unchanged when this field is empty, when the node has no such label, or when no peer
+                  exists outside of the node's own failure domain (e.g. single-domain clusters).
+                type: string
               peerUpdateInterval:
                 default: 15m
                 description: |-
