@@ -46,8 +46,27 @@ jobs:
         make operator-sdk
         sudo cp bin/operator-sdk/*/operator-sdk /usr/local/bin/
 
+    - name: Disable host SysRq as a CI safety guard
+      run: |
+        sudo sysctl -w kernel.sysrq=0
+        test "$(sysctl -n kernel.sysrq)" = "0"
+
     - name: Create Kind cluster with registry, OLM, and cert-manager
       run: make dev-setup
+
+    - name: Configure Kind softdog without host reboot
+      run: |
+        for node_container in $(docker ps --format '{{.Names}}' | grep "^${MEDIK8S_CLUSTER_NAME}-worker" || true); do
+          if docker exec "${node_container}" test -d /sys/module/softdog; then
+            docker exec "${node_container}" modprobe -r softdog
+          fi
+          docker exec "${node_container}" modprobe softdog soft_noboot=1
+          softdog_setting=$(docker exec "${node_container}" cat /sys/module/softdog/parameters/soft_noboot)
+          case "${softdog_setting}" in
+            1|Y|y|true) ;;
+            *) echo "softdog on ${node_container} is not configured with soft_noboot=1: ${softdog_setting}"; exit 1 ;;
+          esac
+        done
 
     - name: Deploy NHC via OLM bundle
       run: |
@@ -88,11 +107,32 @@ jobs:
 
     - name: Disable SNR software reboot for Kind
       run: |
+        watchdog_path=""
+        for node_container in $(docker ps --format '{{.Names}}' | grep "^${MEDIK8S_CLUSTER_NAME}-worker" || true); do
+          node_watchdog_path=$(docker exec "${node_container}" sh -c '
+            for path in /dev/watchdog /dev/watchdog0; do
+              if [ -e "${path}" ]; then
+                echo "${path}"
+                exit 0
+              fi
+            done
+            exit 1
+          ')
+          if [ -z "${watchdog_path}" ]; then
+            watchdog_path="${node_watchdog_path}"
+          elif [ "${watchdog_path}" != "${node_watchdog_path}" ]; then
+            echo "Inconsistent watchdog paths across Kind workers: ${watchdog_path} vs ${node_watchdog_path}"
+            exit 1
+          fi
+        done
+        test -n "${watchdog_path}"
+        echo "Using watchdog path ${watchdog_path}"
+
         kubectl -n ${DEPLOY_SNR_NAMESPACE} wait --for=create \
           selfnoderemediationconfig/self-node-remediation-config --timeout=120s
         kubectl -n ${DEPLOY_SNR_NAMESPACE} patch selfnoderemediationconfig \
           self-node-remediation-config --type=merge \
-          -p '{"spec":{"isSoftwareRebootEnabled":false}}'
+          -p "{\"spec\":{\"isSoftwareRebootEnabled\":false,\"watchdogFilePath\":\"${watchdog_path}\"}}"
         kubectl -n ${DEPLOY_SNR_NAMESPACE} wait --for=create \
           daemonset/self-node-remediation-ds --timeout=120s
         kubectl -n ${DEPLOY_SNR_NAMESPACE} wait \
@@ -100,6 +140,11 @@ jobs:
           daemonset/self-node-remediation-ds --timeout=120s
         kubectl -n ${DEPLOY_SNR_NAMESPACE} rollout status \
           daemonset/self-node-remediation-ds --timeout=120s
+        for pod in $(kubectl -n ${DEPLOY_SNR_NAMESPACE} get pods \
+          -l app.kubernetes.io/name=self-node-remediation,app.kubernetes.io/component=agent \
+          -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'); do
+          kubectl -n ${DEPLOY_SNR_NAMESPACE} exec "${pod}" -- test -e "${watchdog_path}"
+        done
 
     - name: Wait for operators to be ready
       run: |
@@ -191,7 +236,7 @@ jobs:
         DEBUG_PID=$!
         trap "kill $DEBUG_PID 2>/dev/null || true" EXIT
 
-        OPERATOR_NS=${DEPLOY_NHC_NAMESPACE} \
+        OPERATOR_NS=${DEPLOY_SNR_NAMESPACE} \
         SNR_STRATEGY=OutOfServiceTaint \
         LABEL_FILTER="!OCP-ONLY" \
         make e2e-test
