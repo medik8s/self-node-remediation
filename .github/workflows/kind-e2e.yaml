@@ -54,15 +54,6 @@ jobs:
     - name: Create Kind cluster with registry, OLM, and cert-manager
       run: make dev-setup
 
-    - name: Configure Kind softdog without host reboot
-      run: |
-        for node_container in $(docker ps --format '{{.Names}}' | grep "^${MEDIK8S_CLUSTER_NAME}-worker" || true); do
-          if docker exec "${node_container}" grep -q '^softdog ' /proc/modules; then
-            docker exec "${node_container}" modprobe -r softdog
-          fi
-          docker exec "${node_container}" modprobe softdog soft_noboot=1
-        done
-
     - name: Deploy NHC via OLM bundle
       run: |
         kubectl create ns ${DEPLOY_NHC_NAMESPACE}
@@ -100,46 +91,23 @@ jobs:
           --serviceaccount=${DEPLOY_NHC_NAMESPACE}:node-healthcheck-controller-manager \
           2>/dev/null || true
 
-    - name: Disable SNR software reboot for Kind
+    - name: Use SNR software reboot for Kind
       run: |
-        watchdog_path=""
-        for node_container in $(docker ps --format '{{.Names}}' | grep "^${MEDIK8S_CLUSTER_NAME}-worker" || true); do
-          node_watchdog_path=$(docker exec "${node_container}" sh -c '
-            for path in /dev/watchdog /dev/watchdog0; do
-              if [ -e "${path}" ]; then
-                echo "${path}"
-                exit 0
-              fi
-            done
-            exit 1
-          ')
-          if [ -z "${watchdog_path}" ]; then
-            watchdog_path="${node_watchdog_path}"
-          elif [ "${watchdog_path}" != "${node_watchdog_path}" ]; then
-            echo "Inconsistent watchdog paths across Kind workers: ${watchdog_path} vs ${node_watchdog_path}"
-            exit 1
-          fi
-        done
-        test -n "${watchdog_path}"
-        echo "Using watchdog path ${watchdog_path}"
-
         kubectl -n ${DEPLOY_SNR_NAMESPACE} wait --for=create \
           selfnoderemediationconfig/self-node-remediation-config --timeout=120s
+        # Kind workers share the host kernel, so /dev/watchdog would be one
+        # softdog device shared by every SNR agent. Use a non-watchdog device
+        # so the agents exercise their software-reboot fallback instead.
         kubectl -n ${DEPLOY_SNR_NAMESPACE} patch selfnoderemediationconfig \
           self-node-remediation-config --type=merge \
-          -p "{\"spec\":{\"isSoftwareRebootEnabled\":false,\"watchdogFilePath\":\"${watchdog_path}\"}}"
+          -p '{"spec":{"isSoftwareRebootEnabled":true,"watchdogFilePath":"/dev/null"}}'
         kubectl -n ${DEPLOY_SNR_NAMESPACE} wait --for=create \
           daemonset/self-node-remediation-ds --timeout=120s
         kubectl -n ${DEPLOY_SNR_NAMESPACE} wait \
-          --for=jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="IS_SOFTWARE_REBOOT_ENABLED")].value}'=false \
+          --for=jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="IS_SOFTWARE_REBOOT_ENABLED")].value}'=true \
           daemonset/self-node-remediation-ds --timeout=120s
         kubectl -n ${DEPLOY_SNR_NAMESPACE} rollout status \
           daemonset/self-node-remediation-ds --timeout=120s
-        for pod in $(kubectl -n ${DEPLOY_SNR_NAMESPACE} get pods \
-          -l app.kubernetes.io/name=self-node-remediation,app.kubernetes.io/component=agent \
-          -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'); do
-          kubectl -n ${DEPLOY_SNR_NAMESPACE} exec "${pod}" -- test -e "${watchdog_path}"
-        done
 
     - name: Wait for operators to be ready
       run: |
@@ -199,38 +167,6 @@ jobs:
     - name: Run e2e tests
       timeout-minutes: 15
       run: |
-        # Start reboot watcher in background — monitors worker nodes and
-        # restarts Kind containers when kubelet stops, simulating reboot.
-        make dev-reboot-watcher
-
-        # Background debug watcher — logs cluster state every 30s during the
-        # test run. Output is interleaved with test output so it's visible
-        # even if the job times out before reaching the debug step.
-        (
-          while true; do
-            echo ""
-            echo "====== DEBUG SNAPSHOT $(date -u +%H:%M:%S) ======"
-            echo "--- Nodes ---"
-            kubectl get nodes -o custom-columns='NAME:.metadata.name,STATUS:.status.conditions[?(@.type=="Ready")].status,AGE:.metadata.creationTimestamp' 2>/dev/null || true
-            echo "--- NHC Status ---"
-            kubectl get nodehealthchecks -o custom-columns='NAME:.metadata.name,PHASE:.status.phase,UNHEALTHY:.status.unhealthyNodes[*].name' 2>/dev/null || true
-            echo "--- SelfNodeRemediation CRs ---"
-            kubectl get selfnoderemediations -A -o custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,AGE:.metadata.creationTimestamp' 2>/dev/null || true
-            echo "--- Pods (SNR) ---"
-            kubectl get pods -n ${DEPLOY_SNR_NAMESPACE} -o custom-columns='NAME:.metadata.name,STATUS:.status.phase,RESTARTS:.status.containerStatuses[0].restartCount,NODE:.spec.nodeName' 2>/dev/null || true
-            echo "--- Pods (NHC) ---"
-            kubectl get pods -n ${DEPLOY_NHC_NAMESPACE} -o custom-columns='NAME:.metadata.name,STATUS:.status.phase,RESTARTS:.status.containerStatuses[0].restartCount,NODE:.spec.nodeName' 2>/dev/null || true
-            echo "--- Recent Events (last 60s) ---"
-            kubectl get events -A --sort-by=.lastTimestamp 2>/dev/null | grep -iE 'healthcheck|remediat|self-node|unhealthy|taint|reboot' | tail -10 || true
-            echo "--- NHC Controller Logs (last 10 lines) ---"
-            kubectl logs -n ${DEPLOY_NHC_NAMESPACE} -l app.kubernetes.io/name=node-healthcheck-operator --tail=10 2>/dev/null || true
-            echo "====== END SNAPSHOT ======"
-            sleep 30
-          done
-        ) &
-        DEBUG_PID=$!
-        trap "kill $DEBUG_PID 2>/dev/null || true" EXIT
-
         OPERATOR_NS=${DEPLOY_SNR_NAMESPACE} \
         SNR_STRATEGY=OutOfServiceTaint \
         LABEL_FILTER="!OCP-ONLY" \

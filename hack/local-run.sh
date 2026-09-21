@@ -326,45 +326,6 @@ fi
 step "Selecting Kind context"
 "${KUBECTL_BIN}" config use-context "${KIND_CONTEXT}"
 
-step "Configuring Kind softdog without host reboot"
-mapfile -t worker_containers < <(
-    KIND_EXPERIMENTAL_PROVIDER="${CONTAINER_TOOL}" \
-        kind get nodes --name "${MEDIK8S_CLUSTER_NAME}" | grep worker || true
-)
-if [ "${#worker_containers[@]}" -eq 0 ]; then
-    echo "Error: no Kind worker containers found." >&2
-    exit 1
-fi
-
-if "${CONTAINER_TOOL}" exec "${worker_containers[0]}" grep -q '^softdog ' /proc/modules; then
-    "${CONTAINER_TOOL}" exec "${worker_containers[0]}" modprobe -r softdog
-fi
-"${CONTAINER_TOOL}" exec "${worker_containers[0]}" modprobe softdog soft_noboot=1
-
-watchdog_path=""
-for node_container in "${worker_containers[@]}"; do
-    node_watchdog_path=$("${CONTAINER_TOOL}" exec "${node_container}" sh -c '
-        for path in /dev/watchdog /dev/watchdog0; do
-            if [ -e "${path}" ]; then
-                echo "${path}"
-                exit 0
-            fi
-        done
-        exit 1
-    ')
-    if [ -z "${watchdog_path}" ]; then
-        watchdog_path="${node_watchdog_path}"
-    elif [ "${watchdog_path}" != "${node_watchdog_path}" ]; then
-        echo "Error: inconsistent watchdog paths: ${watchdog_path} vs ${node_watchdog_path}" >&2
-        exit 1
-    fi
-done
-if [ -z "${watchdog_path}" ]; then
-    echo "Error: no watchdog device was visible in the Kind workers." >&2
-    exit 1
-fi
-echo "Using watchdog path ${watchdog_path}."
-
 if [ "${SKIP_BUILD}" = false ]; then
     step "Cleaning previous OLM installations"
     if "${KUBECTL_BIN}" get subscription -n "${DEPLOY_SNR_NAMESPACE}" \
@@ -409,32 +370,22 @@ else
     echo "Skipping build and deployment (--skip-build)."
 fi
 
-step "Disabling SNR software reboot and verifying watchdog visibility"
+step "Using SNR software reboot in Kind"
 wait_for_resource "${DEPLOY_SNR_NAMESPACE}" \
     selfnoderemediationconfig/self-node-remediation-config 120
+# Kind workers share the host kernel, so /dev/watchdog would be one softdog
+# device shared by every SNR agent. Use a non-watchdog device so the agents
+# exercise their software-reboot fallback instead.
 "${KUBECTL_BIN}" -n "${DEPLOY_SNR_NAMESPACE}" patch selfnoderemediationconfig \
     self-node-remediation-config --type=merge \
-    -p "{\"spec\":{\"isSoftwareRebootEnabled\":false,\"watchdogFilePath\":\"${watchdog_path}\"}}"
+    -p '{"spec":{"isSoftwareRebootEnabled":true,"watchdogFilePath":"/dev/null"}}'
 wait_for_resource "${DEPLOY_SNR_NAMESPACE}" \
     daemonset/self-node-remediation-ds 120
 wait_for_jsonpath "${DEPLOY_SNR_NAMESPACE}" daemonset/self-node-remediation-ds \
     '{.spec.template.spec.containers[0].env[?(@.name=="IS_SOFTWARE_REBOOT_ENABLED")].value}' \
-    false 120
+    true 120
 "${KUBECTL_BIN}" -n "${DEPLOY_SNR_NAMESPACE}" rollout status \
     daemonset/self-node-remediation-ds --timeout=120s
-
-snr_pods=$("${KUBECTL_BIN}" -n "${DEPLOY_SNR_NAMESPACE}" get pods \
-    -l app.kubernetes.io/name=self-node-remediation,app.kubernetes.io/component=agent \
-    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
-if [ -z "${snr_pods}" ]; then
-    echo "Error: no SNR agent pods were found." >&2
-    exit 1
-fi
-while read -r pod; do
-    [ -z "${pod}" ] && continue
-    "${KUBECTL_BIN}" -n "${DEPLOY_SNR_NAMESPACE}" exec "${pod}" -- \
-        test -e "${watchdog_path}"
-done <<< "${snr_pods}"
 
 step "Waiting for operators and RBAC aggregation"
 cd "${SNR_DIR}"
