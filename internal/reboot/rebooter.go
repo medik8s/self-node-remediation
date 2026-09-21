@@ -18,6 +18,22 @@ type Rebooter interface {
 }
 
 var _ Rebooter = &watchdogRebooter{}
+var _ Rebooter = &disabledRebooter{}
+
+// disabledRebooter fails closed when watchdog initialization fails and
+// software reboot is explicitly disabled.
+type disabledRebooter struct {
+	err error
+}
+
+// NewDisabledRebooter returns a rebooter that never attempts a reboot.
+func NewDisabledRebooter(err error) Rebooter {
+	return &disabledRebooter{err: err}
+}
+
+func (r *disabledRebooter) Reboot() error {
+	return r.err
+}
 
 // watchdogRebooter uses a watchdog for triggering reboots
 type watchdogRebooter struct {
