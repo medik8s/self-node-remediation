@@ -26,3 +26,5 @@ bin
 /testbin/
 catalog/
 catalog.Dockerfile
+.tools/
+.tools/
