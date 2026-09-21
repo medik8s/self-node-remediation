@@ -47,7 +47,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 	controlPlaneNodes := &v1.NodeList{}
 
 	var nodeUnderTest *v1.Node
-	var oldBootID string
+	var oldRebootMarker string
 	var oldSnrPodName string
 
 	BeforeEach(func() {
@@ -75,14 +75,14 @@ var _ = Describe("Self Node Remediation E2E", func() {
 	})
 
 	JustBeforeEach(func() {
-		oldBootID = utils.GetBootID(context.Background(), k8sClientSet, nodeUnderTest)
+		oldRebootMarker = utils.GetRebootMarker(context.Background(), k8sClientSet, nodeUnderTest)
 		oldSnrPodName = findSnrPod(nodeUnderTest).GetName()
 	})
 
 	verifyRemediationSucceeds := func(snr *v1alpha1.SelfNodeRemediation) {
 		// this does not 100% check if the pod was deleted by SNR, could be by reboot...
 		checkPodDeleted(oldSnrPodName)
-		utils.CheckReboot(context.Background(), k8sClientSet, nodeUnderTest, oldBootID)
+		utils.CheckReboot(context.Background(), k8sClientSet, nodeUnderTest, oldRebootMarker)
 		// Simulate NHC deleting SNR
 		deleteAndWait(snr)
 		checkNoScheduleTaintRemoved(nodeUnderTest)
@@ -151,7 +151,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 				})
 
 				It("should not remediate", func() {
-					utils.CheckNoReboot(context.Background(), k8sClientSet, nodeUnderTest, oldBootID)
+					utils.CheckNoReboot(context.Background(), k8sClientSet, nodeUnderTest, oldRebootMarker)
 					checkSnrLogs(nodeUnderTest, []string{"failed to check api server", "There is at least one peer " +
 						"who thinks this node healthy"}, testStartTime)
 				})
@@ -172,7 +172,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 						wg.Add(1)
 						worker := &workerNodes.Items[i]
 
-						bootIDs[worker.GetName()] = utils.GetBootID(context.Background(), k8sClientSet, worker)
+						bootIDs[worker.GetName()] = utils.GetRebootMarker(context.Background(), k8sClientSet, worker)
 
 						go func() {
 							defer GinkgoRecover()

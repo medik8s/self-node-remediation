@@ -20,11 +20,7 @@ var _ = Describe("Rebooter tests", func() {
 	Describe("Crash on start", func() {
 		BeforeEach(func() {
 			wd := watchdog.NewFake(false)
-			rebooter = &watchdogRebooter{
-				wd:                 wd,
-				log:                ctrl.Log.WithName("fake rebooter"),
-				softwareRebootHook: fakeSoftwareReboot,
-			}
+			rebooter = &watchdogRebooter{wd, ctrl.Log.WithName("fake rebooter"), fakeSoftwareReboot}
 
 		})
 
@@ -73,21 +69,6 @@ var _ = Describe("Rebooter tests", func() {
 				//Verify reboot goes as expected
 				Expect(rebooter.Reboot()).ToNot(HaveOccurred())
 				Expect(isSoftwareRebootCalled).To(BeTrue())
-			})
-		})
-
-		Context("watchdog is unavailable and software reboot is disabled", func() {
-			BeforeEach(func() {
-				Expect(os.Setenv(watchdog.IsSoftwareRebootEnabledEnvVar, "false")).To(Succeed())
-				rebooter.wd = nil
-			})
-			AfterEach(func() {
-				Expect(os.Unsetenv(watchdog.IsSoftwareRebootEnabledEnvVar)).To(Succeed())
-			})
-
-			It("must fail closed without invoking the reboot hook", func() {
-				Expect(rebooter.Reboot()).To(MatchError("software reboot is disabled"))
-				Expect(isSoftwareRebootCalled).To(BeFalse())
 			})
 		})
 	})

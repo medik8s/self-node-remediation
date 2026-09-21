@@ -10,6 +10,7 @@
 #   ./hack/local-run.sh --skip-setup # Reuse an existing Kind cluster
 #   ./hack/local-run.sh --skip-build # Reuse existing operator installations
 #   ./hack/local-run.sh --teardown   # Delete the Kind cluster
+#   CONTAINER_TOOL=podman-machine ./hack/local-run.sh
 #
 # The script intentionally leaves the cluster in place after a failure so that
 # developers can inspect it. Use --teardown when finished.
@@ -25,11 +26,19 @@ export MEDIK8S_REGISTRY_NAME="${MEDIK8S_REGISTRY_NAME:-kind-registry}"
 export MEDIK8S_REGISTRY_PORT="${MEDIK8S_REGISTRY_PORT:-5000}"
 export IMAGE_REGISTRY="${IMAGE_REGISTRY:-${MEDIK8S_REGISTRY_NAME}:${MEDIK8S_REGISTRY_PORT}}"
 export OPM_RENDER_FLAGS="${OPM_RENDER_FLAGS:---skip-tls-verify}"
+export E2E_REBOOT_CHECK="${E2E_REBOOT_CHECK:-container-start-time}"
 export DEPLOY_SNR_NAMESPACE="${DEPLOY_SNR_NAMESPACE:-snr-system}"
 export DEPLOY_NHC_NAMESPACE="${DEPLOY_NHC_NAMESPACE:-k8s-test}"
 export TOOLS_DIR
 
-if [ -n "${CONTAINER_TOOL:-}" ]; then
+PODMAN_MACHINE_MODE=false
+if [ "${CONTAINER_TOOL:-}" = podman-machine ]; then
+    # podman-machine is a runner mode, not a separate CLI. Keep using the
+    # podman CLI for Kind and image operations after starting the VM.
+    CONTAINER_TOOL=podman
+    PODMAN_MACHINE_MODE=true
+    export CONTAINER_TOOL
+elif [ -n "${CONTAINER_TOOL:-}" ]; then
     export CONTAINER_TOOL
 elif command -v docker >/dev/null 2>&1; then
     export CONTAINER_TOOL=docker
@@ -40,6 +49,8 @@ else
     exit 1
 fi
 
+PODMAN_MACHINE_NAME="${PODMAN_MACHINE_NAME:-podman-machine-default}"
+
 KUBECTL_BIN="${KUBECTL:-kubectl}"
 export KUBECTL="${KUBECTL_BIN}"
 
@@ -47,7 +58,7 @@ NHC_BUNDLE="${NHC_BUNDLE:-quay.io/medik8s/node-healthcheck-operator-bundle:lates
 SNR_IMG="${IMAGE_REGISTRY}/self-node-remediation-operator:latest"
 SNR_BUNDLE="${IMAGE_REGISTRY}/self-node-remediation-operator-bundle:latest"
 KIND_CONTEXT="kind-${MEDIK8S_CLUSTER_NAME}"
-WATCHER_SCRIPT="${TOOLS_DIR}/dev/kind-reboot-watcher.sh"
+WATCHER_SCRIPT="${SNR_DIR}/hack/kind-reboot-watcher.sh"
 
 SKIP_SETUP=false
 SKIP_BUILD=false
@@ -77,9 +88,11 @@ while [[ $# -gt 0 ]]; do
             echo
             echo "Environment variables:"
             echo "  MEDIK8S_CLUSTER_NAME   Kind cluster name (default: medik8s-ci)"
-            echo "  CONTAINER_TOOL         docker or podman (auto-detected)"
+            echo "  CONTAINER_TOOL         docker, podman, or podman-machine (auto-detected)"
+            echo "  PODMAN_MACHINE_NAME    Podman machine to start in podman-machine mode (default: podman-machine-default)"
             echo "  TOOLS_DIR              Shared medik8s tools directory"
             echo "  NHC_BUNDLE             NHC bundle image"
+            echo "  E2E_REBOOT_CHECK       boot-id or container-start-time (default: container-start-time)"
             echo "  DEPLOY_SNR_NAMESPACE   SNR namespace (default: snr-system)"
             echo "  DEPLOY_NHC_NAMESPACE   NHC namespace (default: k8s-test)"
             exit 0
@@ -104,9 +117,32 @@ for command_name in "${KUBECTL_BIN}" kind go "${CONTAINER_TOOL}"; do
     fi
 done
 
+ensure_podman_machine() {
+    local machine_state
+
+    if ! podman machine inspect "${PODMAN_MACHINE_NAME}" >/dev/null 2>&1; then
+        echo "Error: Podman machine '${PODMAN_MACHINE_NAME}' was not found." >&2
+        echo "Initialize it with: podman machine init ${PODMAN_MACHINE_NAME}" >&2
+        exit 1
+    fi
+
+    machine_state=$(podman machine inspect "${PODMAN_MACHINE_NAME}" \
+        --format '{{.State}}' 2>/dev/null || true)
+    if [ "${machine_state}" != running ]; then
+        echo "Starting Podman machine '${PODMAN_MACHINE_NAME}'."
+        podman machine start "${PODMAN_MACHINE_NAME}"
+    else
+        echo "Podman machine '${PODMAN_MACHINE_NAME}' is already running."
+    fi
+}
+
 if [ ! -x "${WATCHER_SCRIPT}" ]; then
     echo "Error: reboot watcher not found or not executable: ${WATCHER_SCRIPT}" >&2
     exit 1
+fi
+
+if [ "${PODMAN_MACHINE_MODE}" = true ]; then
+    ensure_podman_machine
 fi
 
 step() {
