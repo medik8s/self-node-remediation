@@ -10,6 +10,7 @@
 #   ./hack/local-run.sh --skip-setup # Reuse an existing Kind cluster
 #   ./hack/local-run.sh --skip-build # Reuse existing operator installations
 #   ./hack/local-run.sh --teardown   # Delete the Kind cluster
+#   ./hack/local-run.sh --recreate-cluster # Recreate it with the required HA topology
 #   CONTAINER_TOOL=podman-machine ./hack/local-run.sh
 #
 # The script intentionally leaves the cluster in place after a failure so that
@@ -29,6 +30,7 @@ export OPM_RENDER_FLAGS="${OPM_RENDER_FLAGS:---skip-tls-verify}"
 export E2E_REBOOT_CHECK="${E2E_REBOOT_CHECK:-container-start-time}"
 export DEPLOY_SNR_NAMESPACE="${DEPLOY_SNR_NAMESPACE:-snr-system}"
 export DEPLOY_NHC_NAMESPACE="${DEPLOY_NHC_NAMESPACE:-k8s-test}"
+export MEDIK8S_KIND_HA="${MEDIK8S_KIND_HA:-true}"
 export TOOLS_DIR
 
 PODMAN_MACHINE_MODE=false
@@ -63,6 +65,7 @@ WATCHER_SCRIPT="${SNR_DIR}/hack/kind-reboot-watcher.sh"
 SKIP_SETUP=false
 SKIP_BUILD=false
 TEARDOWN=false
+RECREATE_CLUSTER=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -78,6 +81,10 @@ while [[ $# -gt 0 ]]; do
             TEARDOWN=true
             shift
             ;;
+        --recreate-cluster)
+            RECREATE_CLUSTER=true
+            shift
+            ;;
         -h|--help)
             sed -n '2,18p' "$0"
             echo
@@ -85,6 +92,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --skip-setup   Reuse an existing Kind cluster"
             echo "  --skip-build   Reuse existing NHC and SNR installations"
             echo "  --teardown     Delete the Kind cluster and exit"
+            echo "  --recreate-cluster  Recreate an existing cluster with the HA topology"
             echo
             echo "Environment variables:"
             echo "  MEDIK8S_CLUSTER_NAME   Kind cluster name (default: medik8s-ci)"
@@ -93,6 +101,8 @@ while [[ $# -gt 0 ]]; do
             echo "  TOOLS_DIR              Shared medik8s tools directory"
             echo "  NHC_BUNDLE             NHC bundle image"
             echo "  E2E_REBOOT_CHECK       boot-id or container-start-time (default: container-start-time)"
+            echo "  MEDIK8S_KIND_HA        Use the HA Kind topology (default: true)"
+            echo "  MEDIK8S_REBOOT_DELAY   Simulated reboot delay in seconds (default: 90)"
             echo "  DEPLOY_SNR_NAMESPACE   SNR namespace (default: snr-system)"
             echo "  DEPLOY_NHC_NAMESPACE   NHC namespace (default: k8s-test)"
             exit 0
@@ -354,13 +364,36 @@ if [ "${SKIP_SETUP}" = false ]; then
     if KIND_EXPERIMENTAL_PROVIDER="${CONTAINER_TOOL}" \
         kind get clusters 2>/dev/null | grep -qx "${MEDIK8S_CLUSTER_NAME}"; then
         "${KUBECTL_BIN}" config use-context "${KIND_CONTEXT}" >/dev/null
+
+        control_plane_count=$("${KUBECTL_BIN}" --context "${KIND_CONTEXT}" get nodes \
+            -l node-role.kubernetes.io/control-plane --no-headers 2>/dev/null | wc -l | tr -d ' ')
+        if [ "${MEDIK8S_KIND_HA}" = true ] && [ "${control_plane_count}" -lt 2 ]; then
+            if [ "${RECREATE_CLUSTER}" = true ]; then
+                echo "Existing cluster has ${control_plane_count} control-plane node(s); recreating it with HA topology."
+                make dev-teardown
+            else
+                echo "Error: existing Kind cluster '${MEDIK8S_CLUSTER_NAME}' has ${control_plane_count} control-plane node(s), but local E2E requires at least 2." >&2
+                echo "Run with --recreate-cluster, or run --teardown once and rerun local-run.sh." >&2
+                exit 1
+            fi
+        fi
     fi
-    make dev-setup
+    KIND_HA="${MEDIK8S_KIND_HA}" make dev-setup
     make dev-cluster-info
 fi
 
 step "Selecting Kind context"
 "${KUBECTL_BIN}" config use-context "${KIND_CONTEXT}"
+
+if [ "${MEDIK8S_KIND_HA}" = true ]; then
+    control_plane_count=$("${KUBECTL_BIN}" --context "${KIND_CONTEXT}" get nodes \
+        -l node-role.kubernetes.io/control-plane --no-headers 2>/dev/null | wc -l | tr -d ' ')
+    if [ "${control_plane_count}" -lt 2 ]; then
+        echo "Error: Kind cluster '${MEDIK8S_CLUSTER_NAME}' has ${control_plane_count} control-plane node(s), but local E2E requires at least 2." >&2
+        echo "Run with --recreate-cluster, or run --teardown once and rerun local-run.sh." >&2
+        exit 1
+    fi
+fi
 
 if [ "${SKIP_BUILD}" = false ]; then
     step "Cleaning previous OLM installations"
@@ -443,7 +476,7 @@ for i in $(seq 1 60); do
 done
 
 step "Starting Kind reboot watcher"
-MEDIK8S_REBOOT_DELAY="${MEDIK8S_REBOOT_DELAY:-30}" \
+MEDIK8S_REBOOT_DELAY="${MEDIK8S_REBOOT_DELAY:-90}" \
     "${WATCHER_SCRIPT}" --name "${MEDIK8S_CLUSTER_NAME}" &
 watcher_pid=$!
 
