@@ -41,11 +41,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/internal/apply"
-	"github.com/medik8s/self-node-remediation/internal/certificates"
-	"github.com/medik8s/self-node-remediation/internal/reboot"
-	"github.com/medik8s/self-node-remediation/internal/render"
+	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/v5/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/v5/internal/apply"
+	"github.com/medik8s/self-node-remediation/v5/internal/certificates"
+	"github.com/medik8s/self-node-remediation/v5/internal/reboot"
+	"github.com/medik8s/self-node-remediation/v5/internal/render"
 )
 
 const (

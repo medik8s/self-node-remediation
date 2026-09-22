@@ -14,8 +14,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/medik8s/self-node-remediation/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/internal/utils"
+	"github.com/medik8s/self-node-remediation/v5/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/v5/internal/utils"
 )
 
 var _ = Describe("Calculator tests", func() {

@@ -13,10 +13,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	selfNodeRemediationApis "github.com/medik8s/self-node-remediation/api"
-	"github.com/medik8s/self-node-remediation/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/internal/certificates"
-	"github.com/medik8s/self-node-remediation/internal/controller"
+	selfNodeRemediationApis "github.com/medik8s/self-node-remediation/v5/api"
+	"github.com/medik8s/self-node-remediation/v5/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/v5/internal/certificates"
+	"github.com/medik8s/self-node-remediation/v5/internal/controller"
 )
 
 const (

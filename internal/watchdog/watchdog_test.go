@@ -8,7 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/medik8s/self-node-remediation/internal/watchdog"
+	"github.com/medik8s/self-node-remediation/v5/internal/watchdog"
 )
 
 var _ = Describe("Watchdog", func() {

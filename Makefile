@@ -46,11 +46,13 @@ BLUE_ICON_PATH = "./config/assets/snr_icon_blue.png"
 # To re-generate a bundle for another specific version without changing the standard setup, you can:
 # - use the VERSION as arg of the bundle target (e.g make bundle VERSION=0.0.2)
 # - use environment variables to overwrite this value (e.g export VERSION=0.0.2)
-DEFAULT_VERSION := 0.0.1
+DEFAULT_VERSION := 5.8.0
 CI_VERSION := 9.9.9-ci
 VERSION ?= $(DEFAULT_VERSION)
-PREVIOUS_VERSION ?= $(DEFAULT_VERSION)
-SKIP_RANGE_LOWER ?=
+# For the replaces field in the CSV, mandatory to be set for versioned builds! Should also not have the 'v' prefix.
+export PREVIOUS_VERSION ?= 0.13.1
+# Lower bound for the skipRange field in the CSV, should be set to the oldest supported version
+SKIP_RANGE_LOWER ?= 0.4.0
 export VERSION
 
 CHANNELS ?= stable
@@ -102,12 +104,9 @@ IMAGE_TAG_BASE ?= $(IMAGE_REGISTRY)/$(OPERATOR_NAME)
 # The image tag given to the resulting catalog image (e.g. make catalog-build CATALOG_IMG=example.com/operator-catalog:v0.2.0).
 CATALOG_IMG ?= $(IMAGE_TAG_BASE)-operator-catalog:$(IMAGE_TAG)
 
-# When no version is set, use latest as image tags
-ifeq ($(VERSION), $(DEFAULT_VERSION))
-IMAGE_TAG = latest
-else
+# Use the selected operator version for image tags. Development builds can
+# still override IMAGE_TAG explicitly.
 IMAGE_TAG = v$(VERSION)
-endif
 export IMAGE_TAG
 
 # BUNDLE_IMG defines the image:tag used for the bundle.
@@ -116,6 +115,10 @@ BUNDLE_IMG ?= $(IMAGE_TAG_BASE)-operator-bundle:$(IMAGE_TAG)
 
 # Image URL to use all building/pushing image targets
 export IMG ?= $(IMAGE_TAG_BASE)-operator:$(IMAGE_TAG)
+
+.PHONY: print-image-tag
+print-image-tag: ## Print the current image tag (used by CI to know what was just built)
+	@echo $(IMAGE_TAG)
 
 # Get the currently used golang install path (in GOPATH/bin.old, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -354,16 +357,18 @@ add-community-edition-to-display-name: ##Add Community Edition suffix to operato
 
 .PHONY: add-replaces-field
 add-replaces-field: ## Add replaces field to the CSV
-	# add replaces field when building versioned bundle
-	@if [ $(VERSION) != $(DEFAULT_VERSION) ]; then \
-		if [ $(PREVIOUS_VERSION) == $(DEFAULT_VERSION) ]; then \
-			echo "Error: PREVIOUS_VERSION must be set for versioned builds"; \
-			exit 1; \
-		else \
-		  	# preferring sed here, in order to have "replaces" near "version" \
-			sed -r -i "/  version: $(VERSION)/ a\  replaces: $(OPERATOR_NAME).v$(PREVIOUS_VERSION)" ${CSV}; \
-		fi \
+	@if [ -z "$(PREVIOUS_VERSION)" ]; then \
+		echo "Error: PREVIOUS_VERSION must be set for versioned builds"; \
+		exit 1; \
 	fi
+	@if [ "$(PREVIOUS_VERSION)" = "$(VERSION)" ]; then \
+		echo "Error: PREVIOUS_VERSION must differ from VERSION"; \
+		exit 1; \
+	fi
+	# delete any pre-existing replaces field, then re-add it
+	sed -r -i "/  replaces:.*/d" ${CSV}
+	# preferring sed here, in order to have "replaces" near "version"
+	sed -r -i "/  version: $(VERSION)/ a\  replaces: $(OPERATOR_NAME).v$(PREVIOUS_VERSION)" ${CSV}
 
 .PHONY: bundle-update
 bundle-update: yq verify-previous-version ## Update CSV fields and validate the bundle directory
@@ -372,7 +377,7 @@ bundle-update: yq verify-previous-version ## Update CSV fields and validate the 
 	# set creation date
 	sed -r -i "s|createdAt: \".*\"|createdAt: \"`date "+%Y-%m-%d %T" `\"|;" ${CSV}
 	@# set skipRange
-	@if [ -n "${SKIP_RANGE_LOWER}" ] && [ "${VERSION}" != "${DEFAULT_VERSION}" ] && [ "${VERSION}" != "${SKIP_RANGE_LOWER}" ]; then \
+	@if [ -n "${SKIP_RANGE_LOWER}" ] && [ "${VERSION}" != "${SKIP_RANGE_LOWER}" ]; then \
 		if ! printf '%s\n' "${SKIP_RANGE_LOWER}" "${VERSION}" | sort -V -C 2>/dev/null; then \
 			echo "Error: VERSION (${VERSION}) must be greater than SKIP_RANGE_LOWER (${SKIP_RANGE_LOWER})"; \
 			exit 1; \
@@ -471,7 +476,6 @@ CATALOG_DOCKERFILE := ${CATALOG_DIR}.Dockerfile
 CATALOG_INDEX := $(CATALOG_DIR)/index.yaml
 
 # Add olm.channel entries for each channel in CHANNELS.
-# For development version (0.0.1), omit replaces and skipRange to avoid OLM catalog validation errors.
 .PHONY: add_channel_entry_for_the_bundle
 add_channel_entry_for_the_bundle:
 	@for channel in $(shell echo ${CHANNELS} | tr ',' ' '); do \
@@ -481,10 +485,14 @@ add_channel_entry_for_the_bundle:
 		echo "name: $$channel" >> ${CATALOG_INDEX}; \
 		echo "entries:" >> ${CATALOG_INDEX}; \
 		echo "  - name: ${OPERATOR_NAME}.v${VERSION}" >> ${CATALOG_INDEX}; \
-		if [ -n "${PREVIOUS_VERSION}" ] && [ "${VERSION}" != "${DEFAULT_VERSION}" ] && [ "${PREVIOUS_VERSION}" != "${DEFAULT_VERSION}" ]; then \
+		if [ -n "${PREVIOUS_VERSION}" ]; then \
+			if [ "${PREVIOUS_VERSION}" = "${VERSION}" ]; then \
+				echo "Error: PREVIOUS_VERSION must differ from VERSION"; \
+				exit 1; \
+			fi; \
 			echo "    replaces: ${OPERATOR_NAME}.v${PREVIOUS_VERSION}" >> ${CATALOG_INDEX}; \
 		fi; \
-		if [ -n "${SKIP_RANGE_LOWER}" ] && [ "${VERSION}" != "${DEFAULT_VERSION}" ] && [ "${VERSION}" != "${SKIP_RANGE_LOWER}" ]; then \
+		if [ -n "${SKIP_RANGE_LOWER}" ] && [ "${VERSION}" != "${SKIP_RANGE_LOWER}" ]; then \
 			if ! printf '%s\n' "${SKIP_RANGE_LOWER}" "${VERSION}" | sort -V -C 2>/dev/null; then \
 				echo "Error: VERSION (${VERSION}) must be greater than SKIP_RANGE_LOWER (${SKIP_RANGE_LOWER})"; \
 				exit 1; \
@@ -559,9 +567,11 @@ verify-bundle: manifests bundle bundle-reset verify-no-changes ##Verifies bundle
 # Revert all version or build date related changes
 .PHONY: bundle-reset
 bundle-reset:
-	VERSION=0.0.1 $(MAKE) manifests bundle
+	VERSION=$(DEFAULT_VERSION) $(MAKE) manifests bundle
+	VERSION=$(DEFAULT_VERSION) $(MAKE) add-replaces-field
 	# empty creation date
 	sed -r -i "s|createdAt: .*|createdAt: \"\"|;" ${CSV}
+	VERSION=$(DEFAULT_VERSION) $(MAKE) bundle-validate
 
 SORT_IMPORTS = $(shell pwd)/bin/sort-imports
 .PHONY: sort-imports
