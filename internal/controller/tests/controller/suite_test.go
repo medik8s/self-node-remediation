@@ -42,13 +42,13 @@ import (
 	machinev1beta1 "github.com/openshift/api/machine/v1beta1"
 	_ "github.com/openshift/api/machine/v1beta1/zz_generated.crd-manifests"
 
-	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/internal/apicheck"
-	"github.com/medik8s/self-node-remediation/internal/controller"
-	"github.com/medik8s/self-node-remediation/internal/controller/tests/shared"
-	"github.com/medik8s/self-node-remediation/internal/peers"
-	"github.com/medik8s/self-node-remediation/internal/reboot"
-	"github.com/medik8s/self-node-remediation/internal/watchdog"
+	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/v5/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/v5/internal/apicheck"
+	"github.com/medik8s/self-node-remediation/v5/internal/controller"
+	"github.com/medik8s/self-node-remediation/v5/internal/controller/tests/shared"
+	"github.com/medik8s/self-node-remediation/v5/internal/peers"
+	"github.com/medik8s/self-node-remediation/v5/internal/reboot"
+	"github.com/medik8s/self-node-remediation/v5/internal/watchdog"
 	//+kubebuilder:scaffold:imports
 )
 
