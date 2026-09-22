@@ -103,20 +103,21 @@ jobs:
           --serviceaccount=${DEPLOY_NHC_NAMESPACE}:node-healthcheck-controller-manager \
           2>/dev/null || true
 
-    - name: Use SNR software reboot for Kind
+    - name: Disable SNR software reboot for Kind
       run: |
         kubectl -n ${DEPLOY_SNR_NAMESPACE} wait --for=create \
           selfnoderemediationconfig/self-node-remediation-config --timeout=120s
         # Kind workers share the host kernel, so /dev/watchdog would be one
-        # softdog device shared by every SNR agent. Use a non-watchdog device
-        # so the agents exercise their software-reboot fallback instead.
+        # softdog device shared by every SNR agent, and software reboot would
+        # affect the GitHub runner host. Disable both and let the reboot
+        # watcher simulate reboots by restarting node containers.
         kubectl -n ${DEPLOY_SNR_NAMESPACE} patch selfnoderemediationconfig \
           self-node-remediation-config --type=merge \
-          -p '{"spec":{"isSoftwareRebootEnabled":true,"watchdogFilePath":"/dev/null"}}'
+          -p '{"spec":{"isSoftwareRebootEnabled":false,"watchdogFilePath":"/dev/null"}}'
         kubectl -n ${DEPLOY_SNR_NAMESPACE} wait --for=create \
           daemonset/self-node-remediation-ds --timeout=120s
         kubectl -n ${DEPLOY_SNR_NAMESPACE} wait \
-          --for=jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="IS_SOFTWARE_REBOOT_ENABLED")].value}'=true \
+          --for=jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="IS_SOFTWARE_REBOOT_ENABLED")].value}'=false \
           daemonset/self-node-remediation-ds --timeout=120s
         kubectl -n ${DEPLOY_SNR_NAMESPACE} rollout status \
           daemonset/self-node-remediation-ds --timeout=120s
