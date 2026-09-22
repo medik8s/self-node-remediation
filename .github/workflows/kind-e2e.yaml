@@ -11,7 +11,9 @@ jobs:
   kind-e2e:
     name: Kind E2E
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # The full suite includes deliberate 5- and 10-minute waits, image
+    # builds, OLM installation, and a simulated 90-second reboot delay.
+    timeout-minutes: 90
     permissions:
       contents: read
     env:
@@ -25,10 +27,12 @@ jobs:
       MEDIK8S_REGISTRY_PORT: "5000"
       IMAGE_REGISTRY: kind-registry:5000
       OPM_RENDER_FLAGS: --skip-tls-verify
+      E2E_REBOOT_CHECK: container-start-time
+      MEDIK8S_REBOOT_DELAY: "90"
 
       # Deployment
-      DEPLOY_SNR_NAMESPACE: snr-system
-      DEPLOY_NHC_NAMESPACE: k8s-test
+      DEPLOY_NHC_NAMESPACE: nhc-system
+      DEPLOY_SNR_NAMESPACE: k8s-test
 
     steps:
     - name: Checkout SNR
@@ -52,7 +56,15 @@ jobs:
         test "$(sysctl -n kernel.sysrq)" = "0"
 
     - name: Create Kind cluster with registry, OLM, and cert-manager
-      run: make dev-setup
+      run: |
+        # The E2E suite requires a highly available control plane. Keep this
+        # explicit here so CI does not silently use the single-control-plane
+        # default used by generic development setup.
+        KIND_HA=true make dev-setup
+        kubectl get nodes -o wide
+        control_planes=$(kubectl get nodes \
+          -l node-role.kubernetes.io/control-plane --no-headers | wc -l)
+        test "${control_planes}" -ge 2
 
     - name: Deploy NHC via OLM bundle
       run: |
@@ -164,13 +176,33 @@ jobs:
         echo "=== ClusterRoleBindings for NHC ==="
         kubectl get clusterrolebindings -o wide 2>/dev/null | grep -i 'healthcheck\|nhc' || echo "None"
 
+    - name: Start Kind reboot watcher
+      run: |
+        mkdir -p "${RUNNER_TEMP}/snr"
+        CONTAINER_TOOL=docker \
+        MEDIK8S_CLUSTER_NAME="${MEDIK8S_CLUSTER_NAME}" \
+        DEPLOY_SNR_NAMESPACE="${DEPLOY_SNR_NAMESPACE}" \
+        MEDIK8S_REBOOT_DELAY="${MEDIK8S_REBOOT_DELAY}" \
+          ./hack/kind-reboot-watcher.sh --name "${MEDIK8S_CLUSTER_NAME}" \
+          > "${RUNNER_TEMP}/snr/kind-reboot-watcher.log" 2>&1 &
+        echo $! > "${RUNNER_TEMP}/snr/kind-reboot-watcher.pid"
+
     - name: Run e2e tests
-      timeout-minutes: 15
+      timeout-minutes: 70
       run: |
         OPERATOR_NS=${DEPLOY_SNR_NAMESPACE} \
         SNR_STRATEGY=OutOfServiceTaint \
         LABEL_FILTER="!OCP-ONLY" \
         make e2e-test
+
+    - name: Stop Kind reboot watcher
+      if: ${{ always() }}
+      run: |
+        if [ -f "${RUNNER_TEMP}/snr/kind-reboot-watcher.pid" ]; then
+          watcher_pid=$(cat "${RUNNER_TEMP}/snr/kind-reboot-watcher.pid")
+          kill "${watcher_pid}" 2>/dev/null || true
+          wait "${watcher_pid}" 2>/dev/null || true
+        fi
 
     - name: Debug on failure
       if: ${{ always() }}
@@ -210,3 +242,19 @@ jobs:
         echo ""
         echo "=== Kind container status ==="
         docker ps -a 2>/dev/null || true
+        echo "=== Kind logs export ==="
+        mkdir -p "${RUNNER_TEMP}/kind-logs"
+        KIND_EXPERIMENTAL_PROVIDER=docker \
+          kind export logs --name "${MEDIK8S_CLUSTER_NAME}" \
+          "${RUNNER_TEMP}/kind-logs" || true
+
+    - name: Upload Kind and operator diagnostics
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: kind-e2e-diagnostics
+        path: |
+          ${{ runner.temp }}/kind-logs
+          ${{ runner.temp }}/snr
+        if-no-files-found: warn
+        retention-days: 14
