@@ -234,7 +234,7 @@ docker-build-check: check
 
 .PHONY: bundle-build-community
 bundle-build-community: bundle-community-k8s ## Run bundle community changes in CSV, and then build the bundle image.
-	docker build -f bundle.Dockerfile -t $(BUNDLE_IMG) .
+	$(CONTAINER_TOOL) build -f bundle.Dockerfile -t $(BUNDLE_IMG) .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -398,7 +398,7 @@ bundle-validate: operator-sdk ## Validate the bundle directory with additional v
 	
 .PHONY: bundle-build
 bundle-build: bundle bundle-update ## Build the bundle image.
-	docker build -f bundle.Dockerfile -t $(BUNDLE_IMG) .
+	$(CONTAINER_TOOL) build -f bundle.Dockerfile -t $(BUNDLE_IMG) .
 
 .PHONY: bundle-push
 bundle-push: ## Push the bundle image.
@@ -610,7 +610,3 @@ dev-%:
 	@test -f $(DEV_MK) || { echo "Error: $(DEV_MK) not found after clone."; exit 1; }
 	@$(MAKE) $@
 endif
-
-# Source-to-OLM deployment is kept in a separate makefile so the existing
-# development and release targets above retain their current behavior.
--include Makefile.olm
