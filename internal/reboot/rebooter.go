@@ -84,15 +84,25 @@ func (r *watchdogRebooter) Reboot() error {
 	}
 }
 
-// softwareReboot performs software reboot by running systemctl reboot
+// softwareReboot attempts multiple reboot methods in order, stopping at the
+// first that succeeds. reboot(2)-based methods are tried before sysrq because
+// they respect PID namespace isolation; sysrq bypasses it and is a last resort.
 func (r *watchdogRebooter) softwareReboot() error {
 	r.log.Info("about to try software reboot")
-	// privileged:true required to run this
-	rebootCmd := exec.Command("/usr/bin/nsenter", "-m/proc/1/ns/mnt", "/bin/bash", "-c", "echo b > /proc/sysrq-trigger")
-
-	if err := rebootCmd.Run(); err != nil {
-		r.log.Error(err, "failed to run reboot command")
-		// TODO retry because of this?
+	cmds := [][]string{
+		{"systemctl", "reboot", "--force", "--force"},
+		{"nsenter", "-m/proc/1/ns/mnt", "--", "systemctl", "reboot", "--force", "--force"},
+		{"reboot", "-f"},
+		{"nsenter", "-m/proc/1/ns/mnt", "--", "reboot", "-f"},
+		{"nsenter", "-m/proc/1/ns/mnt", "/bin/bash", "-c", "echo b > /proc/sysrq-trigger"},
+	}
+	for _, cmd := range cmds {
+		r.log.Info("trying reboot command", "command", cmd)
+		if err := exec.Command(cmd[0], cmd[1:]...).Run(); err != nil {
+			r.log.Error(err, "reboot command failed, trying next", "command", cmd)
+			continue
+		}
+		return nil
 	}
 	return nil
 }
