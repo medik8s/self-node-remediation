@@ -259,6 +259,8 @@ type mockReaderWithPeers struct {
 	listCallCount atomic.Int32
 	nodes         []v1.Node
 	pods          []v1.Pod
+	// ownNodeLabels, when set, replaces the default labels of the own node
+	ownNodeLabels map[string]string
 }
 
 func (m *mockReaderWithPeers) Get(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption) error {
@@ -270,6 +272,9 @@ func (m *mockReaderWithPeers) Get(ctx context.Context, key types.NamespacedName,
 		node.Labels = map[string]string{
 			hostnameLabelName:                       "test-hostname",
 			"node-role.kubernetes.io/control-plane": "",
+		}
+		if m.ownNodeLabels != nil {
+			node.Labels = m.ownNodeLabels
 		}
 		return nil
 	}
@@ -846,4 +851,57 @@ func TestControlPlaneDomains(t *testing.T) {
 			t.Errorf("expected only the refreshed node to be known, got %+v", got)
 		}
 	})
+}
+
+// TestTopologyStateIsGuardedByTheMutex reads the failure domain state from another goroutine while Start
+// initializes and refreshes it, as the API connectivity check does. Meant to be run with -race.
+func TestTopologyStateIsGuardedByTheMutex(t *testing.T) {
+	const topologyKey = "topology.kubernetes.io/zone"
+	node := func(name, zone string, roles ...string) v1.Node {
+		labels := map[string]string{hostnameLabelName: name, topologyKey: zone}
+		for _, role := range roles {
+			labels[role] = ""
+		}
+		return v1.Node{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels}}
+	}
+	pod := func(nodeName, ip string) v1.Pod {
+		return v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "snr-" + nodeName},
+			Spec:       v1.PodSpec{NodeName: nodeName},
+			Status:     v1.PodStatus{PodIPs: []v1.PodIP{{IP: ip}}},
+		}
+	}
+	reader := &mockReaderWithPeers{
+		ownNodeLabels: map[string]string{hostnameLabelName: "test-hostname", "node-role.kubernetes.io/worker": "", topologyKey: "zone-a"},
+		nodes: []v1.Node{
+			node("worker-b", "zone-b", "node-role.kubernetes.io/worker"),
+			node("cp-a", "zone-a", "node-role.kubernetes.io/master", "node-role.kubernetes.io/control-plane"),
+		},
+		pods: []v1.Pod{pod("worker-b", "10.0.0.2"), pod("cp-a", "10.0.0.3")},
+	}
+
+	p := New("test-node", time.Millisecond, reader, logr.Discard(), time.Second)
+	p.SetTopologyKey(topologyKey)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	readerDone := make(chan struct{})
+	go func() {
+		defer close(readerDone)
+		for ctx.Err() == nil {
+			p.GetPeersSnapshot(Worker)
+			p.GetControlPlaneDomains()
+		}
+	}()
+	if err := p.Start(ctx); err != nil {
+		t.Fatalf("Start() returned an error: %v", err)
+	}
+	<-readerDone
+
+	if got := p.GetPeersSnapshot(Worker); got.OutsideMyDomain != 1 {
+		t.Errorf("expected the worker peer to be outside of our domain, got %+v", got)
+	}
+	if got := p.GetControlPlaneDomains(); got != (ControlPlaneDomains{InMyDomain: 1}) {
+		t.Errorf("expected one control plane node in our domain, got %+v", got)
+	}
 }

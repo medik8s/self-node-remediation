@@ -42,8 +42,10 @@ type Peers struct {
 	mutex                                            sync.Mutex
 	apiServerTimeout                                 time.Duration
 	workerPeersAddresses, controlPlanePeersAddresses []v1.PodIP
-	// topologyKey is the node label identifying the failure domain of a node, empty when the feature is disabled
+	// topologyKey is the node label identifying the failure domain of a node, empty when the feature is disabled.
+	// Set once before Start.
 	topologyKey string
+	// The fields below are guarded by mutex.
 	// myTopologyDomain is the value of topologyKey on our own node, empty when unknown
 	myTopologyDomain string
 	// topologyDomains maps a peer pod IP to the failure domain of its node, only for peers whose node carries the label
@@ -110,11 +112,15 @@ func (p *Peers) Start(ctx context.Context) error {
 		p.controlPlanePeerSelector = createSelector(hostname, getControlPlaneLabel(myNode))
 	}
 	if p.topologyKey != "" {
-		p.myTopologyDomain = myNode.Labels[p.topologyKey]
-		if p.myTopologyDomain == "" {
+		myTopologyDomain := myNode.Labels[p.topologyKey]
+		// read concurrently by the API connectivity check
+		p.mutex.Lock()
+		p.myTopologyDomain = myTopologyDomain
+		p.mutex.Unlock()
+		if myTopologyDomain == "" {
 			p.log.Info("topology key is set but own node does not carry the label, failure domain awareness is disabled on this node", "topologyKey", p.topologyKey)
 		} else {
-			p.log.Info("failure domain awareness enabled", "topologyKey", p.topologyKey, "myTopologyDomain", p.myTopologyDomain)
+			p.log.Info("failure domain awareness enabled", "topologyKey", p.topologyKey, "myTopologyDomain", myTopologyDomain)
 		}
 	}
 
