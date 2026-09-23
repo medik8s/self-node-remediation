@@ -49,6 +49,21 @@ type Peers struct {
 	myTopologyDomain string
 	// topologyDomains maps a peer pod IP to the failure domain of its node, only for peers whose node carries the label
 	topologyDomains map[string]string
+	// controlPlaneNodeDomains maps every control plane node other than our own to its failure domain (empty when the
+	// node has no label). It is built from the nodes, not from the agent pods, so that it stays complete when the
+	// agent does not run on control plane nodes.
+	controlPlaneNodeDomains map[string]string
+}
+
+// ControlPlaneDomains describes where the control plane nodes other than our own node are located, relative to our
+// own failure domain.
+type ControlPlaneDomains struct {
+	// InMyDomain is the number of control plane nodes known to be in our own failure domain
+	InMyDomain int
+	// InOtherDomain is the number of control plane nodes known to be in another failure domain
+	InOtherDomain int
+	// Unknown is the number of control plane nodes that do not carry the topology label
+	Unknown int
 }
 
 func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Reader, log logr.Logger, apiServerTimeout time.Duration) *Peers {
@@ -63,6 +78,7 @@ func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Read
 		workerPeersAddresses:       []v1.PodIP{},
 		controlPlanePeersAddresses: []v1.PodIP{},
 		topologyDomains:            map[string]string{},
+		controlPlaneNodeDomains:    map[string]string{},
 	}
 }
 
@@ -127,7 +143,7 @@ func (p *Peers) Start(ctx context.Context) error {
 func (p *Peers) updateWorkerPeers(ctx context.Context) error {
 	setterFunc := func(addresses []v1.PodIP) { p.workerPeersAddresses = addresses }
 	selectorGetter := func() labels.Selector { return p.workerPeerSelector }
-	return p.updatePeers(ctx, selectorGetter, setterFunc)
+	return p.updatePeers(ctx, selectorGetter, setterFunc, nil)
 }
 
 // updateControlPlanePeers re-reads control plane peer addresses immediately,
@@ -138,7 +154,7 @@ func (p *Peers) updateWorkerPeers(ctx context.Context) error {
 // peers should use RefreshControlPlanePeersForIsolationCheck.
 func (p *Peers) updateControlPlanePeers(ctx context.Context) error {
 	setterFunc := func(addresses []v1.PodIP) { p.controlPlanePeersAddresses = addresses }
-	return p.updateControlPlanePeersWithSetter(ctx, setterFunc)
+	return p.updateControlPlanePeersWithSetter(ctx, setterFunc, p.updateControlPlaneNodeDomains)
 }
 
 // RefreshControlPlanePeersForIsolationCheck is like updateControlPlanePeers,
@@ -155,10 +171,11 @@ func (p *Peers) RefreshControlPlanePeersForIsolationCheck(ctx context.Context) e
 		}
 		p.controlPlanePeersAddresses = addresses
 	}
-	return p.updateControlPlanePeersWithSetter(ctx, setterFunc)
+	// the control plane failure domains are left to the periodic refresh
+	return p.updateControlPlanePeersWithSetter(ctx, setterFunc, nil)
 }
 
-func (p *Peers) updateControlPlanePeersWithSetter(ctx context.Context, setAddresses func([]v1.PodIP)) error {
+func (p *Peers) updateControlPlanePeersWithSetter(ctx context.Context, setAddresses func([]v1.PodIP), setNodes func(nodes v1.NodeList)) error {
 	// Keep control plane refreshes ordered without holding the cache mutex over List calls.
 	select {
 	case p.controlPlaneRefreshSem <- struct{}{}:
@@ -172,10 +189,12 @@ func (p *Peers) updateControlPlanePeersWithSetter(ctx context.Context, setAddres
 	}
 
 	selectorGetter := func() labels.Selector { return p.controlPlanePeerSelector }
-	return p.updatePeers(ctx, selectorGetter, setAddresses)
+	return p.updatePeers(ctx, selectorGetter, setAddresses, setNodes)
 }
 
-func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selector, setAddresses func(addresses []v1.PodIP)) error {
+// updatePeers refreshes the peers of one role. setNodes, when not nil, receives the listed nodes of that role.
+// The List calls run without the mutex, the writes (setAddresses, setNodes, topology domains) under it.
+func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selector, setAddresses func(addresses []v1.PodIP), setNodes func(nodes v1.NodeList)) error {
 	readerCtx, cancel := context.WithTimeout(ctx, p.apiServerTimeout)
 	defer cancel()
 
@@ -211,8 +230,47 @@ func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selec
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 	setAddresses(addresses)
+	if setNodes != nil {
+		setNodes(nodes)
+	}
 	p.updateTopologyDomains(nodes, pods)
 	return err
+}
+
+// updateControlPlaneNodeDomains records the failure domain of every control plane node other than our own.
+func (p *Peers) updateControlPlaneNodeDomains(nodes v1.NodeList) {
+	if p.topologyKey == "" {
+		return
+	}
+	domains := make(map[string]string, len(nodes.Items))
+	for _, node := range nodes.Items {
+		domains[node.Name] = node.Labels[p.topologyKey] // empty when the node has no label
+	}
+	p.controlPlaneNodeDomains = domains
+}
+
+// GetControlPlaneDomains returns how the control plane nodes other than our own node are spread over the failure
+// domains, relative to our own domain. All counts are zero when failure domain awareness is disabled or our own
+// domain is unknown.
+func (p *Peers) GetControlPlaneDomains() ControlPlaneDomains {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	domains := ControlPlaneDomains{}
+	if p.myTopologyDomain == "" {
+		return domains
+	}
+	for _, domain := range p.controlPlaneNodeDomains {
+		switch domain {
+		case "":
+			domains.Unknown++
+		case p.myTopologyDomain:
+			domains.InMyDomain++
+		default:
+			domains.InOtherDomain++
+		}
+	}
+	return domains
 }
 
 // updateTopologyDomains records the failure domain of every peer whose node carries the topology label.
