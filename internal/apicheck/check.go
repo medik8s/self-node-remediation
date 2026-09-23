@@ -38,6 +38,7 @@ const (
 type PeersProvider interface {
 	GetPeersAddresses(role peers.Role) []corev1.PodIP
 	GetPeersSnapshot(role peers.Role) peers.Snapshot
+	GetControlPlaneDomains() peers.ControlPlaneDomains
 }
 
 type ApiConnectivityCheck struct {
@@ -233,10 +234,19 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 	nrVotingPeers := nrAllPeers
 	topologyAware := false
 	if snapshot.OutsideMyDomain > 0 {
-		topologyAware = true
-		nrVotingPeers = snapshot.OutsideMyDomain
-		c.config.Log.Info("Failure domain awareness is active, api errors from peers of the same domain will be ignored",
-			"peersOutsideMyDomain", snapshot.OutsideMyDomain, "allPeers", nrAllPeers)
+		if cpDomains, majorityOutside := c.controlPlaneMajorityOutsideMyDomain(); majorityOutside {
+			topologyAware = true
+			nrVotingPeers = snapshot.OutsideMyDomain
+			c.config.Log.Info("Failure domain awareness is active, api errors from peers of the same domain will be ignored",
+				"peersOutsideMyDomain", snapshot.OutsideMyDomain, "allPeers", nrAllPeers,
+				"controlPlaneNodesInOtherDomains", cpDomains.InOtherDomain)
+		} else {
+			c.config.Log.Info("Failure domain awareness is not applied: my failure domain holds at least half of the "+
+				"control plane nodes, so no API server with quorum can run outside of it; api errors from peers of "+
+				"the same domain are taken into account",
+				"controlPlaneNodesInMyDomain", cpDomains.InMyDomain, "controlPlaneNodesInOtherDomains", cpDomains.InOtherDomain,
+				"controlPlaneNodesWithoutDomain", cpDomains.Unknown)
+		}
 	}
 
 	// peersToAsk is being reduced at every iteration, iterate until no peers left to ask
@@ -308,6 +318,32 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseNoPeersResponseNotReachedTimeout}
 	}
 
+}
+
+// controlPlaneMajorityOutsideMyDomain tells whether a strict majority of the control plane nodes is known to be
+// located outside of this node's failure domain, and returns their distribution.
+//
+// Ignoring api errors from peers of our own domain is only correct when an API server with quorum can keep running on
+// the other side of a partition: that side then recovers our workloads, and we must self-remediate before it assumes
+// we did. When our own domain holds at least half of the control plane, no quorum can exist outside of it, so losing
+// the API server together with every peer of the other domains means that nobody is going to recover our workloads.
+// Rebooting the domain would then be a mass reboot without any benefit, which is what the legacy evaluation prevents.
+//
+// Control plane nodes without the topology label are not counted as being outside of our domain, so that a partially
+// labeled cluster degrades toward the legacy behavior, never toward more reboots.
+func (c *ApiConnectivityCheck) controlPlaneMajorityOutsideMyDomain() (peers.ControlPlaneDomains, bool) {
+	return controlPlaneMajorityOutside(c.config.Peers.GetControlPlaneDomains(), c.isControlPlane())
+}
+
+// controlPlaneMajorityOutside implements controlPlaneMajorityOutsideMyDomain. The given distribution excludes our own
+// node, which is added to our domain when it is a control plane node.
+func controlPlaneMajorityOutside(domains peers.ControlPlaneDomains, selfIsControlPlane bool) (peers.ControlPlaneDomains, bool) {
+	nrControlPlaneNodes := domains.InMyDomain + domains.InOtherDomain + domains.Unknown
+	if selfIsControlPlane {
+		domains.InMyDomain++
+		nrControlPlaneNodes++
+	}
+	return domains, domains.InOtherDomain*2 > nrControlPlaneNodes
 }
 
 // getControlPlanePeersStatus contacts peer control plane nodes and returns whether they can be reached

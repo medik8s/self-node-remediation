@@ -90,6 +90,11 @@ type fakePeers struct {
 	addresses []corev1.PodIP
 	myDomain  string
 	domains   map[string]string // ip -> domain
+	cpDomains peers.ControlPlaneDomains
+}
+
+func (f *fakePeers) GetControlPlaneDomains() peers.ControlPlaneDomains {
+	return f.cpDomains
 }
 
 func (f *fakePeers) GetPeersAddresses(_ peers.Role) []corev1.PodIP {
@@ -153,6 +158,8 @@ var _ = Describe("getWorkerPeersResponse with failure domain awareness", func() 
 			addresses: []corev1.PodIP{{IP: sameDomainPeer}, {IP: otherDomainPeer}, {IP: otherDomainPeer2}},
 			myDomain:  "zone-a",
 			domains:   map[string]string{sameDomainPeer: "zone-a", otherDomainPeer: "zone-b", otherDomainPeer2: "zone-b"},
+			// one control plane node per domain in a three domains cluster: the majority is outside of zone-a
+			cpDomains: peers.ControlPlaneDomains{InMyDomain: 1, InOtherDomain: 2},
 		}
 		responses = map[string]selfNodeRemediation.HealthCheckResponseCode{}
 		apiCheck = &ApiConnectivityCheck{
@@ -220,6 +227,58 @@ var _ = Describe("getWorkerPeersResponse with failure domain awareness", func() 
 		})
 	})
 
+	Context("when our own domain holds at least half of the control plane", func() {
+		It("does not self-remediate when partitioned without an API server: no quorum can exist elsewhere", func() {
+			fake.cpDomains = peers.ControlPlaneDomains{InMyDomain: 3}
+			responses[sameDomainPeer] = selfNodeRemediation.ApiError // peers of other domains do not answer
+			r := apiCheck.getWorkerPeersResponse()
+			Expect(r.IsHealthy).To(BeTrue())
+			Expect(r.Reason).To(Equal(peers.HealthyBecauseNoPeersResponseNotReachedTimeout))
+		})
+
+		It("resets the no-peers-response timer on a same-domain api error, like the legacy evaluation", func() {
+			fake.cpDomains = peers.ControlPlaneDomains{InMyDomain: 3}
+			responses[sameDomainPeer] = selfNodeRemediation.ApiError
+			before := apiCheck.timeOfLastPeerResponse
+			apiCheck.getWorkerPeersResponse()
+			Expect(apiCheck.timeOfLastPeerResponse).To(BeTemporally(">", before))
+		})
+
+		It("treats an even split of the control plane as no majority outside", func() {
+			fake.cpDomains = peers.ControlPlaneDomains{InMyDomain: 1, InOtherDomain: 1}
+			responses[sameDomainPeer] = selfNodeRemediation.ApiError
+			r := apiCheck.getWorkerPeersResponse()
+			Expect(r.IsHealthy).To(BeTrue())
+			Expect(r.Reason).To(Equal(peers.HealthyBecauseNoPeersResponseNotReachedTimeout))
+		})
+
+		It("does not count control plane nodes without the topology label as being outside", func() {
+			fake.cpDomains = peers.ControlPlaneDomains{InOtherDomain: 1, Unknown: 2}
+			responses[sameDomainPeer] = selfNodeRemediation.ApiError
+			r := apiCheck.getWorkerPeersResponse()
+			Expect(r.IsHealthy).To(BeTrue())
+			Expect(r.Reason).To(Equal(peers.HealthyBecauseNoPeersResponseNotReachedTimeout))
+		})
+
+		It("does not self-remediate when the control plane nodes are unknown", func() {
+			fake.cpDomains = peers.ControlPlaneDomains{}
+			responses[sameDomainPeer] = selfNodeRemediation.ApiError
+			r := apiCheck.getWorkerPeersResponse()
+			Expect(r.IsHealthy).To(BeTrue())
+			Expect(r.Reason).To(Equal(peers.HealthyBecauseNoPeersResponseNotReachedTimeout))
+		})
+	})
+
+	Context("when a strict majority of the control plane is outside of our domain", func() {
+		It("self-remediates when partitioned, even if the control plane is not spread evenly", func() {
+			fake.cpDomains = peers.ControlPlaneDomains{InOtherDomain: 3}
+			responses[sameDomainPeer] = selfNodeRemediation.ApiError
+			r := apiCheck.getWorkerPeersResponse()
+			Expect(r.IsHealthy).To(BeFalse())
+			Expect(r.Reason).To(Equal(peers.UnHealthyBecauseNodeIsIsolated))
+		})
+	})
+
 	Context("when the control plane is down but the network is fine", func() {
 		It("counts api errors from peers of other domains as a control plane failure", func() {
 			for _, ip := range []string{sameDomainPeer, otherDomainPeer, otherDomainPeer2} {
@@ -279,3 +338,34 @@ var _ = Describe("getWorkerPeersResponse with failure domain awareness", func() 
 		})
 	})
 })
+
+func TestControlPlaneMajorityOutside(t *testing.T) {
+	testCases := []struct {
+		name               string
+		domains            peers.ControlPlaneDomains
+		selfIsControlPlane bool
+		expectMajority     bool
+		expectInMyDomain   int
+	}{
+		{name: "one control plane per domain, three domains", domains: peers.ControlPlaneDomains{InMyDomain: 1, InOtherDomain: 2}, expectMajority: true, expectInMyDomain: 1},
+		{name: "whole control plane in my domain", domains: peers.ControlPlaneDomains{InMyDomain: 3}, expectMajority: false, expectInMyDomain: 3},
+		{name: "whole control plane in other domains", domains: peers.ControlPlaneDomains{InOtherDomain: 3}, expectMajority: true, expectInMyDomain: 0},
+		{name: "even split is not a majority", domains: peers.ControlPlaneDomains{InMyDomain: 2, InOtherDomain: 2}, expectMajority: false, expectInMyDomain: 2},
+		{name: "unlabeled nodes are not counted as outside", domains: peers.ControlPlaneDomains{InOtherDomain: 2, Unknown: 2}, expectMajority: false, expectInMyDomain: 0},
+		{name: "no control plane node known", domains: peers.ControlPlaneDomains{}, expectMajority: false, expectInMyDomain: 0},
+		{name: "own control plane node tips the balance", domains: peers.ControlPlaneDomains{InMyDomain: 0, InOtherDomain: 1}, selfIsControlPlane: true, expectMajority: false, expectInMyDomain: 1},
+		{name: "own control plane node in the minority", domains: peers.ControlPlaneDomains{InOtherDomain: 2}, selfIsControlPlane: true, expectMajority: true, expectInMyDomain: 1},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			domains, majority := controlPlaneMajorityOutside(tc.domains, tc.selfIsControlPlane)
+			if majority != tc.expectMajority {
+				t.Errorf("majority outside: expected %v, got %v", tc.expectMajority, majority)
+			}
+			if domains.InMyDomain != tc.expectInMyDomain {
+				t.Errorf("control plane nodes in my domain: expected %d, got %d", tc.expectInMyDomain, domains.InMyDomain)
+			}
+		})
+	}
+}
