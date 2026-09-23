@@ -786,3 +786,64 @@ func TestTopologyDomains(t *testing.T) {
 		}
 	})
 }
+
+func TestControlPlaneDomains(t *testing.T) {
+	const topologyKey = "topology.kubernetes.io/zone"
+
+	controlPlane := func(name, zone string) v1.Node {
+		labels := map[string]string{hostnameLabelName: name, "node-role.kubernetes.io/control-plane": ""}
+		if zone != "" {
+			labels[topologyKey] = zone
+		}
+		return v1.Node{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels}}
+	}
+	nodes := v1.NodeList{Items: []v1.Node{
+		controlPlane("cp-a", "zone-a"), controlPlane("cp-b", "zone-b"), controlPlane("cp-c", "zone-c"), controlPlane("cp-x", ""),
+	}}
+
+	testCases := []struct {
+		name        string
+		topologyKey string
+		myDomain    string
+		expected    ControlPlaneDomains
+	}{
+		{name: "feature disabled", topologyKey: "", myDomain: "", expected: ControlPlaneDomains{}},
+		{name: "own node has no label", topologyKey: topologyKey, myDomain: "", expected: ControlPlaneDomains{}},
+		{name: "spread over domains, unlabeled node reported apart", topologyKey: topologyKey, myDomain: "zone-a",
+			expected: ControlPlaneDomains{InMyDomain: 1, InOtherDomain: 2, Unknown: 1}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := New("me", time.Minute, nil, logr.Discard(), time.Second)
+			p.SetTopologyKey(tc.topologyKey)
+			p.myTopologyDomain = tc.myDomain
+			p.updateControlPlaneNodeDomains(nodes)
+			if got := p.GetControlPlaneDomains(); got != tc.expected {
+				t.Errorf("GetControlPlaneDomains() = %+v, expected %+v", got, tc.expected)
+			}
+		})
+	}
+
+	t.Run("does not depend on agent pods running on the control plane nodes", func(t *testing.T) {
+		p := New("me", time.Minute, nil, logr.Discard(), time.Second)
+		p.SetTopologyKey(topologyKey)
+		p.myTopologyDomain = "zone-a"
+		p.updateTopologyDomains(nodes, v1.PodList{}) // no agent pod anywhere
+		p.updateControlPlaneNodeDomains(nodes)
+		if got := p.GetControlPlaneDomains(); got.InOtherDomain != 2 {
+			t.Errorf("expected 2 control plane nodes in other domains without any agent pod, got %+v", got)
+		}
+	})
+
+	t.Run("a refresh replaces the previous distribution", func(t *testing.T) {
+		p := New("me", time.Minute, nil, logr.Discard(), time.Second)
+		p.SetTopologyKey(topologyKey)
+		p.myTopologyDomain = "zone-a"
+		p.updateControlPlaneNodeDomains(nodes)
+		p.updateControlPlaneNodeDomains(v1.NodeList{Items: []v1.Node{controlPlane("cp-a", "zone-a")}})
+		if got := p.GetControlPlaneDomains(); got != (ControlPlaneDomains{InMyDomain: 1}) {
+			t.Errorf("expected only the refreshed node to be known, got %+v", got)
+		}
+	})
+}
