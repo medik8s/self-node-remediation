@@ -39,6 +39,10 @@ YQ_VERSION = v4.53.2
 OPERATOR_NAME ?= self-node-remediation
 OPERATOR_NAMESPACE ?= openshift-workload-availability
 
+# Include shared medik8s dev tools
+TOOLS_DIR ?= $(shell cd .. && pwd)/tools
+-include $(TOOLS_DIR)/dev/dev.mk
+
 BLUE_ICON_PATH = "./config/assets/snr_icon_blue.png"
 
 # VERSION defines the project version for the bundle.

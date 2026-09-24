@@ -1,0 +1,207 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+  workflow_dispatch: {}
+
+jobs:
+  kind-e2e:
+    name: Kind E2E
+    runs-on: ubuntu-24.04
+    # The full suite includes deliberate 5- and 10-minute waits, image
+    # builds, OLM installation, and a simulated 90-second reboot delay.
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      # Shared dev environment
+      TOOLS_DIR: ${{ github.workspace }}/.tools
+      MEDIK8S_CLUSTER_NAME: medik8s-ci
+      CONTAINER_TOOL: docker
+
+      # Registry (created by dev-setup)
+      MEDIK8S_REGISTRY_NAME: kind-registry
+      MEDIK8S_REGISTRY_PORT: "5000"
+      IMAGE_REGISTRY: kind-registry:5000
+      OPM_RENDER_FLAGS: --skip-tls-verify
+      E2E_REBOOT_CHECK: container-start-time
+      MEDIK8S_REBOOT_DELAY: "90"
+
+      # Deployment
+      DEPLOY_NHC_NAMESPACE: nhc-system
+      DEPLOY_SNR_NAMESPACE: k8s-test
+
+    steps:
+    - name: Checkout SNR
+      uses: actions/checkout@v6
+      with:
+        persist-credentials: false
+
+    - name: Setup Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+
+    - name: Install operator-sdk
+      run: |
+        make operator-sdk
+        sudo cp bin/operator-sdk/*/operator-sdk /usr/local/bin/
+
+    - name: Create Kind cluster with registry, OLM, and cert-manager
+      run: |
+        # The E2E suite requires a highly available control plane. Keep this
+        # explicit here so CI does not silently use the single-control-plane
+        # default used by generic development setup.
+        KIND_HA=true make dev-setup
+        kubectl get nodes -o wide
+        control_planes=$(kubectl get nodes \
+          -l node-role.kubernetes.io/control-plane --no-headers | wc -l)
+        test "${control_planes}" -ge 2
+
+    - name: Deploy NHC via OLM bundle
+      run: |
+        kubectl create ns ${DEPLOY_NHC_NAMESPACE}
+        kubectl label --overwrite ns ${DEPLOY_NHC_NAMESPACE} \
+          pod-security.kubernetes.io/enforce=privileged \
+          pod-security.kubernetes.io/audit=privileged \
+          pod-security.kubernetes.io/warn=privileged
+        operator-sdk run bundle -n ${DEPLOY_NHC_NAMESPACE} \
+          --timeout 5m \
+          quay.io/medik8s/node-healthcheck-operator-bundle:latest
+
+    - name: Build and push SNR
+      run: |
+        make container-build
+
+        SNR_IMG=${IMAGE_REGISTRY}/self-node-remediation-operator:latest
+        SNR_BUNDLE=${IMAGE_REGISTRY}/self-node-remediation-operator-bundle:latest
+        docker push ${SNR_IMG}
+        docker push ${SNR_BUNDLE}
+
+    - name: Deploy SNR via OLM bundle
+      run: |
+        kubectl create ns ${DEPLOY_SNR_NAMESPACE}
+        kubectl label --overwrite ns ${DEPLOY_SNR_NAMESPACE} \
+          pod-security.kubernetes.io/enforce=privileged \
+          pod-security.kubernetes.io/audit=privileged \
+          pod-security.kubernetes.io/warn=privileged
+        operator-sdk run bundle -n ${DEPLOY_SNR_NAMESPACE} --use-http \
+          --timeout 5m \
+          ${IMAGE_REGISTRY}/self-node-remediation-operator-bundle:latest
+
+        # Safety net: explicit RBAC binding in case ClusterRole aggregation is slow.
+        kubectl create clusterrolebinding nhc-snr-admin-binding \
+          --clusterrole=self-node-remediation-ext-remediation \
+          --serviceaccount=${DEPLOY_NHC_NAMESPACE}:node-healthcheck-controller-manager \
+          2>/dev/null || true
+
+    - name: Wait for SNR DaemonSet to be ready
+      run: |
+        kubectl -n ${DEPLOY_SNR_NAMESPACE} wait --for=create \
+          daemonset/self-node-remediation-ds --timeout=120s
+        kubectl -n ${DEPLOY_SNR_NAMESPACE} rollout status \
+          daemonset/self-node-remediation-ds --timeout=120s
+
+    - name: Wait for operators to be ready
+      run: |
+        make dev-wait
+
+        # Wait for NHC controller to complete leader election and initial
+        # reconciliation. The aggregation ClusterRole is created during
+        # initialization — once it exists the controller is active.
+        kubectl wait --for=create clusterrole/node-healthcheck-operator-aggregation --timeout=120s
+        echo "NHC aggregation ClusterRole found — controller is active."
+
+        # Wait for Kubernetes aggregation controller to merge SNR rules into
+        # the NHC aggregation ClusterRole. Without this, NHC may lack
+        # permissions to create SelfNodeRemediation CRs (flaky race).
+        echo "Waiting for RBAC aggregation to populate rules..."
+        for i in $(seq 1 60); do
+          rules=$(kubectl get clusterrole/node-healthcheck-operator-aggregation -o jsonpath='{.rules}' 2>/dev/null)
+          if [ -n "$rules" ] && [ "$rules" != "null" ] && [ "$rules" != "[]" ]; then
+            echo "RBAC aggregation complete — rules populated."
+            break
+          fi
+          if [ "$i" -eq 60 ]; then
+            echo "WARNING: RBAC aggregation rules still empty after 60s"
+            kubectl get clusterrole/node-healthcheck-operator-aggregation -o yaml
+            exit 1
+          fi
+          sleep 1
+        done
+
+    - name: Pre-test cluster snapshot
+      run: |
+        D="${RUNNER_TEMP}/snr/pre-test"
+        mkdir -p "$D"
+        kubectl get nodes -o wide > "$D/nodes.txt" 2>&1 || true
+        kubectl get nodes -o custom-columns='NAME:.metadata.name,READY:.status.conditions[?(@.type=="Ready")].status,DISK:.status.conditions[?(@.type=="DiskPressure")].status,MEM:.status.conditions[?(@.type=="MemoryPressure")].status,PID:.status.conditions[?(@.type=="PIDPressure")].status' > "$D/node-conditions.txt" 2>&1 || true
+        kubectl get pods -n ${DEPLOY_SNR_NAMESPACE} -o wide > "$D/snr-pods.txt" 2>&1 || true
+        kubectl get pods -n ${DEPLOY_NHC_NAMESPACE} -o wide > "$D/nhc-pods.txt" 2>&1 || true
+        kubectl get selfnoderemediationconfig -n ${DEPLOY_SNR_NAMESPACE} -o yaml > "$D/snr-config.yaml" 2>&1 || true
+        kubectl get selfnoderemediationtemplates -A -o yaml > "$D/snr-templates.yaml" 2>&1 || true
+        kubectl get nodehealthchecks -o yaml > "$D/nhc-crs.yaml" 2>&1 || true
+        kubectl get clusterrole/node-healthcheck-operator-aggregation -o yaml > "$D/nhc-aggregation-clusterrole.yaml" 2>&1 || true
+        kubectl get clusterrolebindings -o wide 2>/dev/null | grep -i 'healthcheck\|nhc' > "$D/nhc-clusterrolebindings.txt" || true
+
+    - name: Start Kind reboot watcher
+      run: |
+        mkdir -p "${RUNNER_TEMP}/snr"
+        CONTAINER_TOOL=docker \
+        MEDIK8S_REBOOT_DELAY="${MEDIK8S_REBOOT_DELAY}" \
+          nohup ${TOOLS_DIR}/dev/kind-reboot-watcher.sh \
+          --name "${MEDIK8S_CLUSTER_NAME}" --mode snr \
+          > "${RUNNER_TEMP}/snr/kind-reboot-watcher.log" 2>&1 &
+        echo $! > "${RUNNER_TEMP}/snr/kind-reboot-watcher.pid"
+
+    - name: Run e2e tests
+      timeout-minutes: 70
+      run: |
+        OPERATOR_NS=${DEPLOY_SNR_NAMESPACE} \
+        SNR_STRATEGY=OutOfServiceTaint \
+        LABEL_FILTER="!OCP-ONLY" \
+        make e2e-test
+
+    - name: Stop Kind reboot watcher
+      if: ${{ always() }}
+      run: |
+        if [ -f "${RUNNER_TEMP}/snr/kind-reboot-watcher.pid" ]; then
+          watcher_pid=$(cat "${RUNNER_TEMP}/snr/kind-reboot-watcher.pid")
+          kill "${watcher_pid}" 2>/dev/null || true
+          wait "${watcher_pid}" 2>/dev/null || true
+        fi
+
+    - name: Collect diagnostics
+      if: ${{ always() }}
+      run: |
+        D="${RUNNER_TEMP}/snr/post-test"
+        mkdir -p "$D"
+        kubectl get nodehealthchecks -o yaml > "$D/nhc-crs.yaml" 2>&1 || true
+        kubectl get selfnoderemediations -A -o yaml > "$D/snr-crs.yaml" 2>&1 || true
+        kubectl get selfnoderemediationtemplates -A -o yaml > "$D/snr-templates.yaml" 2>&1 || true
+        kubectl get selfnoderemediationconfig -n ${DEPLOY_SNR_NAMESPACE} -o yaml > "$D/snr-config.yaml" 2>&1 || true
+        kubectl get nodes -o wide > "$D/nodes.txt" 2>&1 || true
+        kubectl get events -A --sort-by=.lastTimestamp > "$D/events.txt" 2>&1 || true
+        docker ps -a > "$D/docker-ps.txt" 2>&1 || true
+        kubectl logs -n ${DEPLOY_NHC_NAMESPACE} -l app.kubernetes.io/name=node-healthcheck-operator \
+          --tail=500 > "$D/nhc-controller.log" 2>&1 || true
+        kubectl logs -n ${DEPLOY_SNR_NAMESPACE} -l app.kubernetes.io/name=self-node-remediation \
+          --tail=500 -c manager > "$D/snr-controller.log" 2>&1 || true
+        mkdir -p "${RUNNER_TEMP}/kind-logs"
+        KIND_EXPERIMENTAL_PROVIDER=docker \
+          kind export logs --name "${MEDIK8S_CLUSTER_NAME}" \
+          "${RUNNER_TEMP}/kind-logs" || true
+
+    - name: Upload Kind and operator diagnostics
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: kind-e2e-diagnostics
+        path: |
+          ${{ runner.temp }}/kind-logs
+          ${{ runner.temp }}/snr
+        if-no-files-found: warn
+        retention-days: 14

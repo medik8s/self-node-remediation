@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -23,74 +24,127 @@ import (
 const (
 	// additional timeout (after podDeletedTimeout) when the node should be rebooted
 	nodeRebootedTimeout = 10 * time.Minute
+
+	rebootCheckEnvVar             = "E2E_REBOOT_CHECK"
+	rebootCheckBootID             = "boot-id"
+	rebootCheckContainerStartTime = "container-start-time"
 )
 
 var (
 	log = ctrl.Log.WithName("testutils")
 )
 
+func rebootCheckMode() string {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv(rebootCheckEnvVar)))
+	if mode == "" {
+		return rebootCheckBootID
+	}
+	return mode
+}
+
+func containerTool() string {
+	tool := os.Getenv("CONTAINER_TOOL")
+	if tool == "" || tool == "podman-machine" {
+		return "podman"
+	}
+	return tool
+}
+
+func getNodeBootID(ctx context.Context, c *kubernetes.Clientset, node *corev1.Node) (string, error) {
+	n, err := c.CoreV1().Nodes().Get(ctx, node.GetName(), metav1.GetOptions{})
+	if err != nil {
+		return "", err
+	}
+	if n.Status.NodeInfo.BootID == "" {
+		return "", fmt.Errorf("boot ID is empty for node %s", node.GetName())
+	}
+	return n.Status.NodeInfo.BootID, nil
+}
+
+func getContainerStartTime(ctx context.Context, node *corev1.Node) (string, error) {
+	output, err := exec.CommandContext(ctx, containerTool(), "inspect", node.GetName(),
+		"--format", "{{.State.StartedAt}}").Output()
+	if err != nil {
+		return "", fmt.Errorf("inspect container for node %s: %w", node.GetName(), err)
+	}
+	startTime := strings.TrimSpace(string(output))
+	if startTime == "" {
+		return "", fmt.Errorf("container start time is empty for node %s", node.GetName())
+	}
+	return startTime, nil
+}
+
+func getRebootMarker(ctx context.Context, c *kubernetes.Clientset, node *corev1.Node) (string, error) {
+	switch rebootCheckMode() {
+	case rebootCheckBootID:
+		return getNodeBootID(ctx, c, node)
+	case rebootCheckContainerStartTime:
+		return getContainerStartTime(ctx, node)
+	default:
+		return "", fmt.Errorf("unsupported %s value %q; use %q or %q",
+			rebootCheckEnvVar, rebootCheckMode(), rebootCheckBootID, rebootCheckContainerStartTime)
+	}
+}
+
 // GetBootID returns the boot ID of the node from the Kubernetes Node API.
-// Boot ID is a kernel-generated UUID that changes on every reboot.
+// Boot ID is a kernel-generated UUID that changes on every kernel reboot.
 func GetBootID(ctx context.Context, c *kubernetes.Clientset, node *corev1.Node) string {
 	var bootID string
 	EventuallyWithOffset(1, func() error {
-		n, err := c.CoreV1().Nodes().Get(ctx, node.GetName(), metav1.GetOptions{})
-		if err != nil {
-			return err
-		}
-		bootID = n.Status.NodeInfo.BootID
-		if bootID == "" {
-			return fmt.Errorf("boot ID is empty for node %s", node.GetName())
-		}
-		return nil
+		var err error
+		bootID, err = getNodeBootID(ctx, c, node)
+		return err
 	}, 1*time.Minute, 5*time.Second).ShouldNot(HaveOccurred(), "Could not get boot ID on node %s", node.GetName())
 	return bootID
 }
 
-func CheckReboot(ctx context.Context, c *kubernetes.Clientset, node *corev1.Node, oldBootID string) {
-	By("checking reboot")
-	log.Info("boot ID", "old", oldBootID)
-	EventuallyWithOffset(1, func() string {
-		n, err := c.CoreV1().Nodes().Get(ctx, node.GetName(), metav1.GetOptions{})
-		if err != nil {
-			log.Info("failed to get node for boot ID, will retry", "error", err)
-			return oldBootID
-		}
-		newBootID := n.Status.NodeInfo.BootID
-		if newBootID == "" {
-			log.Info("boot ID is empty, treating as transient and retaining old boot ID", "node", node.GetName())
-			return oldBootID
-		}
-		if newBootID != oldBootID {
-			log.Info("boot ID changed", "old", oldBootID, "new", newBootID)
-		} else {
-			log.Info("boot ID unchanged, waiting for reboot", "current", newBootID)
-		}
-		return newBootID
-	}, nodeRebootedTimeout, 10*time.Second).ShouldNot(Equal(oldBootID))
+// GetRebootMarker returns the value used to detect a reboot. Real nodes use
+// boot ID; Kind nodes can use the container start time because restarting a
+// Kind node container does not reboot the shared host kernel.
+func GetRebootMarker(ctx context.Context, c *kubernetes.Clientset, node *corev1.Node) string {
+	var marker string
+	EventuallyWithOffset(1, func() error {
+		var err error
+		marker, err = getRebootMarker(ctx, c, node)
+		return err
+	}, 1*time.Minute, 5*time.Second).ShouldNot(HaveOccurred(), "Could not get reboot marker for node %s", node.GetName())
+	return marker
 }
 
-func CheckNoReboot(ctx context.Context, c *kubernetes.Clientset, node *corev1.Node, oldBootID string) {
-	By("checking no reboot")
-	log.Info("boot ID", "old", oldBootID)
-	ConsistentlyWithOffset(1, func() string {
-		n, err := c.CoreV1().Nodes().Get(ctx, node.GetName(), metav1.GetOptions{})
+func CheckReboot(ctx context.Context, c *kubernetes.Clientset, node *corev1.Node, oldMarker string) {
+	By("checking reboot")
+	log.Info("reboot marker", "node", node.GetName(), "mode", rebootCheckMode(), "old", oldMarker)
+	EventuallyWithOffset(1, func() string {
+		newMarker, err := getRebootMarker(ctx, c, node)
 		if err != nil {
-			log.Error(err, "failed to get node for boot ID")
-			return oldBootID
+			log.Info("failed to get reboot marker, will retry", "node", node.GetName(), "error", err)
+			return oldMarker
 		}
-		newBootID := n.Status.NodeInfo.BootID
-		if newBootID == "" {
-			log.Info("boot ID is empty, treating as transient and retaining old boot ID", "node", node.GetName())
-			return oldBootID
-		}
-		if newBootID != oldBootID {
-			log.Info("boot ID changed unexpectedly", "old", oldBootID, "new", newBootID)
+		if newMarker != oldMarker {
+			log.Info("reboot marker changed", "node", node.GetName(), "mode", rebootCheckMode(), "old", oldMarker, "new", newMarker)
 		} else {
-			log.Info("boot ID unchanged", "current", newBootID)
+			log.Info("reboot marker unchanged, waiting for reboot", "node", node.GetName(), "mode", rebootCheckMode(), "current", newMarker)
 		}
-		return newBootID
-	}, nodeRebootedTimeout, 1*time.Minute).Should(Equal(oldBootID))
+		return newMarker
+	}, nodeRebootedTimeout, 10*time.Second).ShouldNot(Equal(oldMarker))
+}
+
+func CheckNoReboot(ctx context.Context, c *kubernetes.Clientset, node *corev1.Node, oldMarker string) {
+	By("checking no reboot")
+	log.Info("reboot marker", "node", node.GetName(), "mode", rebootCheckMode(), "old", oldMarker)
+	ConsistentlyWithOffset(1, func() string {
+		newMarker, err := getRebootMarker(ctx, c, node)
+		if err != nil {
+			log.Error(err, "failed to get reboot marker", "node", node.GetName())
+			return oldMarker
+		}
+		if newMarker != oldMarker {
+			log.Info("reboot marker changed unexpectedly", "node", node.GetName(), "mode", rebootCheckMode(), "old", oldMarker, "new", newMarker)
+		} else {
+			log.Info("reboot marker unchanged", "node", node.GetName(), "mode", rebootCheckMode(), "current", newMarker)
+		}
+		return newMarker
+	}, nodeRebootedTimeout, 1*time.Minute).Should(Equal(oldMarker))
 }
 
 // RunCommandInPod runs a command in a given pod and returns the output

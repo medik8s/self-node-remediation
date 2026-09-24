@@ -1,8 +1,12 @@
-name: Publish Container Images
+name: Post Submit
 on:
   push:
     branches:
       - main
+
+permissions:
+  contents: write
+  pull-requests: read
 
 jobs:
   push_to_registry:
@@ -27,4 +31,23 @@ jobs:
           registry: quay.io
 
       - name: Build and push CSV version v0.0.1 with latest images
-        run: make container-build-community container-push
+        run: make container-build-k8s container-push
+
+      - name: Build and push index image with versioned NHC + SNR images
+        # broken atm because of mandatory previous release...
+        # we need to skip replaces field when version = 9.9.9-ci
+        if: false
+        run: |
+          # get script from github
+          NAME=build-nhc-snr.sh
+          curl https://raw.githubusercontent.com/medik8s/tools/main/scripts/${NAME} -o ${NAME}
+          chmod +x $NAME
+          
+          # set version vars
+          VERSION=9.9.9-ci
+          export NHC_VERSION=${VERSION}
+          export SNR_VERSION=${VERSION}
+          export INDEX_VERSION=${VERSION}
+          
+          # build and push images
+          ./$NAME --skip-deploy

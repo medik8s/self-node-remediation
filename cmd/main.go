@@ -404,9 +404,15 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
-	wd, err := watchdog.NewLinux(ctrl.Log.WithName("watchdog"))
+	softwareRebootEnabled, err := watchdog.IsSoftwareRebootEnabled()
 	if err != nil {
-		setupLog.Error(err, "failed to init watchdog, using soft reboot")
+		setupLog.Error(err, "failed to determine whether software reboot is enabled")
+		os.Exit(1)
+	}
+
+	wd, watchdogErr := watchdog.NewLinux(ctrl.Log.WithName("watchdog"))
+	if watchdogErr != nil {
+		setupLog.Error(watchdogErr, "failed to init watchdog")
 	}
 
 	if wd != nil {
@@ -444,8 +450,14 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	peerRequestTimeout := getDurEnvVarOrDie("PEER_REQUEST_TIMEOUT")   //timeout for each peer request
 	peerHealthDefaultPort := getIntEnvVarOrDie("HOST_PORT")
 
-	// it's fine when the watchdog is nil!
-	rebooter := reboot.NewWatchdogRebooter(wd, ctrl.Log.WithName("rebooter"))
+	var rebooter reboot.Rebooter
+	if watchdogErr != nil && !softwareRebootEnabled {
+		// Do not allow a watchdog initialization failure to fall through to
+		// software reboot when the configuration explicitly disables it.
+		rebooter = reboot.NewDisabledRebooter(watchdogErr)
+	} else {
+		rebooter = reboot.NewWatchdogRebooter(wd, ctrl.Log.WithName("rebooter"))
+	}
 
 	// init certificate reader
 	certReader := certificates.NewSecretCertStorage(mgr.GetClient(), mgr.GetCache(), ctrl.Log.WithName("SecretCertStorage"), ns)

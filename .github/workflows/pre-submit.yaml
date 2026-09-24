@@ -1,13 +1,11 @@
 name: Pre Submit # workflow name
-on: # on events
+
+on:
   push:
-    branches:
-      - main
-      - release-*
+    branches: ['**']
   pull_request:
-    branches:
-      - main
-      - release-*
+    branches: ['**']
+
 jobs:
   build:
     name: build
