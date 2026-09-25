@@ -22,5 +22,23 @@ The operator is available in [operator hub](https://operatorhub.io/operator/self
 
 Self Node Remediation works best together with [Node Health Check Operator](https://operatorhub.io/operator/node-healthcheck-operator)
 
+### Deploying the current source to OpenShift
+
+For PR or branch testing, build the operator with the pinned source-deployment
+toolchain, push temporary images to `ttl.sh`, and install the generated OLM
+bundle with operator-sdk:
+
+```bash
+make deploy-olm
+```
+
+The temporary images expire after one hour by default. Override the duration
+and deployment namespace when needed, for example:
+
+```bash
+TTL_DURATION=4h OLM_OPERATOR_NAMESPACE=openshift-workload-availability make deploy-olm
+make undeploy-olm
+```
+
 ## Help
 Feel free to join our google group to get more info - https://groups.google.com/g/medik8s
