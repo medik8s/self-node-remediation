@@ -8,8 +8,8 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	remediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/internal/utils"
+	remediationv1alpha1 "github.com/medik8s/self-node-remediation/v5/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/v5/internal/utils"
 )
 
 var _ = Describe("SelfNodeRemediationTemplate Validation", func() {

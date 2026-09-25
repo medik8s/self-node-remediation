@@ -5,7 +5,7 @@ plugins:
   manifests.sdk.operatorframework.io/v2: {}
   scorecard.sdk.operatorframework.io/v2: {}
 projectName: self-node-remediation
-repo: github.com/medik8s/self-node-remediation
+repo: github.com/medik8s/self-node-remediation/v5
 resources:
 - api:
     crdVersion: v1
@@ -14,7 +14,7 @@ resources:
   domain: medik8s.io
   group: self-node-remediation
   kind: SelfNodeRemediation
-  path: github.com/medik8s/self-node-remediation/api/v1alpha1
+  path: github.com/medik8s/self-node-remediation/v5/api/v1alpha1
   version: v1alpha1
   webhooks:
     validation: true
@@ -25,7 +25,7 @@ resources:
   domain: medik8s.io
   group: self-node-remediation
   kind: SelfNodeRemediationTemplate
-  path: github.com/medik8s/self-node-remediation/api/v1alpha1
+  path: github.com/medik8s/self-node-remediation/v5/api/v1alpha1
   version: v1alpha1
   webhooks:
     defaulting: true
@@ -38,7 +38,7 @@ resources:
   domain: medik8s.io
   group: self-node-remediation
   kind: SelfNodeRemediationConfig
-  path: github.com/medik8s/self-node-remediation/api/v1alpha1
+  path: github.com/medik8s/self-node-remediation/v5/api/v1alpha1
   version: v1alpha1
   webhooks:
     validation: true

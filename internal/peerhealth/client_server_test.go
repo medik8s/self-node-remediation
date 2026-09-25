@@ -13,9 +13,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/medik8s/self-node-remediation/api"
-	"github.com/medik8s/self-node-remediation/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/internal/certificates"
+	"github.com/medik8s/self-node-remediation/v5/api"
+	"github.com/medik8s/self-node-remediation/v5/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/v5/internal/certificates"
 )
 
 var _ = Describe("Checking health using grpc client and server", func() {

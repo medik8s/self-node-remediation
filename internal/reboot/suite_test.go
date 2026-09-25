@@ -17,10 +17,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsServer "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/internal/controller"
-	"github.com/medik8s/self-node-remediation/internal/controller/tests/shared"
-	"github.com/medik8s/self-node-remediation/internal/reboot"
+	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/v5/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/v5/internal/controller"
+	"github.com/medik8s/self-node-remediation/v5/internal/controller/tests/shared"
+	"github.com/medik8s/self-node-remediation/v5/internal/reboot"
 )
 
 var (
