@@ -193,6 +193,19 @@ test: go-verify envtest generate fix-imports manifests fmt vet ## Run tests.
 		KUBEBUILDER_CONTROLPLANE_STOP_TIMEOUT="60s"\
 		go test ./api/... ./internal/... -coverprofile cover.out -v ${TEST_OPS}
 
+CONTAINER_TOOL ?= podman
+TEST_LINUX_IMAGE ?= docker.io/library/golang:$(shell go list -m -f '{{.GoVersion}}')-bookworm
+
+.PHONY: test-linux
+test-linux: ## Run the full test target in a Linux container (for macOS hosts).
+	$(CONTAINER_TOOL) run --rm \
+		-v "$(CURDIR):/workspace$(if $(filter podman,$(CONTAINER_TOOL)),:Z,)" \
+		-v /workspace/bin \
+		-v /workspace/testbin \
+		-w /workspace -e GOTOOLCHAIN=auto -e TEST_OPS \
+		$(TEST_LINUX_IMAGE) \
+		bash -ec 'apt-get update && apt-get install -y --no-install-recommends unzip && make test'
+
 .PHONY: bundle-run
 bundle-run: operator-sdk create-ns ## Run bundle image. Default NS is "openshift-workload-availability", redefine OPERATOR_NAMESPACE to override it.
 	$(OPERATOR_SDK) -n $(OPERATOR_NAMESPACE) run bundle $(BUNDLE_IMG)
@@ -315,7 +328,7 @@ rm -rf $$TMP_DIR ;\
 }
 endef
 
-DEFAULT_ICON_BASE64 := $(shell base64 --wrap=0 ${BLUE_ICON_PATH})
+DEFAULT_ICON_BASE64 := $(shell base64 < ${BLUE_ICON_PATH} | tr -d '\n')
 export ICON_BASE64 ?= ${DEFAULT_ICON_BASE64}
 export CSV ?= "./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml"
 .PHONY: bundle
@@ -411,9 +424,15 @@ bundle-push: ## Push the bundle image.
 .PHONY: protoc
 PROTOC = $(shell pwd)/bin/proto/bin/protoc
 # map Go arch names to the ones used by protobuf release artifacts
-PROTOC_ARCH = $(shell go env GOARCH | sed -e 's/amd64/x86_64/' -e 's/arm64/aarch_64/')
+PROTOC_OS = $(shell go env GOHOSTOS | sed -e 's/darwin/osx/')
+PROTOC_ARCH = $(shell go env GOHOSTARCH | sed -e 's/amd64/x86_64/' -e 's/arm64/aarch_64/')
+ifeq ($(PROTOC_OS),osx)
+# Protobuf 3.16.0 only provides an x86_64 macOS binary (requires Rosetta on Apple Silicon).
+PROTOC_ARCH = x86_64
+endif
 protoc: protoc-gen-go protoc-gen-go-grpc ## Download protoc (protocol buffers tool needed for gRPC)
-	test -f ${PROTOC} || (cd $(shell pwd)/bin/proto && curl -sSLo protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v3.16.0/protoc-3.16.0-linux-$(PROTOC_ARCH).zip && unzip -o protoc.zip && rm protoc.zip)
+	$(PROTOC) --version >/dev/null 2>&1 || (cd $(shell pwd)/bin/proto && curl -fsSLo protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v3.16.0/protoc-3.16.0-$(PROTOC_OS)-$(PROTOC_ARCH).zip && unzip -o protoc.zip && rm protoc.zip)
+	$(PROTOC) --version
 
 .PHONY: protoc-gen-go
 PROTOC_GEN_GO = $(shell pwd)/bin/proto/bin/protoc-gen-go
