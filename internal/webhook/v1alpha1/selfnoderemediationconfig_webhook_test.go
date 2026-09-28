@@ -34,12 +34,14 @@ var testItems = []field{
 	{peerRequestTimeout, 1 * time.Millisecond, minDurPeerRequestTimeout},
 	{apiCheckInterval, 0, minDurApiCheckInterval},
 	{peerUpdateInterval, 10 * time.Millisecond, minDurPeerUpdateInterval},
+	{maxTimeForNoPeersResponse, 500 * time.Millisecond, minDurMaxTimeForNoPeersResponse},
 	{peerApiServerTimeout, -1 * time.Millisecond, minDurPeerApiServerTimeout},
 	{apiServerTimeout, -5 * time.Minute, minDurApiServerTimeout},
 	{peerDialTimeout, -10*time.Second - 5*time.Millisecond, minDurPeerDialTimeout},
 	{peerRequestTimeout, -1 * time.Minute, minDurPeerRequestTimeout},
 	{apiCheckInterval, -1 * time.Second, minDurApiCheckInterval},
 	{peerUpdateInterval, -10 * time.Second, minDurPeerUpdateInterval},
+	{maxTimeForNoPeersResponse, -30 * time.Second, minDurMaxTimeForNoPeersResponse},
 }
 
 var testItems2 = []field{
@@ -519,5 +521,7 @@ func setFieldValue(snrc *remediationv1alpha1.SelfNodeRemediationConfig, fieldNam
 		snrc.Spec.ApiCheckInterval = timeValue
 	case peerUpdateInterval:
 		snrc.Spec.PeerUpdateInterval = timeValue
+	case maxTimeForNoPeersResponse:
+		snrc.Spec.MaxTimeForNoPeersResponse = timeValue
 	}
 }

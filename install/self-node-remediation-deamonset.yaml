@@ -65,6 +65,8 @@ spec:
             value: "{{.PeerDialTimeout}}"
           - name: PEER_REQUEST_TIMEOUT
             value: "{{.PeerRequestTimeout}}"
+          - name: MAX_TIME_FOR_NO_PEERS_RESPONSE
+            value: "{{.MaxTimeForNoPeersResponse}}"
           - name: MAX_API_ERROR_THRESHOLD
             value: "{{.MaxApiErrorThreshold}}"
           - name: IS_SOFTWARE_REBOOT_ENABLED

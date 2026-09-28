@@ -150,6 +150,11 @@ func (in *SelfNodeRemediationConfigSpec) DeepCopyInto(out *SelfNodeRemediationCo
 		*out = new(v1.Duration)
 		**out = **in
 	}
+	if in.MaxTimeForNoPeersResponse != nil {
+		in, out := &in.MaxTimeForNoPeersResponse, &out.MaxTimeForNoPeersResponse
+		*out = new(v1.Duration)
+		**out = **in
+	}
 	if in.PreferredAddressTypes != nil {
 		in, out := &in.PreferredAddressTypes, &out.PreferredAddressTypes
 		*out = make([]string, len(*in))

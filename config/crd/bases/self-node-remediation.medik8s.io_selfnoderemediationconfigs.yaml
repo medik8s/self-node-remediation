@@ -159,6 +159,17 @@ spec:
                   its peers.
                 minimum: 1
                 type: integer
+              maxTimeForNoPeersResponse:
+                default: 30s
+                description: |-
+                  How long to keep waiting for peer responses before concluding the node is isolated
+                  and self-fencing. Peers are contacted in batches, so on large clusters the time to
+                  finish all batches can exceed the default, and a node may fence itself before its
+                  peers have had a chance to answer. Raising this trades isolation-fencing latency for
+                  resistance to slow or unanswered peer requests.
+                  Valid time units are "ms", "s", "m", "h".
+                pattern: ^([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$
+                type: string
               minPeersForRemediation:
                 default: 1
                 description: "Minimum number of peer workers/control nodes to attempt
