@@ -399,11 +399,11 @@ if [ "${SKIP_BUILD}" = false ]; then
     step "Cleaning previous OLM installations"
     if "${KUBECTL_BIN}" get subscription -n "${DEPLOY_SNR_NAMESPACE}" \
         -o name 2>/dev/null | grep -q .; then
-        "${operator_sdk}" -n "${DEPLOY_SNR_NAMESPACE}" cleanup self-node-remediation || true
+        "${operator_sdk}" -n "${DEPLOY_SNR_NAMESPACE}" cleanup medik8s-self-node-remediation || true
     fi
     if "${KUBECTL_BIN}" get subscription -n "${DEPLOY_NHC_NAMESPACE}" \
         -o name 2>/dev/null | grep -q .; then
-        "${operator_sdk}" -n "${DEPLOY_NHC_NAMESPACE}" cleanup node-healthcheck-operator --delete-all || true
+        "${operator_sdk}" -n "${DEPLOY_NHC_NAMESPACE}" cleanup medik8s-node-healthcheck-operator --delete-all || true
     fi
 
     step "Deploying NHC via OLM bundle"
