@@ -130,6 +130,10 @@ ifeq (,$(shell which kubectl))
 KUBECTL=oc
 endif
 
+# CONTAINER_TOOL defines the container tool to be used for building images.
+CONTAINER_TOOL ?= podman
+export CONTAINER_TOOL
+
 all: build
 
 ##@ General
@@ -226,11 +230,11 @@ run: manifests generate fmt vet ## Run a controller from your host.
 
 .PHONY: docker-build
 docker-build: test
-	docker build -t ${IMG} .
+	$(CONTAINER_TOOL) build -t ${IMG} .
 
 .PHONY: docker-build-check
 docker-build-check: check
-	docker build -t ${IMG} .
+	$(CONTAINER_TOOL) build -t ${IMG} .
 
 .PHONY: bundle-build-community
 bundle-build-community: bundle-community-k8s ## Run bundle community changes in CSV, and then build the bundle image.
@@ -238,7 +242,7 @@ bundle-build-community: bundle-community-k8s ## Run bundle community changes in 
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
-	docker push ${IMG}
+	$(CONTAINER_TOOL) push ${IMG}
 
 ##@ Deployment
 
@@ -402,7 +406,7 @@ bundle-build: bundle bundle-update ## Build the bundle image.
 
 .PHONY: bundle-push
 bundle-push: ## Push the bundle image.
-	docker push $(BUNDLE_IMG)
+	$(CONTAINER_TOOL) push $(BUNDLE_IMG)
 
 .PHONY: protoc
 PROTOC = $(shell pwd)/bin/proto/bin/protoc
@@ -511,7 +515,7 @@ catalog-build: opm ## Build a file-based catalog image.
 	$(OPM) render ${BUNDLE_IMG} --output yaml >> ${CATALOG_INDEX}
 	$(MAKE) add_channel_entry_for_the_bundle
 	$(OPM) validate ${CATALOG_DIR}
-	docker build . -f ${CATALOG_DOCKERFILE} -t ${CATALOG_IMG}
+	$(CONTAINER_TOOL) build . -f ${CATALOG_DOCKERFILE} -t ${CATALOG_IMG}
 	# Clean up the catalog directory and Dockerfile
 	rm -r ${CATALOG_DIR} ${CATALOG_DOCKERFILE}
 
