@@ -158,7 +158,15 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 	data.Data["ApiServerTimeout"] = snrConfig.Spec.ApiServerTimeout.Nanoseconds()
 	data.Data["PeerDialTimeout"] = snrConfig.Spec.PeerDialTimeout.Nanoseconds()
 	data.Data["PeerRequestTimeout"] = snrConfig.Spec.PeerRequestTimeout.Nanoseconds()
-	data.Data["MaxTimeForNoPeersResponse"] = snrConfig.Spec.MaxTimeForNoPeersResponse.Nanoseconds()
+	// Optional field, so fall back to the default rather than dereferencing a nil
+	// pointer: the CRD default only applies to objects the API server has
+	// defaulted, and a new manager can read a config stored before the field
+	// existed. The calculator uses the same fallback.
+	maxTimeForNoPeersResponse := reboot.MaxTimeForNoPeersResponse
+	if snrConfig.Spec.MaxTimeForNoPeersResponse != nil {
+		maxTimeForNoPeersResponse = snrConfig.Spec.MaxTimeForNoPeersResponse.Duration
+	}
+	data.Data["MaxTimeForNoPeersResponse"] = maxTimeForNoPeersResponse.Nanoseconds()
 	data.Data["MaxApiErrorThreshold"] = snrConfig.Spec.MaxApiErrorThreshold
 	data.Data["EndpointHealthCheckUrl"] = snrConfig.Spec.EndpointHealthCheckUrl
 	data.Data["PreferredAddressTypes"] = snrConfig.Spec.PreferredAddressTypes
