@@ -22,9 +22,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/medik8s/self-node-remediation/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/e2e/utils"
-	"github.com/medik8s/self-node-remediation/internal/controller"
+	"github.com/medik8s/self-node-remediation/v5/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/v5/e2e/utils"
+	"github.com/medik8s/self-node-remediation/v5/internal/controller"
 )
 
 const (

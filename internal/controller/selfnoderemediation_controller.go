@@ -38,9 +38,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/medik8s/self-node-remediation/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/internal/reboot"
-	"github.com/medik8s/self-node-remediation/internal/utils"
+	"github.com/medik8s/self-node-remediation/v5/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/v5/internal/reboot"
+	"github.com/medik8s/self-node-remediation/v5/internal/utils"
 )
 
 const (

@@ -11,7 +11,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	snrwebhook "github.com/medik8s/self-node-remediation/internal/webhook/v1alpha1"
+	snrwebhook "github.com/medik8s/self-node-remediation/v5/internal/webhook/v1alpha1"
 )
 
 func TestApiCheck(t *testing.T) {
