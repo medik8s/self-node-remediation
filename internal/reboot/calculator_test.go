@@ -92,6 +92,26 @@ var _ = Describe("Calculator tests", func() {
 		})
 	})
 
+	Context("with a configured MaxTimeForNoPeersResponse, 2 peers, and 10s watchdog timeout", func() {
+		BeforeEach(func() {
+			// The peers check is faster than the no-peers-response window, so the
+			// window is the floor. Raising it must raise the reboot duration.
+			snrConfig.Spec.MaxTimeForNoPeersResponse = &metav1.Duration{Duration: 90 * time.Second}
+			watchdogTimeoutSeconds = 10
+			nrOfPeers = 2
+			// 3 * (15 + 5) = 60 (API server)
+			// + 90 (configured MaxTimeForNoPeersResponse, replaces the 30s default)
+			// + 10 (Watchdog)
+			// + 30
+			expectedRebootDurationSeconds = 190
+		})
+		It("GetRebootTime should use the configured value", func() {
+			Eventually(func() (time.Duration, error) {
+				return calculator.GetRebootDuration(context.Background(), unhealthyNode)
+			}, "15s", "200ms").Should(Equal(time.Duration(expectedRebootDurationSeconds) * time.Second))
+		})
+	})
+
 	Context("with modified SNRConfig, 20 peers, and 25s watchdog timeout", func() {
 		BeforeEach(func() {
 			// modify all values used by calculator

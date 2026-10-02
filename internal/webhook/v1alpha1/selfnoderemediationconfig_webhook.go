@@ -34,12 +34,13 @@ import (
 
 // fields names
 const (
-	peerApiServerTimeout = "PeerApiServerTimeout"
-	apiServerTimeout     = "ApiServerTimeout"
-	peerDialTimeout      = "PeerDialTimeout"
-	peerRequestTimeout   = "PeerRequestTimeout"
-	apiCheckInterval     = "ApiCheckInterval"
-	peerUpdateInterval   = "PeerUpdateInterval"
+	peerApiServerTimeout      = "PeerApiServerTimeout"
+	apiServerTimeout          = "ApiServerTimeout"
+	peerDialTimeout           = "PeerDialTimeout"
+	peerRequestTimeout        = "PeerRequestTimeout"
+	apiCheckInterval          = "ApiCheckInterval"
+	peerUpdateInterval        = "PeerUpdateInterval"
+	maxTimeForNoPeersResponse = "MaxTimeForNoPeersResponse"
 )
 
 // minimal time durations allowed for fields
@@ -50,6 +51,9 @@ const (
 	minDurPeerRequestTimeout   = 10 * time.Millisecond
 	minDurApiCheckInterval     = 1 * time.Second
 	minDurPeerUpdateInterval   = 10 * time.Second
+	// a node must be given at least one peer-request round before it may
+	// conclude it is isolated
+	minDurMaxTimeForNoPeersResponse = 1 * time.Second
 
 	// MinimumBuffer is the minimum buffer time between APIServerTimeout and PeerRequestTimeout
 	// It is required to make sure there is enough time for network communication between the peers in case the API Server is out
@@ -132,6 +136,12 @@ func validateTimes(snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) err
 		{peerRequestTimeout, spec.PeerRequestTimeout.Duration, minDurPeerRequestTimeout},
 		{apiCheckInterval, spec.ApiCheckInterval.Duration, minDurApiCheckInterval},
 		{peerUpdateInterval, spec.PeerUpdateInterval.Duration, minDurPeerUpdateInterval},
+	}
+
+	// Optional field with no guaranteed default on objects built outside the
+	// API server, so only validate it when it is actually set.
+	if spec.MaxTimeForNoPeersResponse != nil {
+		fields = append(fields, field{maxTimeForNoPeersResponse, spec.MaxTimeForNoPeersResponse.Duration, minDurMaxTimeForNoPeersResponse})
 	}
 
 	for _, field := range fields {

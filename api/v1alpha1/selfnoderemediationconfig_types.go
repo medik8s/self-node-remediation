@@ -100,6 +100,18 @@ type SelfNodeRemediationConfigSpec struct {
 	// +optional
 	PeerRequestTimeout *metav1.Duration `json:"peerRequestTimeout,omitempty"`
 
+	// How long to keep waiting for peer responses before concluding the node is isolated
+	// and self-fencing. Peers are contacted in batches, so on large clusters the time to
+	// finish all batches can exceed the default, and a node may fence itself before its
+	// peers have had a chance to answer. Raising this trades isolation-fencing latency for
+	// resistance to slow or unanswered peer requests.
+	// Valid time units are "ms", "s", "m", "h".
+	// +kubebuilder:default:="30s"
+	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+	// +kubebuilder:validation:Type:=string
+	// +optional
+	MaxTimeForNoPeersResponse *metav1.Duration `json:"maxTimeForNoPeersResponse,omitempty"`
+
 	// After this threshold, the node will start contacting its peers.
 	// +kubebuilder:default:=3
 	// +kubebuilder:validation:Minimum=1

@@ -443,11 +443,12 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	}
 
 	// TODO make the interval and error threshold configurable?
-	apiCheckInterval := getDurEnvVarOrDie("API_CHECK_INTERVAL")       //the frequency for api-server connectivity check
-	maxErrorThreshold := getIntEnvVarOrDie("MAX_API_ERROR_THRESHOLD") //after this threshold, the node will start contacting its peers
-	apiServerTimeout := getDurEnvVarOrDie("API_SERVER_TIMEOUT")       //timeout for each api-connectivity check
-	peerDialTimeout := getDurEnvVarOrDie("PEER_DIAL_TIMEOUT")         //timeout for establishing connection to peer
-	peerRequestTimeout := getDurEnvVarOrDie("PEER_REQUEST_TIMEOUT")   //timeout for each peer request
+	apiCheckInterval := getDurEnvVarOrDie("API_CHECK_INTERVAL")                      //the frequency for api-server connectivity check
+	maxErrorThreshold := getIntEnvVarOrDie("MAX_API_ERROR_THRESHOLD")                //after this threshold, the node will start contacting its peers
+	apiServerTimeout := getDurEnvVarOrDie("API_SERVER_TIMEOUT")                      //timeout for each api-connectivity check
+	peerDialTimeout := getDurEnvVarOrDie("PEER_DIAL_TIMEOUT")                        //timeout for establishing connection to peer
+	peerRequestTimeout := getDurEnvVarOrDie("PEER_REQUEST_TIMEOUT")                  //timeout for each peer request
+	maxTimeForNoPeersResponse := getDurEnvVarOrDie("MAX_TIME_FOR_NO_PEERS_RESPONSE") //how long to wait for peer responses before concluding the node is isolated
 	peerHealthDefaultPort := getIntEnvVarOrDie("HOST_PORT")
 
 	var rebooter reboot.Rebooter
@@ -482,7 +483,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		PeerDialTimeout:           peerDialTimeout,
 		PeerRequestTimeout:        peerRequestTimeout,
 		PeerHealthPort:            peerHealthDefaultPort,
-		MaxTimeForNoPeersResponse: reboot.MaxTimeForNoPeersResponse,
+		MaxTimeForNoPeersResponse: maxTimeForNoPeersResponse,
 		Recorder:                  mgr.GetEventRecorderFor("ApiConnectivityCheck"),
 	}
 
