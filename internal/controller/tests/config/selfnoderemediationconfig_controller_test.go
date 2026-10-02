@@ -24,7 +24,7 @@ import (
 
 var _ = Describe("SNR Config Test", func() {
 	dsName := "self-node-remediation-ds"
-	networkPolicyName := "self-node-remediation-ds"
+	networkPolicyName := "self-node-remediation-ds-np"
 	var config *selfnoderemediationv1alpha1.SelfNodeRemediationConfig
 	var ds *appsv1.DaemonSet
 	dsKey := types.NamespacedName{
@@ -213,6 +213,9 @@ var _ = Describe("SNR Config Test", func() {
 			Expect(ingressRule.Ports[0].Port.IntValue()).To(Equal(config.Spec.HostPort))
 			Expect(*ingressRule.Ports[0].Protocol).To(Equal(corev1.ProtocolTCP))
 
+			By("having exactly 3 egress rules: peer, DNS, HTTPS")
+			Expect(np.Spec.Egress).To(HaveLen(3))
+
 			By("allowing egress to peer agent pods on the configured hostPort")
 			foundPeerEgressRule := false
 			for _, egressRule := range np.Spec.Egress {
@@ -227,6 +230,50 @@ var _ = Describe("SNR Config Test", func() {
 				}
 			}
 			Expect(foundPeerEgressRule).To(BeTrue())
+
+			By("allowing DNS resolution on port 53 for UDP and TCP")
+			foundDNSEgressRule := false
+			for _, egressRule := range np.Spec.Egress {
+				if len(egressRule.To) == 0 && len(egressRule.Ports) == 2 {
+					foundDNSEgressRule = true
+					ports := map[corev1.Protocol]int32{}
+					for _, p := range egressRule.Ports {
+						ports[*p.Protocol] = p.Port.IntVal
+					}
+					Expect(ports).To(Equal(map[corev1.Protocol]int32{
+						corev1.ProtocolUDP: 53,
+						corev1.ProtocolTCP: 53,
+					}))
+				}
+			}
+			Expect(foundDNSEgressRule).To(BeTrue())
+
+			By("allowing HTTPS egress on port 443")
+			foundHTTPSEgressRule := false
+			for _, egressRule := range np.Spec.Egress {
+				if len(egressRule.To) == 0 && len(egressRule.Ports) == 1 {
+					foundHTTPSEgressRule = true
+					Expect(egressRule.Ports[0].Port.IntValue()).To(Equal(443))
+					Expect(*egressRule.Ports[0].Protocol).To(Equal(corev1.ProtocolTCP))
+				}
+			}
+			Expect(foundHTTPSEgressRule).To(BeTrue())
+		})
+
+		It("should recreate the NetworkPolicy if it is deleted", func() {
+			np := &networkingv1.NetworkPolicy{}
+			Eventually(func() error {
+				return k8sClient.Get(context.Background(), networkPolicyKey, np)
+			}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
+			originalUID := np.UID
+
+			Expect(k8sClient.Delete(context.Background(), np)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				recreated := &networkingv1.NetworkPolicy{}
+				g.Expect(k8sClient.Get(context.Background(), networkPolicyKey, recreated)).To(Succeed())
+				g.Expect(recreated.UID).NotTo(Equal(originalUID))
+			}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 		})
 		When("Configuration has customized tolerations", func() {
 			var expectedToleration corev1.Toleration

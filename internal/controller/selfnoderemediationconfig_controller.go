@@ -69,7 +69,7 @@ type SelfNodeRemediationConfigReconciler struct {
 //+kubebuilder:rbac:groups=self-node-remediation.medik8s.io,resources=selfnoderemediationconfigs/finalizers,verbs=update
 //+kubebuilder:rbac:groups="apps",resources=daemonsets,verbs=get;list;watch;update;patch;create;delete
 //+kubebuilder:rbac:groups="apps",resources=daemonsets/finalizers,verbs=update
-//+kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update
 //+kubebuilder:rbac:groups="security.openshift.io",resources=securitycontextconstraints,verbs=use,resourceNames=privileged
 //+kubebuilder:rbac:groups=machine.openshift.io,resources=machines,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=machine.openshift.io,resources=machines/status,verbs=get;update;patch
@@ -276,6 +276,8 @@ func (r *SelfNodeRemediationConfigReconciler) checkInstallObjects(objs []*unstru
 			dsCount++
 		case "NetworkPolicy":
 			networkPolicyCount++
+		default:
+			return fmt.Errorf("/install contains unsupported object kind %q", obj.GetKind())
 		}
 	}
 

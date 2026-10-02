@@ -1,7 +1,7 @@
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: self-node-remediation-ds
+  name: self-node-remediation-ds-np
   namespace: {{.Namespace}}
   labels:
     k8s-app: self-node-remediation
@@ -44,9 +44,8 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # Allow HTTPS egress, needed to reach the Kubernetes API server (via the
-    # in-cluster kubernetes.default.svc, always on port 443) and any optional
-    # HTTPS EndpointHealthCheckUrl.
+    # Allow HTTPS egress, needed to reach the Kubernetes API server
+    # (via the in-cluster kubernetes.default.svc, always on port 443).
     - ports:
         - protocol: TCP
           port: 443
