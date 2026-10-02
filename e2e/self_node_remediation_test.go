@@ -196,7 +196,9 @@ var _ = Describe("Self Node Remediation E2E", func() {
 							defer GinkgoRecover()
 							defer wg.Done()
 							utils.CheckNoReboot(context.Background(), k8sClientSet, worker, bootIDs[worker.GetName()])
-							checkSnrLogs(worker, []string{"failed to check api server", "nodes couldn't access the api-server"}, testStartTime)
+							// Assert the decision the guard reached, not the sentence it
+							// printed: the reason is a stable identifier, the prose is not.
+							checkSnrLogs(worker, []string{"failed to check api server", "HealthyBecauseMostPeersCantAccessAPIServer"}, testStartTime)
 						}()
 					}
 					wg.Wait()

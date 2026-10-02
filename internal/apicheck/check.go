@@ -211,18 +211,20 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 	}
 
 	apiErrorsResponsesSum := 0
+	noAnswerResponsesSum := 0
 	nrAllPeers := len(peersToAsk)
 	// peersToAsk is being reduced at every iteration, iterate until no peers left to ask
 	for i := 0; len(peersToAsk) > 0; i++ {
 
 		batchSize := utils.GetNextBatchSize(nrAllPeers, len(peersToAsk))
 		chosenPeersIPs := c.popPeerIPs(&peersToAsk, batchSize)
-		healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenPeersIPs)
+		healthyResponses, unhealthyResponses, apiErrorsResponses, noAnswerResponses, unreachablePeers := c.getHealthStatusFromPeers(chosenPeersIPs)
 		if healthyResponses+unhealthyResponses+apiErrorsResponses > 0 {
 			c.timeOfLastPeerResponse = time.Now()
 		}
 		c.config.Log.Info("Aggregate peer health responses", "healthyResponses", healthyResponses,
-			"unhealthyResponses", unhealthyResponses, "apiErrorsResponses", apiErrorsResponses)
+			"unhealthyResponses", unhealthyResponses, "apiErrorsResponses", apiErrorsResponses,
+			"noAnswerResponses", noAnswerResponses, "unreachablePeers", unreachablePeers)
 
 		if healthyResponses > 0 {
 			c.config.Log.Info("There is at least one peer who thinks this node healthy, so we'll respond "+
@@ -244,14 +246,31 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 				"instead they told me they can't access the API server either", "apiErrorsResponses",
 				apiErrorsResponses)
 			apiErrorsResponsesSum += apiErrorsResponses
-			// TODO: consider using [m|n]hc.spec.maxUnhealthy instead of 50%
-			if apiErrorsResponsesSum > nrAllPeers/2 { // already reached more than 50% of the peers and all of them returned api error
-				// assuming this is a control plane failure as others can't access api-server as well
-				c.config.Log.Info("More than 50% of the nodes couldn't access the api-server, assuming "+
-					"this is a control plane failure, so we are going to return healthy in that case",
-					"reason", "HealthyBecauseMostPeersCantAccessAPIServer")
-				return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseMostPeersCantAccessAPIServer}
-			}
+		}
+
+		if noAnswerResponses > 0 {
+			c.config.Log.Info("Some peers were reachable but did not answer in time, which points at a "+
+				"systemic problem rather than at this node being isolated", "noAnswerResponses",
+				noAnswerResponses)
+			noAnswerResponsesSum += noAnswerResponses
+		}
+
+		// A peer we dialled successfully but that did not answer is evidence of a
+		// shared problem, not of this node being cut off: the network to that peer is
+		// demonstrably fine. Counting those alongside explicit api errors keeps this
+		// guard reachable when a degraded api-server stalls the peers' own CR lookups,
+		// which is precisely when every node would otherwise decide it is isolated and
+		// reboot at the same moment. Peers that could not be dialled at all are
+		// deliberately excluded: that is what real isolation looks like.
+		// TODO: consider using [m|n]hc.spec.maxUnhealthy instead of 50%
+		if apiErrorsResponsesSum+noAnswerResponsesSum > nrAllPeers/2 {
+			// assuming this is a control plane failure as others can't reach the api-server either
+			c.config.Log.Info("More than 50% of the peers either couldn't access the api-server or were "+
+				"reachable but didn't answer, assuming this is a control plane failure, so we are going "+
+				"to return healthy in that case", "apiErrorsResponsesSum", apiErrorsResponsesSum,
+				"noAnswerResponsesSum", noAnswerResponsesSum,
+				"reason", "HealthyBecauseMostPeersCantAccessAPIServer")
+			return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseMostPeersCantAccessAPIServer}
 		}
 
 	}
@@ -288,7 +307,7 @@ func (c *ApiConnectivityCheck) getControlPlanePeersStatus() (canBeReached bool, 
 	}
 
 	chosenPeersIPs := c.popPeerIPs(&peersToAsk, numOfControlPlanePeers)
-	healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenPeersIPs)
+	healthyResponses, unhealthyResponses, apiErrorsResponses, _, _ := c.getHealthStatusFromPeers(chosenPeersIPs)
 
 	c.config.Log.Info("Control plane peers status", "healthyResponses", healthyResponses,
 		"unhealthyResponses", unhealthyResponses, "apiErrorsResponses", apiErrorsResponses)
@@ -324,7 +343,7 @@ func (c *ApiConnectivityCheck) popPeerIPs(peersIPs *[]corev1.PodIP, count int) [
 	return selectedIPs
 }
 
-func (c *ApiConnectivityCheck) getHealthStatusFromPeers(addresses []corev1.PodIP) (int, int, int, int) {
+func (c *ApiConnectivityCheck) getHealthStatusFromPeers(addresses []corev1.PodIP) (int, int, int, int, int) {
 	nrAddresses := len(addresses)
 	responsesChan := make(chan selfNodeRemediation.HealthCheckResponseCode, nrAddresses)
 
@@ -362,7 +381,8 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp corev1.PodIP, 
 
 	if err := c.initClientCreds(); err != nil {
 		logger.Error(err, "failed to init client credentials")
-		results <- selfNodeRemediation.RequestFailed
+		// Nothing was contacted, so this says nothing about the peer.
+		results <- selfNodeRemediation.PeerUnreachable
 		return
 	}
 
@@ -370,7 +390,9 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp corev1.PodIP, 
 	phClient, err := peerhealth.NewClient(fmt.Sprintf("%v:%v", endpointIp.IP, c.config.PeerHealthPort), c.config.PeerDialTimeout, c.config.Log.WithName("peerhealth client"), c.clientCreds)
 	if err != nil {
 		logger.Error(err, "failed to init grpc client")
-		results <- selfNodeRemediation.RequestFailed
+		// The dial itself failed: this peer is genuinely unreachable, which is what
+		// real isolation looks like.
+		results <- selfNodeRemediation.PeerUnreachable
 		return
 	}
 	defer phClient.Close()
@@ -384,6 +406,9 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp corev1.PodIP, 
 		MachineName: c.config.MyMachineName,
 	})
 	if err != nil {
+		// The dial succeeded, so the peer is reachable and the network is fine; it
+		// just did not answer in time, typically because its own api-server lookup
+		// stalled.
 		logger.Error(err, "failed to read health response from peer")
 		results <- selfNodeRemediation.RequestFailed
 		return
@@ -408,11 +433,12 @@ func (c *ApiConnectivityCheck) initClientCreds() error {
 	return nil
 }
 
-func (c *ApiConnectivityCheck) sumPeersResponses(nodesBatchCount int, responsesChan chan selfNodeRemediation.HealthCheckResponseCode) (int, int, int, int) {
+func (c *ApiConnectivityCheck) sumPeersResponses(nodesBatchCount int, responsesChan chan selfNodeRemediation.HealthCheckResponseCode) (int, int, int, int, int) {
 	healthyResponses := 0
 	unhealthyResponses := 0
 	apiErrorsResponses := 0
-	noResponse := 0
+	noAnswerResponses := 0
+	unreachablePeers := 0
 
 	for i := 0; i < nodesBatchCount; i++ {
 		response := <-responsesChan
@@ -427,12 +453,14 @@ func (c *ApiConnectivityCheck) sumPeersResponses(nodesBatchCount int, responsesC
 			apiErrorsResponses++
 			break
 		case selfNodeRemediation.RequestFailed:
-			noResponse++
+			noAnswerResponses++
+		case selfNodeRemediation.PeerUnreachable:
+			unreachablePeers++
 		default:
 			c.config.Log.Error(fmt.Errorf("unexpected response"),
 				"Received unexpected value from peer while trying to retrieve health status", "value", response)
 		}
 	}
 
-	return healthyResponses, unhealthyResponses, apiErrorsResponses, noResponse
+	return healthyResponses, unhealthyResponses, apiErrorsResponses, noAnswerResponses, unreachablePeers
 }
