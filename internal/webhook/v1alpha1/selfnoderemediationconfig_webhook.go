@@ -24,6 +24,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -87,6 +88,7 @@ func (v *SNRConfigValidator) ValidateCreate(_ context.Context, snrConfig *remedi
 		validateTimes(snrConfig),
 		validateCustomTolerations(snrConfig),
 		validateCustomDsNodeSelectors(snrConfig),
+		validatePeerTopologyKey(snrConfig),
 		validateSingleton(snrConfig),
 	})
 
@@ -102,6 +104,7 @@ func (v *SNRConfigValidator) ValidateUpdate(_ context.Context, _, snrConfig *rem
 		validateTimes(snrConfig),
 		validateCustomTolerations(snrConfig),
 		validateCustomDsNodeSelectors(snrConfig),
+		validatePeerTopologyKey(snrConfig),
 	})
 }
 
@@ -193,6 +196,21 @@ func validateToleration(toleration v1.Toleration) error {
 			selfNodeRemediationConfigLog.Error(err, "invalid taint effect for toleration", "valid values", []v1.TaintEffect{v1.TaintEffectNoSchedule, v1.TaintEffectPreferNoSchedule, v1.TaintEffectNoExecute}, "received value", toleration.Effect)
 			return err
 		}
+	}
+	return nil
+}
+
+// validatePeerTopologyKey validates that PeerTopologyKey, when set, is a valid label key: it is rendered into the
+// agent DaemonSet and used to read node labels, so anything else than a qualified name is rejected
+func validatePeerTopologyKey(snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) error {
+	key := snrConfig.Spec.PeerTopologyKey
+	if key == "" {
+		return nil
+	}
+	if errs := validation.IsQualifiedName(key); len(errs) > 0 {
+		err := fmt.Errorf("invalid peerTopologyKey %q: must be a valid label key: %v", key, errs)
+		selfNodeRemediationConfigLog.Error(err, "invalid peerTopologyKey")
+		return err
 	}
 	return nil
 }

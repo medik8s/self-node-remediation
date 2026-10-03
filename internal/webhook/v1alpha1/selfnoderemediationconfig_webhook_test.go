@@ -241,6 +241,42 @@ func testSingleInvalidField(validator *SNRConfigValidator, validationType valida
 		})
 	})
 
+	Context(fmt.Sprintf("%s validation of peerTopologyKey", validationType.getName()), func() {
+		// the singleton check of the create path needs the CR name and the deployment namespace to match
+		newConfig := func() *remediationv1alpha1.SelfNodeRemediationConfig {
+			snrc := createTestSelfNodeRemediationConfigCR()
+			snrc.Name = remediationv1alpha1.ConfigCRName
+			_ = os.Setenv("DEPLOYMENT_NAMESPACE", snrc.Namespace)
+			return snrc
+		}
+		validate := func(snrc *remediationv1alpha1.SelfNodeRemediationConfig) error {
+			var err error
+			if validationType == update {
+				_, err = validator.ValidateUpdate(context.Background(), newConfig(), snrc)
+			} else {
+				_, err = validator.ValidateCreate(context.Background(), snrc)
+			}
+			return err
+		}
+		It("should be accepted - empty key (feature disabled)", func() {
+			snrc := newConfig()
+			snrc.Spec.PeerTopologyKey = ""
+			Expect(validate(snrc)).To(Succeed())
+		})
+		It("should be accepted - well-known topology label", func() {
+			snrc := newConfig()
+			snrc.Spec.PeerTopologyKey = "topology.kubernetes.io/zone"
+			Expect(validate(snrc)).To(Succeed())
+		})
+		It("should be rejected - not a label key", func() {
+			snrc := newConfig()
+			snrc.Spec.PeerTopologyKey = "not a label\"key"
+			err := validate(snrc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid peerTopologyKey"))
+		})
+	})
+
 	Context(fmt.Sprintf("%s validation of customized nodeAffinity node selector", validationType.getName()), func() {
 		It("should be rejected - key must be non-empty", func() {
 			snrc := createTestSelfNodeRemediationConfigCR()
