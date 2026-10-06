@@ -38,11 +38,6 @@ YQ_VERSION = v4.53.2
 
 OPERATOR_NAME ?= self-node-remediation
 OPERATOR_NAMESPACE ?= openshift-workload-availability
-CONTAINER_TOOL ?= podman
-
-# Include shared medik8s dev tools
-TOOLS_DIR ?= $(shell cd .. && pwd)/tools
--include $(TOOLS_DIR)/dev/dev.mk
 
 BLUE_ICON_PATH = "./config/assets/snr_icon_blue.png"
 
@@ -138,12 +133,7 @@ KUBECTL=oc
 endif
 
 # CONTAINER_TOOL defines the container tool to be used for building images.
-CONTAINER_TOOL ?= $(shell \
-	if command -v podman >/dev/null 2>&1; then echo podman; \
-	elif command -v docker >/dev/null 2>&1; then echo docker; \
-	else echo podman; \
-	fi \
-)
+CONTAINER_TOOL ?= podman
 export CONTAINER_TOOL
 
 all: build
