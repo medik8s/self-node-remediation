@@ -11,6 +11,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	selfNodeRemediation "github.com/medik8s/self-node-remediation/api"
 	snrwebhook "github.com/medik8s/self-node-remediation/internal/webhook/v1alpha1"
 )
 
@@ -79,5 +80,63 @@ var _ = Describe("ApiConnectivityCheck", func() {
 
 		})
 
+	})
+})
+
+var _ = Describe("sumPeersResponses", func() {
+	var apiCheck *ApiConnectivityCheck
+
+	BeforeEach(func() {
+		apiCheck = &ApiConnectivityCheck{
+			config: &ApiConnectivityCheckConfig{
+				Log: ctrl.Log.WithName("test"),
+			},
+		}
+	})
+
+	drain := func(codes ...selfNodeRemediation.HealthCheckResponseCode) (int, int, int, int, int) {
+		ch := make(chan selfNodeRemediation.HealthCheckResponseCode, len(codes))
+		for _, c := range codes {
+			ch <- c
+		}
+		return apiCheck.sumPeersResponses(len(codes), ch)
+	}
+
+	It("counts a peer that was dialled but did not answer separately from one that could not be dialled", func() {
+		_, _, _, noAnswer, unreachable := drain(
+			selfNodeRemediation.RequestFailed,
+			selfNodeRemediation.PeerUnreachable,
+			selfNodeRemediation.PeerUnreachable,
+		)
+		Expect(noAnswer).To(Equal(1), "RequestFailed means the dial succeeded and the peer stayed silent")
+		Expect(unreachable).To(Equal(2), "PeerUnreachable means the dial itself failed")
+	})
+
+	It("still counts the answers the peers do give", func() {
+		healthy, unhealthy, apiErrors, noAnswer, unreachable := drain(
+			selfNodeRemediation.Healthy,
+			selfNodeRemediation.Unhealthy,
+			selfNodeRemediation.ApiError,
+			selfNodeRemediation.ApiError,
+			selfNodeRemediation.RequestFailed,
+			selfNodeRemediation.PeerUnreachable,
+		)
+		Expect(healthy).To(Equal(1))
+		Expect(unhealthy).To(Equal(1))
+		Expect(apiErrors).To(Equal(2))
+		Expect(noAnswer).To(Equal(1))
+		Expect(unreachable).To(Equal(1))
+	})
+})
+
+var _ = Describe("HealthCheckResponseCode wire values", func() {
+	It("keeps the codes the peer sends over gRPC unchanged", func() {
+		// PeerUnreachable is synthesised client side. If it were added to the iota
+		// block it would renumber these and silently change the gRPC contract.
+		Expect(int(selfNodeRemediation.Healthy)).To(Equal(1))
+		Expect(int(selfNodeRemediation.Unhealthy)).To(Equal(2))
+		Expect(int(selfNodeRemediation.ApiError)).To(Equal(3))
+		Expect(int(selfNodeRemediation.RequestFailed)).To(Equal(-1))
+		Expect(int(selfNodeRemediation.PeerUnreachable)).To(Equal(-2))
 	})
 })
