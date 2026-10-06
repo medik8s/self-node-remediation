@@ -19,6 +19,9 @@ import (
 )
 
 const (
+	// MaxTimeForNoPeersResponse is the default for
+	// SelfNodeRemediationConfig.Spec.MaxTimeForNoPeersResponse, used when the
+	// field is unset.
 	MaxTimeForNoPeersResponse = 30 * time.Second
 )
 
@@ -122,8 +125,12 @@ func (r *calculator) calculateMinimumRebootDuration(ctx context.Context, watchdo
 	// c) in order to prevent false positives in case of temporary network issues,
 	//    we don't consider nodes being unhealthy before MaxTimeForNoPeersResponse.
 	//    So that's the minimum time we need for the peers check.
-	if peerRequestsDuration < MaxTimeForNoPeersResponse {
-		peerRequestsDuration = MaxTimeForNoPeersResponse
+	maxTimeForNoPeersResponse := MaxTimeForNoPeersResponse
+	if spec.MaxTimeForNoPeersResponse != nil {
+		maxTimeForNoPeersResponse = spec.MaxTimeForNoPeersResponse.Duration
+	}
+	if peerRequestsDuration < maxTimeForNoPeersResponse {
+		peerRequestsDuration = maxTimeForNoPeersResponse
 	}
 
 	// 3. trigger the reboot
