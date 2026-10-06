@@ -2,11 +2,13 @@
 FROM quay.io/konveyor/builder:ubi9-latest AS builder
 ARG TARGETOS
 ARG TARGETARCH
+ARG OPERATOR_VERSION=""
 
 WORKDIR /workspace
 
 # Copy the Go Modules manifests
 COPY go.mod go.sum ./
+COPY Makefile Makefile
 
 # Set GOTOOLCHAIN to auto to allow Go to download newer versions
 # Set to local to avoid downloading newer versions of Go
@@ -26,7 +28,8 @@ COPY .git/ .git/
 RUN go version
 
 RUN git config --global --add safe.directory /workspace
-RUN ./hack/build.sh -o bin/manager ./cmd/main.go
+# Do not inherit the builder image's generic VERSION environment variable.
+RUN VERSION="${OPERATOR_VERSION}" ./hack/build.sh
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 

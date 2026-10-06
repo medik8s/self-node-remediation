@@ -1,7 +1,7 @@
 #!/bin/bash -ex
 
-GIT_VERSION=$(git describe --always --tags || true)
-VERSION=${CI_UPSTREAM_VERSION:-${GIT_VERSION}}
+VERSION=${VERSION:-$(sed -n 's/^DEFAULT_VERSION := //p' Makefile)}
+: "${VERSION:?Makefile must define DEFAULT_VERSION}"
 GIT_COMMIT=$(git rev-list -1 HEAD || true)
 COMMIT=${CI_UPSTREAM_COMMIT:-${GIT_COMMIT}}
 BUILD_DATE=$(date --utc -Iseconds)

@@ -62,7 +62,7 @@ jobs:
           registry: quay.io
 
       - name: Build and push versioned CSV and images
-        run: VERSION=$VERSION PREVIOUS_VERSION=$PREVIOUS_VERSION make container-build-community container-push
+        run: VERSION=$VERSION PREVIOUS_VERSION=$PREVIOUS_VERSION make container-build-community container-push CONTAINER_TOOL=docker
 
       - name: Compress bundle manifests
         run: tar czf bundle.tar.gz bundle/

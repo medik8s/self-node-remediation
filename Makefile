@@ -38,6 +38,7 @@ YQ_VERSION = v4.53.2
 
 OPERATOR_NAME ?= self-node-remediation
 OPERATOR_NAMESPACE ?= openshift-workload-availability
+CONTAINER_TOOL ?= podman
 
 # Include shared medik8s dev tools
 TOOLS_DIR ?= $(shell cd .. && pwd)/tools
@@ -48,10 +49,9 @@ BLUE_ICON_PATH = "./config/assets/snr_icon_blue.png"
 # VERSION defines the project version for the bundle.
 # Update this value when you upgrade the version of your project.
 # To re-generate a bundle for another specific version without changing the standard setup, you can:
-# - use the VERSION as arg of the bundle target (e.g make bundle VERSION=0.0.2)
-# - use environment variables to overwrite this value (e.g export VERSION=0.0.2)
+# - use the VERSION as arg of the bundle target (e.g make bundle VERSION=5.8.1)
+# - use environment variables to overwrite this value (e.g export VERSION=5.8.1)
 DEFAULT_VERSION := 5.8.0
-CI_VERSION := 9.9.9-ci
 VERSION ?= $(DEFAULT_VERSION)
 # For the replaces field in the CSV, mandatory to be set for versioned builds! Should also not have the 'v' prefix.
 export PREVIOUS_VERSION ?= 0.13.1
@@ -203,7 +203,7 @@ export TEST_OPS ?= ""
 test: go-verify envtest generate fix-imports manifests fmt vet ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path --bin-dir $(PROJECT_DIR)/testbin)" \
 		KUBEBUILDER_CONTROLPLANE_STOP_TIMEOUT="60s"\
-		go test ./api/... ./internal/... -coverprofile cover.out -v ${TEST_OPS}
+		go test ./api/... ./internal/... ./version/... -coverprofile cover.out -v ${TEST_OPS}
 
 .PHONY: bundle-run
 bundle-run: operator-sdk create-ns ## Run bundle image. Default NS is "openshift-workload-availability", redefine OPERATOR_NAMESPACE to override it.
@@ -234,19 +234,19 @@ set-labels-to-namespace: ## Set labels on NS as workaround for OLM pod not runni
 
 .PHONY: build
 build: generate fmt vet ## Build manager binary.
-	go build -o bin/manager main.go
+	./hack/build.sh
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./main.go
+	go run ./cmd/main.go
 
 .PHONY: docker-build
 docker-build: test
-	$(CONTAINER_TOOL) build -t ${IMG} .
+	$(CONTAINER_TOOL) build --build-arg OPERATOR_VERSION=$(VERSION) -t ${IMG} .
 
 .PHONY: docker-build-check
 docker-build-check: check
-	$(CONTAINER_TOOL) build -t ${IMG} .
+	$(CONTAINER_TOOL) build --build-arg OPERATOR_VERSION=$(VERSION) -t ${IMG} .
 
 .PHONY: bundle-build-community
 bundle-build-community: bundle-community-k8s ## Run bundle community changes in CSV, and then build the bundle image.
@@ -370,18 +370,16 @@ add-community-edition-to-display-name: ##Add Community Edition suffix to operato
 
 .PHONY: add-replaces-field
 add-replaces-field: ## Add replaces field to the CSV
-	@if [ -z "$(PREVIOUS_VERSION)" ]; then \
-		echo "Error: PREVIOUS_VERSION must be set for versioned builds"; \
-		exit 1; \
-	fi
-	@if [ "$(PREVIOUS_VERSION)" = "$(VERSION)" ]; then \
+	@if [ -n "$(PREVIOUS_VERSION)" ] && [ "$(PREVIOUS_VERSION)" = "$(VERSION)" ]; then \
 		echo "Error: PREVIOUS_VERSION must differ from VERSION"; \
 		exit 1; \
 	fi
 	# delete any pre-existing replaces field, then re-add it
 	sed -r -i "/  replaces:.*/d" ${CSV}
 	# preferring sed here, in order to have "replaces" near "version"
-	sed -r -i "/  version: $(VERSION)/ a\  replaces: $(OPERATOR_NAME).v$(PREVIOUS_VERSION)" ${CSV}
+	@if [ -n "$(PREVIOUS_VERSION)" ]; then \
+		sed -r -i "/  version: $(VERSION)/ a\  replaces: $(OPERATOR_NAME).v$(PREVIOUS_VERSION)" ${CSV}; \
+	fi
 
 .PHONY: bundle-update
 bundle-update: yq verify-previous-version ## Update CSV fields and validate the bundle directory
@@ -390,24 +388,25 @@ bundle-update: yq verify-previous-version ## Update CSV fields and validate the 
 	# set creation date
 	sed -r -i "s|createdAt: \".*\"|createdAt: \"`date "+%Y-%m-%d %T" `\"|;" ${CSV}
 	@# set skipRange
-	@if [ -n "${SKIP_RANGE_LOWER}" ] && [ "${VERSION}" != "${SKIP_RANGE_LOWER}" ]; then \
-		if ! printf '%s\n' "${SKIP_RANGE_LOWER}" "${VERSION}" | sort -V -C 2>/dev/null; then \
+	@if [ -n "${SKIP_RANGE_LOWER}" ]; then \
+		if [ "${SKIP_RANGE_LOWER}" = "${VERSION}" ] || ! printf '%s\n' "${SKIP_RANGE_LOWER}" "${VERSION}" | sort -V -C 2>/dev/null; then \
 			echo "Error: VERSION (${VERSION}) must be greater than SKIP_RANGE_LOWER (${SKIP_RANGE_LOWER})"; \
 			exit 1; \
 		fi; \
 		$(YQ) -i '.metadata.annotations."olm.skipRange" = ">=$(SKIP_RANGE_LOWER) <$(VERSION)"' ${CSV}; \
 	else \
-		$(YQ) -i '.metadata.annotations."olm.skipRange" = "<$(VERSION)"' ${CSV}; \
+		$(YQ) -i 'del(.metadata.annotations."olm.skipRange")' ${CSV}; \
 	fi
+	$(MAKE) add-replaces-field
 	# set icon (not version or build date related, but just to not having this huge data permanently in the CSV)
 	sed -r -i "s|base64data:.*|base64data: ${ICON_BASE64}|;" ${CSV}
 	$(MAKE) bundle-validate
 
 .PHONY: verify-previous-version
 verify-previous-version: ## Verifies that PREVIOUS_VERSION variable is set
-	@if [ $(VERSION) != $(DEFAULT_VERSION) ] && [ $(VERSION) != $(CI_VERSION) ] && [ $(PREVIOUS_VERSION) = $(DEFAULT_VERSION) ]; then \
-		echo "Error: PREVIOUS_VERSION must be set for the selected VERSION"; \
-    		exit 1; \
+	@if [ -n "$(PREVIOUS_VERSION)" ] && [ "$(PREVIOUS_VERSION)" = "$(VERSION)" ]; then \
+		echo "Error: PREVIOUS_VERSION must differ from VERSION"; \
+		exit 1; \
 	fi
 
 .PHONY: bundle-validate
@@ -506,8 +505,8 @@ add_channel_entry_for_the_bundle:
 			fi; \
 			echo "    replaces: ${OPERATOR_NAME}.v${PREVIOUS_VERSION}" >> ${CATALOG_INDEX}; \
 		fi; \
-		if [ -n "${SKIP_RANGE_LOWER}" ] && [ "${VERSION}" != "${SKIP_RANGE_LOWER}" ]; then \
-			if ! printf '%s\n' "${SKIP_RANGE_LOWER}" "${VERSION}" | sort -V -C 2>/dev/null; then \
+		if [ -n "${SKIP_RANGE_LOWER}" ]; then \
+			if [ "${SKIP_RANGE_LOWER}" = "${VERSION}" ] || ! printf '%s\n' "${SKIP_RANGE_LOWER}" "${VERSION}" | sort -V -C 2>/dev/null; then \
 				echo "Error: VERSION (${VERSION}) must be greater than SKIP_RANGE_LOWER (${SKIP_RANGE_LOWER})"; \
 				exit 1; \
 			fi; \
