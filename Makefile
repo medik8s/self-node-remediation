@@ -325,6 +325,7 @@ bundle: manifests operator-sdk kustomize envsubst ## Generate bundle manifests a
 	$(OPERATOR_SDK) generate kustomize manifests -q
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
 	$(KUSTOMIZE) build config/manifests | $(ENVSUBST) | $(OPERATOR_SDK) generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
+	$(MAKE) add-replaces-field
 	$(MAKE) bundle-validate
 
 .PHONY: bundle-community-k8s
