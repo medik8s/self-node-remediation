@@ -9,7 +9,7 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/medik8s/self-node-remediation/internal/watchdog"
+	"github.com/medik8s/self-node-remediation/v5/internal/watchdog"
 )
 
 var isSoftwareRebootCalled bool

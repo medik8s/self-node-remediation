@@ -26,6 +26,7 @@ jobs:
       MEDIK8S_REGISTRY_NAME: kind-registry
       MEDIK8S_REGISTRY_PORT: "5000"
       IMAGE_REGISTRY: kind-registry:5000
+      IMAGE_TAG: latest
       OPM_RENDER_FLAGS: --skip-tls-verify
       E2E_REBOOT_CHECK: container-start-time
       MEDIK8S_REBOOT_DELAY: "90"
@@ -74,10 +75,10 @@ jobs:
 
     - name: Build and push SNR
       run: |
-        make container-build
+        make container-build IMAGE_TAG="${IMAGE_TAG}"
 
-        SNR_IMG=${IMAGE_REGISTRY}/self-node-remediation-operator:latest
-        SNR_BUNDLE=${IMAGE_REGISTRY}/self-node-remediation-operator-bundle:latest
+        SNR_IMG=${IMAGE_REGISTRY}/self-node-remediation-operator:${IMAGE_TAG}
+        SNR_BUNDLE=${IMAGE_REGISTRY}/self-node-remediation-operator-bundle:${IMAGE_TAG}
         docker push ${SNR_IMG}
         docker push ${SNR_BUNDLE}
 
@@ -90,7 +91,7 @@ jobs:
           pod-security.kubernetes.io/warn=privileged
         operator-sdk run bundle -n ${DEPLOY_SNR_NAMESPACE} --use-http \
           --timeout 5m \
-          ${IMAGE_REGISTRY}/self-node-remediation-operator-bundle:latest
+          ${IMAGE_REGISTRY}/self-node-remediation-operator-bundle:${IMAGE_TAG}
 
         # Safety net: explicit RBAC binding in case ClusterRole aggregation is slow.
         kubectl create clusterrolebinding nhc-snr-admin-binding \

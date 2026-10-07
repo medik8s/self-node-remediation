@@ -12,7 +12,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	"github.com/medik8s/self-node-remediation/internal/watchdog"
+	"github.com/medik8s/self-node-remediation/v5/internal/watchdog"
 )
 
 const (
