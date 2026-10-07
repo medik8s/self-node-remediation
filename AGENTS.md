@@ -23,11 +23,12 @@ Each SNR agent pod (DaemonSet) periodically checks API server connectivity. Afte
 The node then decides whether to self-fence (reboot via watchdog). It reboots whenever it is considered unhealthy:
 
 1. **API reachable** — healthy; no action (the peer check only runs after API failure).
-2. **Any peer reports Unhealthy** — an SNR CR exists for this node; **self-fence**.
-3. **Any peer reports Healthy** — considered healthy; no reboot.
-4. **> 50% of reachable peers report ApiError** — assumed control-plane / API-wide outage; **do not reboot** (rebooting would not help).
-5. **Too few peers to ask** (fewer than `MinPeersForRemediation`) — cannot get a reliable second opinion; **do not reboot**.
-6. **No peer responds at all** (node is isolated) — **self-fence** once `MaxTimeForNoPeersResponse` elapses, so the node's at-most-one workloads can safely reschedule. Short blips are ridden out by the error-count and no-response grace windows.
+2. **Any peer reports Healthy** — considered healthy; no reboot. **Healthy takes precedence**: a peer response batch is evaluated healthy-first, so if the same batch returns both Healthy and Unhealthy responses, the node is considered healthy and does not reboot.
+3. **Any peer reports Unhealthy** (and no peer in that batch reported Healthy) — an SNR CR exists for this node; **self-fence**.
+4. **> 50% of all peers in the initial peer list report ApiError** — assumed control-plane / API-wide outage; **do not reboot** (rebooting would not help). The denominator is the full initial peer list, so peers that never respond still count against the threshold.
+5. **Fewer peers available than `MinPeersForRemediation`** (default `1`) — cannot get a reliable second opinion; considered **healthy**, **do not reboot**, returned immediately without waiting. With the default minimum of `1`, an *empty* peer list falls here (returns healthy).
+6. **Empty peer list with `MinPeersForRemediation` set to `0`** — the node is isolated and there is no peer to ask; considered **unhealthy** and **self-fences immediately** (no `MaxTimeForNoPeersResponse` wait). `MinPeersForRemediation` permits `0`.
+7. **Peers were queried but none responded** (node is isolated) — **self-fence** once `MaxTimeForNoPeersResponse` elapses, so the node's at-most-one workloads can safely reschedule. Short blips are ridden out by the error-count and no-response grace windows. This timeout applies only after peers were actually contacted — not to the empty-peer-list cases above.
 
 Control-plane nodes additionally re-verify peer reachability even when the local `readyz` passes, because a network-isolated API server can still return 200 (it does not check etcd connectivity).
 
