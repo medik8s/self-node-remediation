@@ -34,6 +34,13 @@ const (
 	eventReasonPeerTimeoutAdjusted = "PeerTimeoutAdjusted"
 )
 
+// PeersProvider is the subset of *peers.Peers used by the API connectivity check
+type PeersProvider interface {
+	GetPeersAddresses(role peers.Role) []corev1.PodIP
+	GetPeersSnapshot(role peers.Role) peers.Snapshot
+	GetControlPlaneDomains() peers.ControlPlaneDomains
+}
+
 type ApiConnectivityCheck struct {
 	client.Reader
 	config                 *ApiConnectivityCheckConfig
@@ -42,6 +49,9 @@ type ApiConnectivityCheck struct {
 	clientCreds            credentials.TransportCredentials
 	mutex                  sync.Mutex
 	controlPlaneManager    *controlplane.Manager
+	// healthStatusGetter collects the answers of a batch of peers, defaults to getHealthStatusFromPeers (overridable in tests).
+	// inMyDomain tells, per peer IP, whether the peer is in our own failure domain; it is used to classify its answer.
+	healthStatusGetter func(addresses []corev1.PodIP, inMyDomain map[string]bool) peersResponses
 }
 
 type ApiConnectivityCheckConfig struct {
@@ -50,7 +60,7 @@ type ApiConnectivityCheckConfig struct {
 	MyMachineName             string
 	CheckInterval             time.Duration
 	MaxErrorsThreshold        int
-	Peers                     *peers.Peers
+	Peers                     PeersProvider
 	Rebooter                  reboot.Rebooter
 	Cfg                       *rest.Config
 	CertReader                certificates.CertStorageReader
@@ -176,6 +186,8 @@ func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
 	return c.controlPlaneManager.IsControlPlaneHealthy(workerPeersResponse, canBeReached)
 }
 
+// getWorkerPeersResponse asks the worker peers whether this node is healthy, once the API errors threshold is
+// reached, and turns their answers into a health verdict. See peers.Response for the possible reasons.
 func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 	c.errorCount++
 	if c.errorCount < c.config.MaxErrorsThreshold {
@@ -184,7 +196,9 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 	}
 
 	c.config.Log.Info("Error count exceeds threshold, trying to ask other nodes if I'm healthy")
-	peersToAsk := c.config.Peers.GetPeersAddresses(peers.Worker)
+	// one consistent snapshot for the whole round: addresses, failure domain classification and voting population
+	snapshot := c.config.Peers.GetPeersSnapshot(peers.Worker)
+	peersToAsk := snapshot.Addresses
 
 	// We check to see if we have at least the number of peers that the user has configured as required.
 	//  If we don't have this many peers (for instance there are zero peers, and the default value is set
@@ -212,12 +226,41 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 
 	apiErrorsResponsesSum := 0
 	nrAllPeers := len(peersToAsk)
+
+	// Failure domain awareness: when enabled and at least one peer lives outside of our own failure domain,
+	// an "api error" answer from a peer of our own domain is not evidence that we are not isolated, since
+	// that peer shares our network fate. Such answers are ignored both for the "no peers response" timeout
+	// and for the "control plane failure" majority, which is then computed over the peers outside of our domain.
+	nrVotingPeers := nrAllPeers
+	topologyAware := false
+	if snapshot.OutsideMyDomain > 0 {
+		if cpDomains, majorityOutside := c.controlPlaneMajorityOutsideMyDomain(); majorityOutside {
+			topologyAware = true
+			nrVotingPeers = snapshot.OutsideMyDomain
+			c.config.Log.Info("Failure domain awareness is active, api errors from peers of the same domain will be ignored",
+				"peersOutsideMyDomain", snapshot.OutsideMyDomain, "allPeers", nrAllPeers,
+				"controlPlaneNodesInOtherDomains", cpDomains.InOtherDomain)
+		} else {
+			c.config.Log.Info("Failure domain awareness is not applied: my failure domain holds at least half of the "+
+				"control plane nodes, so no API server with quorum can run outside of it; api errors from peers of "+
+				"the same domain are taken into account",
+				"controlPlaneNodesInMyDomain", cpDomains.InMyDomain, "controlPlaneNodesInOtherDomains", cpDomains.InOtherDomain,
+				"controlPlaneNodesWithoutDomain", cpDomains.Unknown)
+		}
+	}
+
 	// peersToAsk is being reduced at every iteration, iterate until no peers left to ask
 	for i := 0; len(peersToAsk) > 0; i++ {
 
 		batchSize := utils.GetNextBatchSize(nrAllPeers, len(peersToAsk))
 		chosenPeersIPs := c.popPeerIPs(&peersToAsk, batchSize)
-		healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenPeersIPs)
+		responses := c.collectHealthStatus(chosenPeersIPs, snapshot.InMyDomain)
+		healthyResponses, unhealthyResponses, apiErrorsResponses := responses.healthy, responses.unhealthy, responses.apiErrors
+		if topologyAware && responses.sameDomainApiErrors > 0 {
+			c.config.Log.Info("Ignoring api errors reported by peers of my own failure domain",
+				"ignoredApiErrorsResponses", responses.sameDomainApiErrors)
+			apiErrorsResponses -= responses.sameDomainApiErrors
+		}
 		if healthyResponses+unhealthyResponses+apiErrorsResponses > 0 {
 			c.timeOfLastPeerResponse = time.Now()
 		}
@@ -245,7 +288,7 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 				apiErrorsResponses)
 			apiErrorsResponsesSum += apiErrorsResponses
 			// TODO: consider using [m|n]hc.spec.maxUnhealthy instead of 50%
-			if apiErrorsResponsesSum > nrAllPeers/2 { // already reached more than 50% of the peers and all of them returned api error
+			if apiErrorsResponsesSum > nrVotingPeers/2 { // already reached more than 50% of the peers and all of them returned api error
 				// assuming this is a control plane failure as others can't access api-server as well
 				c.config.Log.Info("More than 50% of the nodes couldn't access the api-server, assuming "+
 					"this is a control plane failure, so we are going to return healthy in that case",
@@ -277,6 +320,32 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 
 }
 
+// controlPlaneMajorityOutsideMyDomain tells whether a strict majority of the control plane nodes is known to be
+// located outside of this node's failure domain, and returns their distribution.
+//
+// Ignoring api errors from peers of our own domain is only correct when an API server with quorum can keep running on
+// the other side of a partition: that side then recovers our workloads, and we must self-remediate before it assumes
+// we did. When our own domain holds at least half of the control plane, no quorum can exist outside of it, so losing
+// the API server together with every peer of the other domains means that nobody is going to recover our workloads.
+// Rebooting the domain would then be a mass reboot without any benefit, which is what the legacy evaluation prevents.
+//
+// Control plane nodes without the topology label are not counted as being outside of our domain, so that a partially
+// labeled cluster degrades toward the legacy behavior, never toward more reboots.
+func (c *ApiConnectivityCheck) controlPlaneMajorityOutsideMyDomain() (peers.ControlPlaneDomains, bool) {
+	return controlPlaneMajorityOutside(c.config.Peers.GetControlPlaneDomains(), c.isControlPlane())
+}
+
+// controlPlaneMajorityOutside implements controlPlaneMajorityOutsideMyDomain. The given distribution excludes our own
+// node, which is added to our domain when it is a control plane node.
+func controlPlaneMajorityOutside(domains peers.ControlPlaneDomains, selfIsControlPlane bool) (peers.ControlPlaneDomains, bool) {
+	nrControlPlaneNodes := domains.InMyDomain + domains.InOtherDomain + domains.Unknown
+	if selfIsControlPlane {
+		domains.InMyDomain++
+		nrControlPlaneNodes++
+	}
+	return domains, domains.InOtherDomain*2 > nrControlPlaneNodes
+}
+
 // getControlPlanePeersStatus contacts peer control plane nodes and returns whether they can be reached
 // and whether they consider this node unhealthy (i.e. a SNR CR exists for it).
 func (c *ApiConnectivityCheck) getControlPlanePeersStatus() (canBeReached bool, consideredUnhealthy bool) {
@@ -288,15 +357,16 @@ func (c *ApiConnectivityCheck) getControlPlanePeersStatus() (canBeReached bool, 
 	}
 
 	chosenPeersIPs := c.popPeerIPs(&peersToAsk, numOfControlPlanePeers)
-	healthyResponses, unhealthyResponses, apiErrorsResponses, _ := c.getHealthStatusFromPeers(chosenPeersIPs)
+	responses := c.collectHealthStatus(chosenPeersIPs, nil)
 
-	c.config.Log.Info("Control plane peers status", "healthyResponses", healthyResponses,
-		"unhealthyResponses", unhealthyResponses, "apiErrorsResponses", apiErrorsResponses)
+	c.config.Log.Info("Control plane peers status", "healthyResponses", responses.healthy,
+		"unhealthyResponses", responses.unhealthy, "apiErrorsResponses", responses.apiErrors)
 
 	// Any response is an indication of communication with a peer
-	return (healthyResponses + unhealthyResponses + apiErrorsResponses) > 0, unhealthyResponses > 0
+	return (responses.healthy + responses.unhealthy + responses.apiErrors) > 0, responses.unhealthy > 0
 }
 
+// popPeerIPs removes up to count addresses from the head of peersIPs and returns them
 func (c *ApiConnectivityCheck) popPeerIPs(peersIPs *[]corev1.PodIP, count int) []corev1.PodIP {
 	nrOfPeers := len(*peersIPs)
 	if nrOfPeers == 0 {
@@ -324,15 +394,38 @@ func (c *ApiConnectivityCheck) popPeerIPs(peersIPs *[]corev1.PodIP, count int) [
 	return selectedIPs
 }
 
-func (c *ApiConnectivityCheck) getHealthStatusFromPeers(addresses []corev1.PodIP) (int, int, int, int) {
+// peerResponse is the answer of a single peer, tagged with the peer it comes from
+type peerResponse struct {
+	peer corev1.PodIP
+	code selfNodeRemediation.HealthCheckResponseCode
+}
+
+// peersResponses aggregates the answers of a batch of peers
+type peersResponses struct {
+	healthy, unhealthy, apiErrors, noResponse int
+	// sameDomainApiErrors is the subset of apiErrors coming from peers located in our own failure domain
+	sameDomainApiErrors int
+}
+
+// collectHealthStatus asks the given peers for our health status, through healthStatusGetter when set.
+// inMyDomain tells which of them are in our own failure domain (nil when not applicable).
+func (c *ApiConnectivityCheck) collectHealthStatus(addresses []corev1.PodIP, inMyDomain map[string]bool) peersResponses {
+	if c.healthStatusGetter != nil {
+		return c.healthStatusGetter(addresses, inMyDomain)
+	}
+	return c.getHealthStatusFromPeers(addresses, inMyDomain)
+}
+
+// getHealthStatusFromPeers asks all the given peers in parallel for our health status and aggregates their answers
+func (c *ApiConnectivityCheck) getHealthStatusFromPeers(addresses []corev1.PodIP, inMyDomain map[string]bool) peersResponses {
 	nrAddresses := len(addresses)
-	responsesChan := make(chan selfNodeRemediation.HealthCheckResponseCode, nrAddresses)
+	responsesChan := make(chan peerResponse, nrAddresses)
 
 	for _, address := range addresses {
 		go c.getHealthStatusFromPeer(address, responsesChan)
 	}
 
-	return c.sumPeersResponses(nrAddresses, responsesChan)
+	return c.sumPeersResponses(nrAddresses, responsesChan, inMyDomain)
 }
 
 // getEffectivePeerRequestTimeout calculates the effective peer request timeout
@@ -355,14 +448,14 @@ func (c *ApiConnectivityCheck) getEffectivePeerRequestTimeout() time.Duration {
 }
 
 // getHealthStatusFromPeer issues a GET request to the specified IP and returns the result from the peer into the given channel
-func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp corev1.PodIP, results chan<- selfNodeRemediation.HealthCheckResponseCode) {
+func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp corev1.PodIP, results chan<- peerResponse) {
 
 	logger := c.config.Log.WithValues("IP", endpointIp.IP)
 	logger.Info("getting health status from peer")
 
 	if err := c.initClientCreds(); err != nil {
 		logger.Error(err, "failed to init client credentials")
-		results <- selfNodeRemediation.RequestFailed
+		results <- peerResponse{peer: endpointIp, code: selfNodeRemediation.RequestFailed}
 		return
 	}
 
@@ -370,7 +463,7 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp corev1.PodIP, 
 	phClient, err := peerhealth.NewClient(fmt.Sprintf("%v:%v", endpointIp.IP, c.config.PeerHealthPort), c.config.PeerDialTimeout, c.config.Log.WithName("peerhealth client"), c.clientCreds)
 	if err != nil {
 		logger.Error(err, "failed to init grpc client")
-		results <- selfNodeRemediation.RequestFailed
+		results <- peerResponse{peer: endpointIp, code: selfNodeRemediation.RequestFailed}
 		return
 	}
 	defer phClient.Close()
@@ -385,13 +478,13 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp corev1.PodIP, 
 	})
 	if err != nil {
 		logger.Error(err, "failed to read health response from peer")
-		results <- selfNodeRemediation.RequestFailed
+		results <- peerResponse{peer: endpointIp, code: selfNodeRemediation.RequestFailed}
 		return
 	}
 
 	logger.Info("got response from peer", "status", resp.Status)
 
-	results <- selfNodeRemediation.HealthCheckResponseCode(resp.Status)
+	results <- peerResponse{peer: endpointIp, code: selfNodeRemediation.HealthCheckResponseCode(resp.Status)}
 	return
 }
 
@@ -408,31 +501,30 @@ func (c *ApiConnectivityCheck) initClientCreds() error {
 	return nil
 }
 
-func (c *ApiConnectivityCheck) sumPeersResponses(nodesBatchCount int, responsesChan chan selfNodeRemediation.HealthCheckResponseCode) (int, int, int, int) {
-	healthyResponses := 0
-	unhealthyResponses := 0
-	apiErrorsResponses := 0
-	noResponse := 0
+// sumPeersResponses reads nodesBatchCount answers from responsesChan and counts them per kind; api errors coming
+// from peers flagged in inMyDomain are counted separately in sameDomainApiErrors
+func (c *ApiConnectivityCheck) sumPeersResponses(nodesBatchCount int, responsesChan chan peerResponse, inMyDomain map[string]bool) peersResponses {
+	responses := peersResponses{}
 
 	for i := 0; i < nodesBatchCount; i++ {
 		response := <-responsesChan
-		switch response {
+		switch response.code {
 		case selfNodeRemediation.Unhealthy:
-			unhealthyResponses++
-			break
+			responses.unhealthy++
 		case selfNodeRemediation.Healthy:
-			healthyResponses++
-			break
+			responses.healthy++
 		case selfNodeRemediation.ApiError:
-			apiErrorsResponses++
-			break
+			responses.apiErrors++
+			if inMyDomain[response.peer.IP] {
+				responses.sameDomainApiErrors++
+			}
 		case selfNodeRemediation.RequestFailed:
-			noResponse++
+			responses.noResponse++
 		default:
 			c.config.Log.Error(fmt.Errorf("unexpected response"),
-				"Received unexpected value from peer while trying to retrieve health status", "value", response)
+				"Received unexpected value from peer while trying to retrieve health status", "value", response.code)
 		}
 	}
 
-	return healthyResponses, unhealthyResponses, apiErrorsResponses, noResponse
+	return responses
 }

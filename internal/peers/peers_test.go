@@ -259,6 +259,8 @@ type mockReaderWithPeers struct {
 	listCallCount atomic.Int32
 	nodes         []v1.Node
 	pods          []v1.Pod
+	// ownNodeLabels, when set, replaces the default labels of the own node
+	ownNodeLabels map[string]string
 }
 
 func (m *mockReaderWithPeers) Get(ctx context.Context, key types.NamespacedName, obj client.Object, opts ...client.GetOption) error {
@@ -270,6 +272,9 @@ func (m *mockReaderWithPeers) Get(ctx context.Context, key types.NamespacedName,
 		node.Labels = map[string]string{
 			hostnameLabelName:                       "test-hostname",
 			"node-role.kubernetes.io/control-plane": "",
+		}
+		if m.ownNodeLabels != nil {
+			node.Labels = m.ownNodeLabels
 		}
 		return nil
 	}
@@ -679,5 +684,224 @@ func TestStartVerifiesPeerAddresses(t *testing.T) {
 
 			t.Logf("Test passed: %s", tc.description)
 		})
+	}
+}
+
+func TestTopologyDomains(t *testing.T) {
+	const topologyKey = "topology.kubernetes.io/zone"
+
+	node := func(name, zone string) v1.Node {
+		labels := map[string]string{hostnameLabelName: name, "node-role.kubernetes.io/worker": ""}
+		if zone != "" {
+			labels[topologyKey] = zone
+		}
+		return v1.Node{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels}}
+	}
+	pod := func(nodeName, ip string) v1.Pod {
+		return v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "snr-" + nodeName},
+			Spec:       v1.PodSpec{NodeName: nodeName},
+			Status:     v1.PodStatus{PodIPs: []v1.PodIP{{IP: ip}}},
+		}
+	}
+
+	nodes := v1.NodeList{Items: []v1.Node{node("same", "zone-a"), node("other", "zone-b"), node("unlabeled", "")}}
+	pods := v1.PodList{Items: []v1.Pod{pod("same", "10.0.0.1"), pod("other", "10.0.0.2"), pod("unlabeled", "10.0.0.3")}}
+	addresses := []v1.PodIP{{IP: "10.0.0.1"}, {IP: "10.0.0.2"}, {IP: "10.0.0.3"}}
+
+	testCases := []struct {
+		name                 string
+		topologyKey          string
+		myDomain             string
+		expectSameDomain     map[string]bool
+		expectOutsideMyCount int
+	}{
+		{
+			name:                 "feature disabled: nobody is in my domain, nobody is outside",
+			topologyKey:          "",
+			myDomain:             "",
+			expectSameDomain:     map[string]bool{"10.0.0.1": false, "10.0.0.2": false, "10.0.0.3": false},
+			expectOutsideMyCount: 0,
+		},
+		{
+			name:                 "feature enabled but own node has no label: disabled on this node",
+			topologyKey:          topologyKey,
+			myDomain:             "",
+			expectSameDomain:     map[string]bool{"10.0.0.1": false, "10.0.0.2": false, "10.0.0.3": false},
+			expectOutsideMyCount: 0,
+		},
+		{
+			name:                 "feature enabled: same-domain peer detected, other and unlabeled peers count as outside",
+			topologyKey:          topologyKey,
+			myDomain:             "zone-a",
+			expectSameDomain:     map[string]bool{"10.0.0.1": true, "10.0.0.2": false, "10.0.0.3": false},
+			expectOutsideMyCount: 2,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := New("me", time.Minute, nil, logr.Discard(), time.Second)
+			p.SetTopologyKey(tc.topologyKey)
+			p.myTopologyDomain = tc.myDomain
+			p.workerPeersAddresses = addresses
+			p.updateTopologyDomains(nodes, pods)
+
+			snapshot := p.GetPeersSnapshot(Worker)
+			if !reflect.DeepEqual(snapshot.Addresses, addresses) {
+				t.Errorf("snapshot addresses = %v, expected %v", snapshot.Addresses, addresses)
+			}
+			for ip, expected := range tc.expectSameDomain {
+				if got := snapshot.InMyDomain[ip]; got != expected {
+					t.Errorf("InMyDomain[%s] = %v, expected %v", ip, got, expected)
+				}
+			}
+			if snapshot.OutsideMyDomain != tc.expectOutsideMyCount {
+				t.Errorf("OutsideMyDomain = %d, expected %d", snapshot.OutsideMyDomain, tc.expectOutsideMyCount)
+			}
+		})
+	}
+
+	t.Run("an update scoped to another role does not forget the peers of this role", func(t *testing.T) {
+		p := New("me", time.Minute, nil, logr.Discard(), time.Second)
+		p.SetTopologyKey(topologyKey)
+		p.myTopologyDomain = "zone-a"
+		p.workerPeersAddresses = addresses
+		p.updateTopologyDomains(nodes, pods) // workers
+		controlPlanes := v1.NodeList{Items: []v1.Node{node("cp", "zone-a")}}
+		p.updateTopologyDomains(controlPlanes, pods) // control planes, same pod list, none of them on "cp"
+		if !p.GetPeersSnapshot(Worker).InMyDomain["10.0.0.1"] {
+			t.Error("expected the worker peer domain to survive a control plane peers update")
+		}
+	})
+
+	t.Run("a peer that loses its label is forgotten on the next update", func(t *testing.T) {
+		p := New("me", time.Minute, nil, logr.Discard(), time.Second)
+		p.SetTopologyKey(topologyKey)
+		p.myTopologyDomain = "zone-a"
+		p.workerPeersAddresses = addresses
+		p.updateTopologyDomains(nodes, pods)
+		if !p.GetPeersSnapshot(Worker).InMyDomain["10.0.0.1"] {
+			t.Fatal("expected 10.0.0.1 to be in my domain before the update")
+		}
+		relabeled := v1.NodeList{Items: []v1.Node{node("same", ""), node("other", "zone-b"), node("unlabeled", "")}}
+		p.updateTopologyDomains(relabeled, pods)
+		if p.GetPeersSnapshot(Worker).InMyDomain["10.0.0.1"] {
+			t.Error("expected 10.0.0.1 to be forgotten after its node lost the label")
+		}
+	})
+}
+
+func TestControlPlaneDomains(t *testing.T) {
+	const topologyKey = "topology.kubernetes.io/zone"
+
+	controlPlane := func(name, zone string) v1.Node {
+		labels := map[string]string{hostnameLabelName: name, "node-role.kubernetes.io/control-plane": ""}
+		if zone != "" {
+			labels[topologyKey] = zone
+		}
+		return v1.Node{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels}}
+	}
+	nodes := v1.NodeList{Items: []v1.Node{
+		controlPlane("cp-a", "zone-a"), controlPlane("cp-b", "zone-b"), controlPlane("cp-c", "zone-c"), controlPlane("cp-x", ""),
+	}}
+
+	testCases := []struct {
+		name        string
+		topologyKey string
+		myDomain    string
+		expected    ControlPlaneDomains
+	}{
+		{name: "feature disabled", topologyKey: "", myDomain: "", expected: ControlPlaneDomains{}},
+		{name: "own node has no label", topologyKey: topologyKey, myDomain: "", expected: ControlPlaneDomains{}},
+		{name: "spread over domains, unlabeled node reported apart", topologyKey: topologyKey, myDomain: "zone-a",
+			expected: ControlPlaneDomains{InMyDomain: 1, InOtherDomain: 2, Unknown: 1}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := New("me", time.Minute, nil, logr.Discard(), time.Second)
+			p.SetTopologyKey(tc.topologyKey)
+			p.myTopologyDomain = tc.myDomain
+			p.updateControlPlaneNodeDomains(nodes)
+			if got := p.GetControlPlaneDomains(); got != tc.expected {
+				t.Errorf("GetControlPlaneDomains() = %+v, expected %+v", got, tc.expected)
+			}
+		})
+	}
+
+	t.Run("does not depend on agent pods running on the control plane nodes", func(t *testing.T) {
+		p := New("me", time.Minute, nil, logr.Discard(), time.Second)
+		p.SetTopologyKey(topologyKey)
+		p.myTopologyDomain = "zone-a"
+		p.updateTopologyDomains(nodes, v1.PodList{}) // no agent pod anywhere
+		p.updateControlPlaneNodeDomains(nodes)
+		if got := p.GetControlPlaneDomains(); got.InOtherDomain != 2 {
+			t.Errorf("expected 2 control plane nodes in other domains without any agent pod, got %+v", got)
+		}
+	})
+
+	t.Run("a refresh replaces the previous distribution", func(t *testing.T) {
+		p := New("me", time.Minute, nil, logr.Discard(), time.Second)
+		p.SetTopologyKey(topologyKey)
+		p.myTopologyDomain = "zone-a"
+		p.updateControlPlaneNodeDomains(nodes)
+		p.updateControlPlaneNodeDomains(v1.NodeList{Items: []v1.Node{controlPlane("cp-a", "zone-a")}})
+		if got := p.GetControlPlaneDomains(); got != (ControlPlaneDomains{InMyDomain: 1}) {
+			t.Errorf("expected only the refreshed node to be known, got %+v", got)
+		}
+	})
+}
+
+// TestTopologyStateIsGuardedByTheMutex reads the failure domain state from another goroutine while Start
+// initializes and refreshes it, as the API connectivity check does. Meant to be run with -race.
+func TestTopologyStateIsGuardedByTheMutex(t *testing.T) {
+	const topologyKey = "topology.kubernetes.io/zone"
+	node := func(name, zone string, roles ...string) v1.Node {
+		labels := map[string]string{hostnameLabelName: name, topologyKey: zone}
+		for _, role := range roles {
+			labels[role] = ""
+		}
+		return v1.Node{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels}}
+	}
+	pod := func(nodeName, ip string) v1.Pod {
+		return v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "snr-" + nodeName},
+			Spec:       v1.PodSpec{NodeName: nodeName},
+			Status:     v1.PodStatus{PodIPs: []v1.PodIP{{IP: ip}}},
+		}
+	}
+	reader := &mockReaderWithPeers{
+		ownNodeLabels: map[string]string{hostnameLabelName: "test-hostname", "node-role.kubernetes.io/worker": "", topologyKey: "zone-a"},
+		nodes: []v1.Node{
+			node("worker-b", "zone-b", "node-role.kubernetes.io/worker"),
+			node("cp-a", "zone-a", "node-role.kubernetes.io/master", "node-role.kubernetes.io/control-plane"),
+		},
+		pods: []v1.Pod{pod("worker-b", "10.0.0.2"), pod("cp-a", "10.0.0.3")},
+	}
+
+	p := New("test-node", time.Millisecond, reader, logr.Discard(), time.Second)
+	p.SetTopologyKey(topologyKey)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	readerDone := make(chan struct{})
+	go func() {
+		defer close(readerDone)
+		for ctx.Err() == nil {
+			p.GetPeersSnapshot(Worker)
+			p.GetControlPlaneDomains()
+		}
+	}()
+	if err := p.Start(ctx); err != nil {
+		t.Fatalf("Start() returned an error: %v", err)
+	}
+	<-readerDone
+
+	if got := p.GetPeersSnapshot(Worker); got.OutsideMyDomain != 1 {
+		t.Errorf("expected the worker peer to be outside of our domain, got %+v", got)
+	}
+	if got := p.GetControlPlaneDomains(); got != (ControlPlaneDomains{InMyDomain: 1}) {
+		t.Errorf("expected one control plane node in our domain, got %+v", got)
 	}
 }
