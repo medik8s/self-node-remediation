@@ -16,7 +16,7 @@ SNR ships as **one Go module** with **two runtime modes**:
 - **controller-runtime** `Manager`: metrics, health probes, optional **webhooks** on port **9443** (TLS; OLM may inject certs under `/apiserver.local.config/certificates`).
 - **`InitOutOfServiceTaintFlagsWithRetry`**: probes Kubernetes version to set **`IsOutOfServiceTaintSupported`** / **`IsOutOfServiceTaintGA`** (`internal/utils/taints.go`) — affects **`Automatic`** remediation strategy selection.
 - **Manager path** registers webhooks for **`SelfNodeRemediationConfig`**, **`SelfNodeRemediationTemplate`**, **`SelfNodeRemediation`**; adds **`SelfNodeRemediationConfigReconciler`**; **`snrconfighelper`** default config initializer; **`template.Creator`**; **`SelfNodeRemediationReconciler`** with **`IsAgent: false`**.
-- **Agent path** sets **`MY_NODE_NAME`**; initializes **watchdog** (`internal/watchdog`); updates **node annotations** (`is-reboot-capable.self-node-remediation.medik8s.io`, watchdog timeout); starts **`peers.Peers`**; **`apicheck.ApiConnectivityCheck`**; **`controlplane.Manager`** (for control-plane nodes); **`SelfNodeRemediationReconciler`** with **`IsAgent: true`** and **`Rebooter`**; **`peerhealth.Server`** (gRPC on **`HOST_PORT`** env, default port aligned with **`SelfNodeRemediationConfig.spec.hostPort`**, typically **30001**).
+- **Agent path** requires **`MY_NODE_NAME`** from the DaemonSet environment (sourced from `spec.nodeName`; the process exits with status 1 if empty)—it does not set this value itself; initializes **watchdog** (`internal/watchdog`); updates **node annotations** (`is-reboot-capable.self-node-remediation.medik8s.io`, watchdog timeout); starts **`peers.Peers`**; **`apicheck.ApiConnectivityCheck`**; **`controlplane.Manager`** (for control-plane nodes); **`SelfNodeRemediationReconciler`** with **`IsAgent: true`** and **`Rebooter`**; **`peerhealth.Server`** (gRPC on **`HOST_PORT`** env, default port aligned with **`SelfNodeRemediationConfig.spec.hostPort`**, typically **30001**).
 
 ---
 
@@ -35,7 +35,7 @@ SNR ships as **one Go module** with **two runtime modes**:
 - **Phase machine** (`.status.phase`):
   - **Fencing-Started**: ensure node **can reboot** (agent pod + **`is-reboot-capable`** annotation); add **finalizer**; apply **NoSchedule** taint **`remediation.medik8s.io/self-node-remediation`**; compute **`status.timeAssumedRebooted`** via **`RebootDurationCalculator`**; advance to **Pre-Reboot-Completed**.
   - **Pre-Reboot-Completed**: wait until **`timeAssumedRebooted`** has passed (assumes agent rebooted the node).
-  - **Reboot-Completed**: run strategy-specific resource cleanup (**delete pods / VolumeAttachments** or **out-of-service taint** workflow).
+  - **Reboot-Completed**: run strategy-specific resource cleanup (**delete pods, then wait for VolumeAttachments to clear** or **out-of-service taint** workflow).
   - **Fencing-Completed**: remove **NoSchedule** taint; remove **finalizer** on delete; set **Succeeded** conditions.
 
 ### Agent (`ReconcileAgent`)
@@ -51,7 +51,7 @@ Implemented on **`SelfNodeRemediation.spec.remediationStrategy`**:
 
 | Strategy | Behavior |
 |----------|-----------|
-| **`ResourceDeletion`** | After reboot window, **`resources.DeletePods`** + VolumeAttachment cleanup path via shared remediate helper. |
+| **`ResourceDeletion`** | After reboot window, **`resources.DeletePods`** force-deletes only **Pods** on the node; it does **not** delete **VolumeAttachments** directly—**`isResourceDeletionCompleted`** instead polls and waits for both pods and VolumeAttachments to clear before advancing. |
 | **`OutOfServiceTaint`** | Applies **`node.kubernetes.io/out-of-service`** (`NoExecute`); relies on Kubernetes **GA** semantics for forced volume detach where enabled; uses **timer** **`OutOfServiceTimeoutDuration`** ( **1 minute** in controller) for edge cases when deletion does not complete. |
 | **`Automatic`** | At reconcile time: if **`IsOutOfServiceTaintGA`** is **true** (Kubernetes **1.28+** GA path in code), use **`OutOfServiceTaint`**; else **`ResourceDeletion`**. |
 
@@ -71,14 +71,14 @@ Implemented on **`SelfNodeRemediation.spec.remediationStrategy`**:
 
 ## Reboot path (`internal/reboot`, `internal/watchdog`)
 
-- **`WatchdogRebooter`**: prefers **stopping watchdog feed** to trigger hardware reset; if no watchdog, watchdog malfunction, or stuck **Triggered** state beyond **`TimeToAssumeRebootHasStarted` (30s)**, falls back to **software reboot** via **`nsenter`** + **`echo b > /proc/sysrq-trigger`**.
+- **`WatchdogRebooter`**: prefers **stopping watchdog feed** to trigger hardware reset; if no watchdog, watchdog malfunction, or stuck **Triggered** state beyond **`TimeToAssumeRebootHasStarted` (30s)**, falls back to **software reboot**, trying multiple commands **in order** until one succeeds: **`systemctl reboot --force --force`** (direct, then via **`nsenter`**), **`reboot -f`** (direct, then via **`nsenter`**), and finally **`nsenter`** + **`echo b > /proc/sysrq-trigger`** as the **last resort** (the `reboot(2)`-based methods respect PID-namespace isolation; sysrq bypasses it).
 - **`IsSoftwareRebootEnabled`** in **`SelfNodeRemediationConfig`** gates whether software reboot is allowed when watchdog cannot be used.
 
 ---
 
 ## Safe timing (`internal/reboot/calculator.go`)
 
-- **`GetRebootDuration`**: max of user **`safeTimeToAssumeNodeRebootedSeconds`** (if set and **not below** minimum) and a **calculated minimum** from config intervals, peer timeouts, **`MaxTimeForNoPeersResponse` (30s)** floor for peer interaction, and node **watchdog timeout** annotation **`self-node-remediation.medik8s.io/watchdog-timeout`**.
+- **`GetRebootDuration`**: max of user **`safeTimeToAssumeNodeRebootedSeconds`** (if set and **not below** minimum) and a **calculated minimum** from **`(ApiCheckInterval + ApiServerTimeout) × MaxApiErrorThreshold`**, peer timeouts, **`MaxTimeForNoPeersResponse`** (**30s** default, now overridable via **`SelfNodeRemediationConfig.spec.maxTimeForNoPeersResponse`**) floor for peer interaction, and node **watchdog timeout** annotation **`self-node-remediation.medik8s.io/watchdog-timeout`**.
 
 ---
 
@@ -94,7 +94,7 @@ Implemented on **`SelfNodeRemediation.spec.remediationStrategy`**:
 
 ## Coexistence (related operators)
 
-**Storage-Based Remediation (SBR)** and SNR both use the **watchdog** and node-level fencing semantics. Running **two** fully active watchdog-owning remediation flows on the **same** node is **unsafe** without explicit product guidance; common patterns use **SBR detect-only** plus SNR remediation, or a **single** remediator. See **overview** and **runbook** §7.
+**Storage-Based Remediation (SBR)** and SNR both use the **watchdog** and node-level fencing semantics. Running **two** fully active watchdog-owning remediation flows on the **same** node is **unsafe** without explicit product guidance; common patterns use **SBR detect-only** plus SNR remediation, or a **single** remediator. See **`docs/overview.md`** and **`docs/runbook.md`** §7.
 
 ---
 

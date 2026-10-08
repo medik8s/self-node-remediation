@@ -16,7 +16,7 @@ Many remediation flows assume **out-of-band** power control (BMC/IPMI). Clusters
 
 3. **Agents** run on every node (DaemonSet): they maintain **API connectivity checks**, **peer lists**, a **gRPC peer-health service**, optional **hardware watchdog**, and the **`SelfNodeRemediation` reconciler** in **agent** mode. When remediation reaches the right **phase**, the agent on the **target node** triggers **reboot** (watchdog stop / software reboot).
 
-4. **Remediation strategies** (on the SNR CR): **`Automatic`** chooses between **`ResourceDeletion`** and **`OutOfServiceTaint`** at runtime based on Kubernetes capabilities (see Architecture). **`ResourceDeletion`** deletes pods and VolumeAttachments for the unhealthy node after fencing timing. **`OutOfServiceTaint`** applies the well-known **`node.kubernetes.io/out-of-service`** taint so volume-attached pods can be force-deleted per Kubernetes semantics (when supported).
+4. **Remediation strategies** (on the SNR CR): **`Automatic`** chooses between **`ResourceDeletion`** and **`OutOfServiceTaint`** at runtime based on Kubernetes capabilities (see **`../ARCHITECTURE.md`**). **`ResourceDeletion`** deletes pods for the unhealthy node after fencing timing, then waits for VolumeAttachments to clear on their own. **`OutOfServiceTaint`** applies the well-known **`node.kubernetes.io/out-of-service`** taint so volume-attached pods can be force-deleted per Kubernetes semantics (when supported).
 
 5. **Conditions on the SNR CR** (`Processing`, `Succeeded`, `Disabled`) communicate progress back to orchestrators such as NHC.
 
@@ -43,8 +43,8 @@ Many remediation flows assume **out-of-band** power control (BMC/IPMI). Clusters
 | **NHC (Node Health Check)** | Creates **`SelfNodeRemediation`** CRs (often via **`SelfNodeRemediationTemplate`**); SNR executes remediation and reports **Processing/Succeeded**. |
 | **`SelfNodeRemediationConfig`** | Namespaced configuration applied cluster-wide — a singleton (name **`self-node-remediation-config`**) honored only when created in the operator's own namespace; timings, watchdog path, peer thresholds, DaemonSet tolerations, etc. Without it, SNR is **Disabled** for new remediations. |
 | **SBR (Storage-Based Remediation)** | Both systems use the **watchdog** on the node. Running **full** SBR and **full** SNR remediation on the same node can **conflict**. Supported coexistence patterns use SBR **detect-only** mode or a single active remediator — validate architecture for your cluster. |
-| **Machine API (OpenShift)** | SNR CRs may be owned by a **`Machine`**; node name is resolved via **`Machine.status.nodeRef`**. |
-| **Node name on CR** | Prefer annotation **`remediation.medik8s.io/node-name`**; else **`SelfNodeRemediation.metadata.name`**. |
+| **Machine API (OpenShift)** | SNR CRs may be owned by a **`Machine`**; if so **and not owned by NHC**, node name is resolved via **`Machine.status.nodeRef`**. |
+| **Node name on CR** | **NHC ownership takes priority**: if the CR is owned by **NodeHealthCheck**, use annotation **`remediation.medik8s.io/node-name`**, else **`SelfNodeRemediation.metadata.name`** — regardless of any Machine owner reference. Only when **not** NHC-owned does a **Machine** owner reference resolve the node via **`Machine.status.nodeRef`**; with neither owner, fall back to the same annotation-or-name rule. |
 
 ---
 

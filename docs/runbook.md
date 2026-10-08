@@ -44,14 +44,15 @@ Inspect **Conditions** (**Processing**, **Succeeded**, **Disabled**), **`status.
 
 | Field area | Effect |
 |------------|--------|
-| **`safeTimeToAssumeNodeRebootedSeconds`** | Upper bound for safe workload migration timing — **ignored if below** calculated minimum (see calculator). |
-| **`apiCheckInterval`**, **`apiServerTimeout`**, **`maxApiErrorThreshold`** | API flake tolerance before peer escalation. |
+| **`safeTimeToAssumeNodeRebootedSeconds`** | A **requested** duration, not an upper bound: **`GetRebootDuration`** returns this value only if it's **at or above** the calculated minimum, otherwise it returns the (higher) calculated minimum — so setting it higher than the minimum **increases** the wait, it never caps it (see calculator). |
+| **`apiCheckInterval`**, **`apiServerTimeout`**, **`maxApiErrorThreshold`** | API flake tolerance before peer escalation; also feed directly into the calculated minimum reboot duration as **`(apiCheckInterval + apiServerTimeout) × maxApiErrorThreshold`**. |
 | **`peerUpdateInterval`**, **`peerDialTimeout`**, **`peerRequestTimeout`**, **`peerApiServerTimeout`** | Peer list freshness and RPC timeouts. |
+| **`maxTimeForNoPeersResponse`** | Floor for peer-interaction timing in the calculated minimum reboot duration; **30s** default, now configurable (previously a hardcoded constant). |
 | **`hostPort`** | gRPC peer health port (**must align** with firewall / other services). |
 | **`minPeersForRemediation`** | Minimum worker peers required before trusting peer-based isolation signals (**0** disables peer requirement — use with care). |
 | **`isSoftwareRebootEnabled`** | Allow **software reboot** when watchdog unusable. |
 | **`customDsTolerations`** | Schedule agents on tainted nodes (e.g. infra). |
-| **`endpointHealthCheckUrl`** | Control-plane diagnostic HTTP check when workers cannot be used as peers. |
+| **`endpointHealthCheckUrl`** | Control-plane diagnostic **ping** (ICMP, not HTTP) check when workers cannot be used as peers. |
 
 Environment variables on the DaemonSet mirror many of these (see **`cmd/main.go`** **`getDurEnvVarOrDie`** / config reconciliation).
 

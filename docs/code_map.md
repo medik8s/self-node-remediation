@@ -88,7 +88,7 @@ gRPC **PeerHealth** service: answers whether requesting node should be considere
 
 | File | Role |
 |------|------|
-| `rebooter.go` | **`WatchdogRebooter`**, **`sysrq-trigger`** software reboot fallback. |
+| `rebooter.go` | **`WatchdogRebooter`**; software reboot fallback tries multiple commands (**`systemctl reboot --force --force`**, **`reboot -f`**), with **`sysrq-trigger`** as the last resort. |
 | `calculator.go` | **`GetRebootDuration`**, **`MaxTimeForNoPeersResponse`**. |
 
 ### `internal/utils/taints.go`
