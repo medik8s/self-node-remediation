@@ -450,6 +450,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	peerRequestTimeout := getDurEnvVarOrDie("PEER_REQUEST_TIMEOUT")                  //timeout for each peer request
 	maxTimeForNoPeersResponse := getDurEnvVarOrDie("MAX_TIME_FOR_NO_PEERS_RESPONSE") //how long to wait for peer responses before concluding the node is isolated
 	peerHealthDefaultPort := getIntEnvVarOrDie("HOST_PORT")
+	minPeersForRemediation := getIntEnvVarOrDie("MIN_PEERS_FOR_REMEDIATION")
 
 	var rebooter reboot.Rebooter
 	if watchdogErr != nil && !softwareRebootEnabled {
@@ -484,6 +485,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		PeerRequestTimeout:        peerRequestTimeout,
 		PeerHealthPort:            peerHealthDefaultPort,
 		MaxTimeForNoPeersResponse: maxTimeForNoPeersResponse,
+		MinPeersForRemediation:    minPeersForRemediation,
 		Recorder:                  mgr.GetEventRecorderFor("ApiConnectivityCheck"),
 	}
 
