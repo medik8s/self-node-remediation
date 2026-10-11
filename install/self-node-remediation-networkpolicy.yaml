@@ -44,8 +44,14 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # Allow HTTPS egress, needed to reach the Kubernetes API server
-    # (via the in-cluster kubernetes.default.svc, always on port 443).
+    # Allow HTTPS egress, needed to reach the Kubernetes API server.
+    # Both 443 and 6443 are required: pods dial the in-cluster
+    # kubernetes.default.svc on 443, but OVN-Kubernetes evaluates egress
+    # policy after the Service load balancer has already DNAT'd the packet
+    # to a kube-apiserver endpoint, which listens on 6443. Allowing only
+    # 443 drops all API traffic from the agents.
     - ports:
         - protocol: TCP
           port: 443
+        - protocol: TCP
+          port: 6443

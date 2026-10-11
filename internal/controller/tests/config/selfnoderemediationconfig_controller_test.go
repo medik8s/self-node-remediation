@@ -2,6 +2,9 @@ package testconfig
 
 import (
 	"context"
+	"fmt"
+	"reflect"
+	"sort"
 	"strconv"
 	"time"
 
@@ -231,30 +234,35 @@ var _ = Describe("SNR Config Test", func() {
 			}
 			Expect(foundPeerEgressRule).To(BeTrue())
 
+			// The DNS and HTTPS rules are both unselectored (len(To) == 0), so
+			// match them on their port sets rather than on the rule shape.
+			portSet := func(rule networkingv1.NetworkPolicyEgressRule) []string {
+				ports := []string{}
+				for _, p := range rule.Ports {
+					ports = append(ports, fmt.Sprintf("%s/%d", *p.Protocol, p.Port.IntVal))
+				}
+				sort.Strings(ports)
+
+				return ports
+			}
+
 			By("allowing DNS resolution on port 53 for UDP and TCP")
 			foundDNSEgressRule := false
 			for _, egressRule := range np.Spec.Egress {
-				if len(egressRule.To) == 0 && len(egressRule.Ports) == 2 {
+				if len(egressRule.To) == 0 && reflect.DeepEqual(portSet(egressRule), []string{"TCP/53", "UDP/53"}) {
 					foundDNSEgressRule = true
-					ports := map[corev1.Protocol]int32{}
-					for _, p := range egressRule.Ports {
-						ports[*p.Protocol] = p.Port.IntVal
-					}
-					Expect(ports).To(Equal(map[corev1.Protocol]int32{
-						corev1.ProtocolUDP: 53,
-						corev1.ProtocolTCP: 53,
-					}))
 				}
 			}
 			Expect(foundDNSEgressRule).To(BeTrue())
 
-			By("allowing HTTPS egress on port 443")
+			// 443 is the kubernetes.default.svc port; 6443 is the kube-apiserver
+			// endpoint port that OVN-Kubernetes actually evaluates egress against
+			// once the Service load balancer has DNAT'd the packet.
+			By("allowing HTTPS egress to the API server on ports 443 and 6443")
 			foundHTTPSEgressRule := false
 			for _, egressRule := range np.Spec.Egress {
-				if len(egressRule.To) == 0 && len(egressRule.Ports) == 1 {
+				if len(egressRule.To) == 0 && reflect.DeepEqual(portSet(egressRule), []string{"TCP/443", "TCP/6443"}) {
 					foundHTTPSEgressRule = true
-					Expect(egressRule.Ports[0].Port.IntValue()).To(Equal(443))
-					Expect(*egressRule.Ports[0].Protocol).To(Equal(corev1.ProtocolTCP))
 				}
 			}
 			Expect(foundHTTPSEgressRule).To(BeTrue())
