@@ -9,7 +9,7 @@
 
 SNR is a remediation **provider** in the [medik8s](https://medik8s.io) family. The orchestrator is **Node Healthcheck Operator (NHC)**: it detects unhealthy nodes and creates a `SelfNodeRemediation` CR; SNR then remediates.
 
-SNR is the primary remediator for clusters without BMC/IPMI power fencing. It uses peer-consensus over gRPC to decide whether a node has truly lost API connectivity, then self-fences by triggering a reboot through a hardware watchdog or software reboot.
+SNR is the primary remediator for clusters without BMC/IPMI power fencing. It uses peer-consensus over gRPC to decide whether a node has truly lost API connectivity, then self-fences by triggering a reboot through a hardware watchdog, software watchdog, or software reboot.
 
 ## How SNR works
 
@@ -20,15 +20,14 @@ Each SNR agent pod (DaemonSet) periodically checks API server connectivity. Afte
 - **ApiError** — the peer itself cannot reach the API.
 - *(no response)* — the peer is unreachable.
 
-The node then decides whether to self-fence (reboot via watchdog). It reboots whenever it is considered unhealthy:
+The node then decides whether to self-fence. Peers are queried in batches, and checking stops once a batch provides a clear answer. It reboots whenever it is considered unhealthy:
 
 1. **API reachable** — healthy; no action (the peer check only runs after API failure).
-2. **Any peer reports Healthy** — considered healthy; no reboot. **Healthy takes precedence**: a peer response batch is evaluated healthy-first, so if the same batch returns both Healthy and Unhealthy responses, the node is considered healthy and does not reboot.
+2. **Any peer reports Healthy** — considered healthy; no reboot.
 3. **Any peer reports Unhealthy** (and no peer in that batch reported Healthy) — an SNR CR exists for this node; **self-fence**.
-4. **> 50% of all peers in the initial peer list report ApiError** — assumed control-plane / API-wide outage; **do not reboot** (rebooting would not help). The denominator is the full initial peer list, so peers that never respond still count against the threshold.
-5. **Fewer peers available than `MinPeersForRemediation`** (default `1`) — cannot get a reliable second opinion; considered **healthy**, **do not reboot**, returned immediately without waiting. With the default minimum of `1`, an *empty* peer list falls here (returns healthy).
-6. **Empty peer list with `MinPeersForRemediation` set to `0`** — the node is isolated and there is no peer to ask; considered **unhealthy** and **self-fences immediately** (no `MaxTimeForNoPeersResponse` wait). `MinPeersForRemediation` permits `0`.
-7. **Peers were queried but none responded** (node is isolated) — **self-fence** once `MaxTimeForNoPeersResponse` elapses, so the node's at-most-one workloads can safely reschedule. Short blips are ridden out by the error-count and no-response grace windows. This timeout applies only after peers were actually contacted — not to the empty-peer-list cases above.
+4. **> 50% of all peers in the initial peer list report ApiError** — assumed control-plane / API-wide outage; **do not reboot** (rebooting would not help). Only peers that reply with ApiError count toward this threshold; the total is compared with the full initial peer count.
+5. **Fewer peers available than `MinPeersForRemediation`** (default `1`) — cannot get a reliable second opinion; considered **healthy**, **do not reboot**, returned immediately without waiting. An empty peer list returns healthy with the default minimum; setting the minimum to `0` instead causes immediate self-fencing.
+6. **Peers were queried but none responded** (node is isolated) — **self-fence** once `MaxTimeForNoPeersResponse` elapses, so the node's at-most-one workloads can safely reschedule. Short blips are ridden out by the error-count and no-response grace windows. This timeout applies only after peers were actually contacted — not to the empty-peer-list cases above.
 
 Control-plane nodes additionally re-verify peer reachability even when the local `readyz` passes, because a network-isolated API server can still return 200 (it does not check etcd connectivity).
 
