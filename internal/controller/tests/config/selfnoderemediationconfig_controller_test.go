@@ -234,7 +234,13 @@ var _ = Describe("SNR Config Test", func() {
 			By("allowing DNS resolution on port 53 for UDP and TCP")
 			foundDNSEgressRule := false
 			for _, egressRule := range np.Spec.Egress {
-				if len(egressRule.To) == 0 && len(egressRule.Ports) == 2 {
+				hasUDP := false
+				for _, p := range egressRule.Ports {
+					if *p.Protocol == corev1.ProtocolUDP {
+						hasUDP = true
+					}
+				}
+				if len(egressRule.To) == 0 && hasUDP {
 					foundDNSEgressRule = true
 					ports := map[corev1.Protocol]int32{}
 					for _, p := range egressRule.Ports {
@@ -248,13 +254,18 @@ var _ = Describe("SNR Config Test", func() {
 			}
 			Expect(foundDNSEgressRule).To(BeTrue())
 
-			By("allowing HTTPS egress on port 443")
+			By("allowing HTTPS egress on ports 443 and 6443")
 			foundHTTPSEgressRule := false
 			for _, egressRule := range np.Spec.Egress {
-				if len(egressRule.To) == 0 && len(egressRule.Ports) == 1 {
+				if len(egressRule.To) == 0 && len(egressRule.Ports) == 2 && *egressRule.Ports[0].Protocol == corev1.ProtocolTCP {
 					foundHTTPSEgressRule = true
-					Expect(egressRule.Ports[0].Port.IntValue()).To(Equal(443))
-					Expect(*egressRule.Ports[0].Protocol).To(Equal(corev1.ProtocolTCP))
+					ports := map[corev1.Protocol][]int32{}
+					for _, p := range egressRule.Ports {
+						ports[*p.Protocol] = append(ports[*p.Protocol], p.Port.IntVal)
+					}
+					Expect(ports).To(Equal(map[corev1.Protocol][]int32{
+						corev1.ProtocolTCP: {443, 6443},
+					}))
 				}
 			}
 			Expect(foundHTTPSEgressRule).To(BeTrue())

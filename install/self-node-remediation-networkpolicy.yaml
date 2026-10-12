@@ -45,7 +45,8 @@ spec:
         - protocol: TCP
           port: 53
     # Allow HTTPS egress, needed to reach the Kubernetes API server
-    # (via the in-cluster kubernetes.default.svc, always on port 443).
     - ports:
         - protocol: TCP
           port: 443
+        - protocol: TCP
+          port: 6443
