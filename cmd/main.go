@@ -390,14 +390,14 @@ func getIntEnvVarOrDie(varName string) int {
 
 func getApiConnectivityCheckConfigFromEnv() *apicheck.ApiConnectivityCheckConfig {
 	return &apicheck.ApiConnectivityCheckConfig{
-		CheckInterval:             getDurEnvVarOrDie("API_CHECK_INTERVAL"),
-		MaxErrorsThreshold:        getIntEnvVarOrDie("MAX_API_ERROR_THRESHOLD"),
-		ApiServerTimeout:          getDurEnvVarOrDie("API_SERVER_TIMEOUT"),
-		PeerDialTimeout:           getDurEnvVarOrDie("PEER_DIAL_TIMEOUT"),
-		PeerRequestTimeout:        getDurEnvVarOrDie("PEER_REQUEST_TIMEOUT"),
-		MaxTimeForNoPeersResponse: getDurEnvVarOrDie("MAX_TIME_FOR_NO_PEERS_RESPONSE"),
-		PeerHealthPort:            getIntEnvVarOrDie("HOST_PORT"),
-		MinPeersForRemediation:    getIntEnvVarOrDie("MIN_PEERS_FOR_REMEDIATION"),
+		CheckInterval:             getDurEnvVarOrDie("API_CHECK_INTERVAL"),             // the frequency for api-server connectivity check
+		MaxErrorsThreshold:        getIntEnvVarOrDie("MAX_API_ERROR_THRESHOLD"),        // after this threshold, the node will start contacting its peers
+		ApiServerTimeout:          getDurEnvVarOrDie("API_SERVER_TIMEOUT"),             // timeout for each api-connectivity check
+		PeerDialTimeout:           getDurEnvVarOrDie("PEER_DIAL_TIMEOUT"),              // timeout for establishing connection to peer
+		PeerRequestTimeout:        getDurEnvVarOrDie("PEER_REQUEST_TIMEOUT"),           // timeout for peer requests
+		MaxTimeForNoPeersResponse: getDurEnvVarOrDie("MAX_TIME_FOR_NO_PEERS_RESPONSE"), // how long to wait for peer responses before concluding the node is isolated
+		PeerHealthPort:            getIntEnvVarOrDie("HOST_PORT"),                      // port for peer health check
+		MinPeersForRemediation:    getIntEnvVarOrDie("MIN_PEERS_FOR_REMEDIATION"),      // minimum number of peers required for remediation
 	}
 }
 
