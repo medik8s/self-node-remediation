@@ -388,6 +388,19 @@ func getIntEnvVarOrDie(varName string) int {
 	return intVar
 }
 
+func getApiConnectivityCheckConfigFromEnv() *apicheck.ApiConnectivityCheckConfig {
+	return &apicheck.ApiConnectivityCheckConfig{
+		CheckInterval:             getDurEnvVarOrDie("API_CHECK_INTERVAL"),             // the frequency for api-server connectivity check
+		MaxErrorsThreshold:        getIntEnvVarOrDie("MAX_API_ERROR_THRESHOLD"),        // after this threshold, the node will start contacting its peers
+		ApiServerTimeout:          getDurEnvVarOrDie("API_SERVER_TIMEOUT"),             // timeout for each api-connectivity check
+		PeerDialTimeout:           getDurEnvVarOrDie("PEER_DIAL_TIMEOUT"),              // timeout for establishing connection to peer
+		PeerRequestTimeout:        getDurEnvVarOrDie("PEER_REQUEST_TIMEOUT"),           // timeout for peer requests
+		MaxTimeForNoPeersResponse: getDurEnvVarOrDie("MAX_TIME_FOR_NO_PEERS_RESPONSE"), // how long to wait for peer responses before concluding the node is isolated
+		PeerHealthPort:            getIntEnvVarOrDie("HOST_PORT"),                      // port for peer health check
+		MinPeersForRemediation:    getIntEnvVarOrDie("MIN_PEERS_FOR_REMEDIATION"),      // minimum number of peers required for remediation
+	}
+}
+
 func initSelfNodeRemediationAgent(mgr manager.Manager) {
 	setupLog.Info("Starting as a self node remediation agent that should run as part of the daemonset")
 
@@ -442,14 +455,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
-	// TODO make the interval and error threshold configurable?
-	apiCheckInterval := getDurEnvVarOrDie("API_CHECK_INTERVAL")                      //the frequency for api-server connectivity check
-	maxErrorThreshold := getIntEnvVarOrDie("MAX_API_ERROR_THRESHOLD")                //after this threshold, the node will start contacting its peers
-	apiServerTimeout := getDurEnvVarOrDie("API_SERVER_TIMEOUT")                      //timeout for each api-connectivity check
-	peerDialTimeout := getDurEnvVarOrDie("PEER_DIAL_TIMEOUT")                        //timeout for establishing connection to peer
-	peerRequestTimeout := getDurEnvVarOrDie("PEER_REQUEST_TIMEOUT")                  //timeout for each peer request
-	maxTimeForNoPeersResponse := getDurEnvVarOrDie("MAX_TIME_FOR_NO_PEERS_RESPONSE") //how long to wait for peer responses before concluding the node is isolated
-	peerHealthDefaultPort := getIntEnvVarOrDie("HOST_PORT")
+	apiConnectivityCheckConfig := getApiConnectivityCheckConfigFromEnv()
 
 	var rebooter reboot.Rebooter
 	if watchdogErr != nil && !softwareRebootEnabled {
@@ -469,23 +475,14 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
-	apiConnectivityCheckConfig := &apicheck.ApiConnectivityCheckConfig{
-		Log:                       ctrl.Log.WithName("api-check"),
-		MyNodeName:                myNodeName,
-		MyMachineName:             machineName,
-		CheckInterval:             apiCheckInterval,
-		MaxErrorsThreshold:        maxErrorThreshold,
-		Peers:                     myPeers,
-		Rebooter:                  rebooter,
-		Cfg:                       mgr.GetConfig(),
-		CertReader:                certReader,
-		ApiServerTimeout:          apiServerTimeout,
-		PeerDialTimeout:           peerDialTimeout,
-		PeerRequestTimeout:        peerRequestTimeout,
-		PeerHealthPort:            peerHealthDefaultPort,
-		MaxTimeForNoPeersResponse: maxTimeForNoPeersResponse,
-		Recorder:                  mgr.GetEventRecorderFor("ApiConnectivityCheck"),
-	}
+	apiConnectivityCheckConfig.Log = ctrl.Log.WithName("api-check")
+	apiConnectivityCheckConfig.MyNodeName = myNodeName
+	apiConnectivityCheckConfig.MyMachineName = machineName
+	apiConnectivityCheckConfig.Peers = myPeers
+	apiConnectivityCheckConfig.Rebooter = rebooter
+	apiConnectivityCheckConfig.Cfg = mgr.GetConfig()
+	apiConnectivityCheckConfig.CertReader = certReader
+	apiConnectivityCheckConfig.Recorder = mgr.GetEventRecorderFor("ApiConnectivityCheck")
 
 	controlPlaneManager := controlplane.NewManager(myNodeName, mgr.GetClient())
 
@@ -518,7 +515,7 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 
 	setupLog.Info("init grpc server")
 	// TODO make port configurable?
-	server, err := peerhealth.NewServer(mgr.GetClient(), mgr.GetAPIReader(), ctrl.Log.WithName("peerhealth").WithName("server"), peerHealthDefaultPort, certReader, apiServerTimeout)
+	server, err := peerhealth.NewServer(mgr.GetClient(), mgr.GetAPIReader(), ctrl.Log.WithName("peerhealth").WithName("server"), apiConnectivityCheckConfig.PeerHealthPort, certReader, apiConnectivityCheckConfig.ApiServerTimeout)
 	if err != nil {
 		setupLog.Error(err, "failed to init grpc server")
 		os.Exit(1)
