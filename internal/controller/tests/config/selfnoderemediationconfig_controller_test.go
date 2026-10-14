@@ -286,6 +286,29 @@ var _ = Describe("SNR Config Test", func() {
 				g.Expect(recreated.UID).NotTo(Equal(originalUID))
 			}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 		})
+		When("Configuration has EndpointHealthCheckUrl set", func() {
+			BeforeEach(func() {
+
+				config.Spec.EndpointHealthCheckUrl = "example.com"
+			})
+			It("NetworkPolicy should include a 4th, unrestricted egress rule", func() {
+				np := &networkingv1.NetworkPolicy{}
+				Eventually(func() error {
+					return k8sClient.Get(context.Background(), networkPolicyKey, np)
+				}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
+
+				By("having a 4th egress rule with no ports/to restriction")
+				Expect(np.Spec.Egress).To(HaveLen(4))
+
+				foundAllowAllRule := false
+				for _, egressRule := range np.Spec.Egress {
+					if len(egressRule.To) == 0 && len(egressRule.Ports) == 0 {
+						foundAllowAllRule = true
+					}
+				}
+				Expect(foundAllowAllRule).To(BeTrue())
+			})
+		})
 		When("Configuration has customized tolerations", func() {
 			var expectedToleration corev1.Toleration
 			BeforeEach(func() {
