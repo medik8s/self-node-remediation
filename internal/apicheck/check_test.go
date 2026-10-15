@@ -211,6 +211,32 @@ var _ = Describe("getWorkerPeersResponse with failure domain awareness", func() 
 		})
 	})
 
+	Context("when fewer peers than MinPeersForRemediation live outside of our domain", func() {
+		// MinPeersForRemediation = 2 with one peer in our domain and one outside of it: only one peer would vote
+		BeforeEach(func() {
+			apiCheck.config.MinPeersForRemediation = 2
+			fake.addresses = []corev1.PodIP{{IP: sameDomainPeer}, {IP: otherDomainPeer}}
+		})
+
+		It("keeps the legacy behavior: an api error from the same-domain peer proves we are not isolated", func() {
+			responses[sameDomainPeer] = selfNodeRemediation.ApiError // the peer of the other domain does not answer
+			r := apiCheck.getWorkerPeersResponse()
+			Expect(r.IsHealthy).To(BeTrue())
+			Expect(r.Reason).To(Equal(peers.HealthyBecauseNoPeersResponseNotReachedTimeout))
+		})
+	})
+
+	Context("when exactly MinPeersForRemediation peers live outside of our domain", func() {
+		BeforeEach(func() { apiCheck.config.MinPeersForRemediation = 2 }) // two of the three peers are outside zone-a
+
+		It("ignores the api error of the same-domain peer and detects the isolation", func() {
+			responses[sameDomainPeer] = selfNodeRemediation.ApiError // peers of other domains do not answer
+			r := apiCheck.getWorkerPeersResponse()
+			Expect(r.IsHealthy).To(BeFalse())
+			Expect(r.Reason).To(Equal(peers.UnHealthyBecauseNodeIsIsolated))
+		})
+	})
+
 	Context("when our whole failure domain is partitioned from the rest of the cluster", func() {
 		It("ignores the api error of the same-domain peer and detects the isolation", func() {
 			responses[sameDomainPeer] = selfNodeRemediation.ApiError // peers of other domains do not answer
