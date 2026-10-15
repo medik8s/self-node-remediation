@@ -111,6 +111,8 @@ var _ = Describe("SNR Config Test", func() {
 			envVars := getEnvVarMap(container.Env)
 			Expect(envVars["WATCHDOG_PATH"].Value).To(Equal(config.Spec.WatchdogFilePath))
 			Expect(envVars["PREFERRED_ADDRESS_TYPES"].Value).To(Equal(""))
+			Expect(envVars).To(HaveKey("PEER_TOPOLOGY_KEY"))
+			Expect(envVars["PEER_TOPOLOGY_KEY"].Value).To(BeEmpty())
 
 			Expect(len(ds.OwnerReferences)).To(Equal(1))
 			Expect(ds.OwnerReferences[0].Name).To(Equal(config.Name))
@@ -155,6 +157,31 @@ var _ = Describe("SNR Config Test", func() {
 					container := dsContainers[0]
 					envVars := getEnvVarMap(container.Env)
 					g.Expect(envVars["PREFERRED_ADDRESS_TYPES"].Value).To(Equal("InternalDNS,InternalIP"))
+				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+			})
+		})
+		When("Configuration has a peer topology key", func() {
+			BeforeEach(func() {
+				config.Spec.PeerTopologyKey = corev1.LabelTopologyZone
+			})
+			It("Daemonset should pass the key to the agents in an env var", func() {
+				Eventually(func(g Gomega) {
+					ds = &appsv1.DaemonSet{}
+					g.Expect(k8sClient.Get(context.Background(), dsKey, ds)).Should(BeNil())
+
+					envVars := getEnvVarMap(ds.Spec.Template.Spec.Containers[0].Env)
+					g.Expect(envVars["PEER_TOPOLOGY_KEY"].Value).To(Equal(corev1.LabelTopologyZone))
+				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+
+				// a later change of the configuration reaches the agents too
+				config.Spec.PeerTopologyKey = ""
+				Expect(k8sClient.Update(context.Background(), config)).To(Succeed())
+				Eventually(func(g Gomega) {
+					ds = &appsv1.DaemonSet{}
+					g.Expect(k8sClient.Get(context.Background(), dsKey, ds)).Should(BeNil())
+
+					envVars := getEnvVarMap(ds.Spec.Template.Spec.Containers[0].Env)
+					g.Expect(envVars["PEER_TOPOLOGY_KEY"].Value).To(BeEmpty())
 				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 			})
 		})
