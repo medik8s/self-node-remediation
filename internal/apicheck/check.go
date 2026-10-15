@@ -232,9 +232,15 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 	// an "api error" answer from a peer of our own domain is not evidence that we are not isolated, since
 	// that peer shares our network fate. Such answers are ignored both for the "no peers response" timeout
 	// and for the "control plane failure" majority, which is then computed over the peers outside of our domain.
+	// Only those peers are counted then, so MinPeersForRemediation applies to them: with fewer peers outside of
+	// our domain, the legacy evaluation is kept.
 	nrVotingPeers := nrAllPeers
 	topologyAware := false
-	if snapshot.OutsideMyDomain > 0 {
+	if snapshot.OutsideMyDomain > 0 && snapshot.OutsideMyDomain < c.config.MinPeersForRemediation {
+		c.config.Log.Info("Failure domain awareness is not applied: fewer peers outside of my failure domain than "+
+			"MinPeersForRemediation; api errors from peers of the same domain are taken into account",
+			"peersOutsideMyDomain", snapshot.OutsideMyDomain, "minPeersRequired", c.config.MinPeersForRemediation)
+	} else if snapshot.OutsideMyDomain > 0 {
 		if cpDomains, majorityOutside := c.controlPlaneMajorityOutsideMyDomain(); majorityOutside {
 			topologyAware = true
 			nrVotingPeers = snapshot.OutsideMyDomain
