@@ -248,7 +248,7 @@ func testSingleInvalidField(validator *SNRConfigValidator, validationType valida
 		newConfig := func() *remediationv1alpha1.SelfNodeRemediationConfig {
 			snrc := createTestSelfNodeRemediationConfigCR()
 			snrc.Name = remediationv1alpha1.ConfigCRName
-			_ = os.Setenv("DEPLOYMENT_NAMESPACE", snrc.Namespace)
+			Expect(os.Setenv("DEPLOYMENT_NAMESPACE", snrc.Namespace)).To(Succeed())
 			return snrc
 		}
 		validate := func(snrc *remediationv1alpha1.SelfNodeRemediationConfig) error {
@@ -267,7 +267,7 @@ func testSingleInvalidField(validator *SNRConfigValidator, validationType valida
 		})
 		It("should be accepted - well-known topology label", func() {
 			snrc := newConfig()
-			snrc.Spec.PeerTopologyKey = "topology.kubernetes.io/zone"
+			snrc.Spec.PeerTopologyKey = v1.LabelTopologyZone
 			Expect(validate(snrc)).To(Succeed())
 		})
 		It("should be rejected - not a label key", func() {

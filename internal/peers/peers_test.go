@@ -1026,7 +1026,7 @@ func TestControlPlaneRefreshWaitHonorsContextCancellation(t *testing.T) {
 }
 
 func TestTopologyDomains(t *testing.T) {
-	const topologyKey = "topology.kubernetes.io/zone"
+	const topologyKey = v1.LabelTopologyZone
 
 	node := func(name, zone string) v1.Node {
 		labels := map[string]string{hostnameLabelName: name, "node-role.kubernetes.io/worker": ""}
@@ -1131,7 +1131,7 @@ func TestTopologyDomains(t *testing.T) {
 }
 
 func TestControlPlaneDomains(t *testing.T) {
-	const topologyKey = "topology.kubernetes.io/zone"
+	const topologyKey = v1.LabelTopologyZone
 
 	controlPlane := func(name, zone string) v1.Node {
 		labels := map[string]string{hostnameLabelName: name, "node-role.kubernetes.io/control-plane": ""}
@@ -1194,7 +1194,7 @@ func TestControlPlaneDomains(t *testing.T) {
 // TestTopologyStateIsGuardedByTheMutex reads the failure domain state from another goroutine while Start
 // initializes and refreshes it, as the API connectivity check does. Meant to be run with -race.
 func TestTopologyStateIsGuardedByTheMutex(t *testing.T) {
-	const topologyKey = "topology.kubernetes.io/zone"
+	const topologyKey = v1.LabelTopologyZone
 	node := func(name, zone string, roles ...string) v1.Node {
 		labels := map[string]string{hostnameLabelName: name, topologyKey: zone}
 		for _, role := range roles {
