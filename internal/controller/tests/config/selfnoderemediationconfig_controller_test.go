@@ -286,27 +286,60 @@ var _ = Describe("SNR Config Test", func() {
 				g.Expect(recreated.UID).NotTo(Equal(originalUID))
 			}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 		})
-		When("Configuration has EndpointHealthCheckUrl set", func() {
+		When("Configuration has EndpointHealthCheckUrl set to a resolvable address", func() {
+			// Use an IP literal rather than a hostname: net.LookupIP
+			// resolves IP-literal strings immediately without a DNS lookup, so this
+			// keeps the test deterministic and network-independent, while still
+			// exercising the same resolution code path production hostnames use.
+			const testIP = "203.0.113.5"
 			BeforeEach(func() {
-
-				config.Spec.EndpointHealthCheckUrl = "example.com"
+				config.Spec.EndpointHealthCheckUrl = testIP
 			})
-			It("NetworkPolicy should include a 4th, unrestricted egress rule", func() {
+			It("NetworkPolicy should include a 4th egress rule scoped to that IP via ipBlock", func() {
 				np := &networkingv1.NetworkPolicy{}
 				Eventually(func() error {
 					return k8sClient.Get(context.Background(), networkPolicyKey, np)
 				}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
 
-				By("having a 4th egress rule with no ports/to restriction")
+				By("having a 4th egress rule scoped to the resolved IP, not allowing all egress")
 				Expect(np.Spec.Egress).To(HaveLen(4))
 
+				foundScopedRule := false
 				foundAllowAllRule := false
 				for _, egressRule := range np.Spec.Egress {
 					if len(egressRule.To) == 0 && len(egressRule.Ports) == 0 {
 						foundAllowAllRule = true
 					}
+					if len(egressRule.To) == 1 && egressRule.To[0].IPBlock != nil {
+						foundScopedRule = true
+						Expect(egressRule.To[0].IPBlock.CIDR).To(Equal(testIP + "/32"))
+						Expect(egressRule.Ports).To(BeEmpty())
+					}
 				}
-				Expect(foundAllowAllRule).To(BeTrue())
+				Expect(foundScopedRule).To(BeTrue())
+				Expect(foundAllowAllRule).To(BeFalse())
+			})
+		})
+		When("Configuration has EndpointHealthCheckUrl set to an address that can't be resolved", func() {
+			// ".invalid" is a reserved TLD that resolvers must never resolve,
+			// so this deterministically exercises the resolution-failure path
+			// without depending on real network conditions.
+			BeforeEach(func() {
+				config.Spec.EndpointHealthCheckUrl = "definitely-not-a-real-host.invalid"
+			})
+			It("should fail closed: add no egress exception rather than allowing all egress", func() {
+				np := &networkingv1.NetworkPolicy{}
+				Eventually(func() error {
+					return k8sClient.Get(context.Background(), networkPolicyKey, np)
+				}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
+
+				By("keeping only the original 3 egress rules: peer, DNS, HTTPS")
+				Expect(np.Spec.Egress).To(HaveLen(3))
+
+				for _, egressRule := range np.Spec.Egress {
+					Expect(len(egressRule.To) == 0 && len(egressRule.Ports) == 0).To(BeFalse(),
+						"should never fall back to an unrestricted allow-all egress rule")
+				}
 			})
 		})
 		When("Configuration has customized tolerations", func() {

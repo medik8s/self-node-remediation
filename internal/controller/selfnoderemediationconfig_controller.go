@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -51,6 +52,11 @@ import (
 
 const (
 	lastChangedAnnotationKey = "snr.medik8s.io/force-deletion-revision"
+
+	// endpointHealthCheckUrlRecheckInterval controls how often the controller
+	// re-resolves Spec.EndpointHealthCheckUrl to IP(s) and re-renders the
+	// NetworkPolicy's egress exception for it.
+	endpointHealthCheckUrlRecheckInterval = 5 * time.Minute
 )
 
 // SelfNodeRemediationConfigReconciler reconciles a SelfNodeRemediationConfig object
@@ -114,7 +120,11 @@ func (r *SelfNodeRemediationConfigReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, nil
+	result := ctrl.Result{}
+	if config.Spec.EndpointHealthCheckUrl != "" {
+		result.RequeueAfter = endpointHealthCheckUrlRecheckInterval
+	}
+	return result, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -150,6 +160,29 @@ func join(sep string, s []string) string {
 	return strings.Join(s, sep)
 }
 
+// resolveEndpointHealthCheckCIDRs resolves a user-configured EndpointHealthCheckUrl
+// to the /32 (or /128) CIDRs of its current address, so the NetworkPolicy's egress
+// exception for it can be scoped to just those addresses.
+// net.LookupIP resolves IP-literal strings without a DNS lookup
+func resolveEndpointHealthCheckCIDRs(url string) ([]string, error) {
+	if url == "" {
+		return nil, nil
+	}
+	ips, err := net.LookupIP(url)
+	if err != nil {
+		return nil, err
+	}
+	cidrs := make([]string, 0, len(ips))
+	for _, ip := range ips {
+		if ip4 := ip.To4(); ip4 != nil {
+			cidrs = append(cidrs, ip4.String()+"/32")
+		} else {
+			cidrs = append(cidrs, ip.String()+"/128")
+		}
+	}
+	return cidrs, nil
+}
+
 func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Context, snrConfig *selfnoderemediationv1alpha1.SelfNodeRemediationConfig) error {
 	logger := r.Log.WithName("syncConfigDaemonset")
 	logger.Info("Start to sync config daemonset")
@@ -181,6 +214,14 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 	data.Data["MaxTimeForNoPeersResponse"] = maxTimeForNoPeersResponse.Nanoseconds()
 	data.Data["MaxApiErrorThreshold"] = snrConfig.Spec.MaxApiErrorThreshold
 	data.Data["EndpointHealthCheckUrl"] = snrConfig.Spec.EndpointHealthCheckUrl
+	if endpointCIDRs, err := resolveEndpointHealthCheckCIDRs(snrConfig.Spec.EndpointHealthCheckUrl); err != nil {
+		logger.Error(err, "could not resolve EndpointHealthCheckUrl to an IP; "+
+			"no egress exception will be added until the next recheck succeeds",
+			"EndpointHealthCheckUrl", snrConfig.Spec.EndpointHealthCheckUrl)
+		data.Data["EndpointHealthCheckUrlCIDRs"] = []string(nil)
+	} else {
+		data.Data["EndpointHealthCheckUrlCIDRs"] = endpointCIDRs
+	}
 	data.Data["PreferredAddressTypes"] = snrConfig.Spec.PreferredAddressTypes
 	data.Data["MinPeersForRemediation"] = snrConfig.Spec.MinPeersForRemediation
 	data.Data["HostPort"] = snrConfig.Spec.HostPort

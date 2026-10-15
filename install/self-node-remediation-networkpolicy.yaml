@@ -52,10 +52,14 @@ spec:
           port: 6443
     {{if .EndpointHealthCheckUrl}}
     # EndpointHealthCheckUrl is a user-configured host that control-plane agents
-    # ping as a self-diagnostic fallback when peers can't be reached.
-    # Standard NetworkPolicy has no ICMP protocol option, and the target host can't
-    # be scoped by pod/namespace selector or a stable CIDR since it's an arbitrary,
-    # operator-configurable value. Rather than silently breaking this feature, allow
-    # all egress whenever it's enabled.
-    - {}
+    # ping. Standard NetworkPolicy has no ICMP protocol, and the target host can't
+    # be scoped by pod/namespace selector. Instead, the controller resolves 
+    # it to its current IP(s) and scopes the exception to those addresses via ipBlock
+    {{range .EndpointHealthCheckUrlCIDRs}}
+    - to:
+        - ipBlock:
+            cidr: {{.}}
+    {{end}}
+    {{if not .EndpointHealthCheckUrlCIDRs}}
+    {{end}}
     {{end}}
