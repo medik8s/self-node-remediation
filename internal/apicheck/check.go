@@ -387,6 +387,7 @@ func (c *ApiConnectivityCheck) dialControlPlanePeers() (canBeReached bool, consi
 	}
 
 	chosenPeersIPs := c.popPeerIPs(&peersToAsk, numOfControlPlanePeers)
+	// control plane peers are not classified by failure domain: a nil inMyDomain counts no same-domain api error
 	responses := c.collectHealthStatus(chosenPeersIPs, nil)
 
 	c.config.Log.Info("Control plane peers status", "healthyResponses", responses.healthy,
