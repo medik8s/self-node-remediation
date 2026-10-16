@@ -53,8 +53,6 @@ type SecretCertStorage struct {
 	mutex     sync.Mutex
 }
 
-//+kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
-
 func NewSecretCertStorage(c client.Client, cache cache.Cache, log logr.Logger, namespace string) *SecretCertStorage {
 	return &SecretCertStorage{
 		Client:    c,
