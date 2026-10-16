@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -172,6 +173,13 @@ func resolveEndpointHealthCheckCIDRs(url string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	return IpsToSortedCIDRs(ips), nil
+}
+
+// IpsToSortedCIDRs converts resolved IPs to /32 (IPv4) or /128 (IPv6) CIDRs,
+// sorted lexically. This is to prevent returning the same address set
+// in a different order on each lookup
+func IpsToSortedCIDRs(ips []net.IP) []string {
 	cidrs := make([]string, 0, len(ips))
 	for _, ip := range ips {
 		if ip4 := ip.To4(); ip4 != nil {
@@ -180,7 +188,8 @@ func resolveEndpointHealthCheckCIDRs(url string) ([]string, error) {
 			cidrs = append(cidrs, ip.String()+"/128")
 		}
 	}
-	return cidrs, nil
+	sort.Strings(cidrs)
+	return cidrs
 }
 
 func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Context, snrConfig *selfnoderemediationv1alpha1.SelfNodeRemediationConfig) error {

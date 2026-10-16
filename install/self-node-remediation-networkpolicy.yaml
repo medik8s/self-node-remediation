@@ -44,12 +44,20 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+        - protocol: UDP
+          port: 5353
+        - protocol: TCP
+          port: 5353
     # Allow HTTPS egress, needed to reach the Kubernetes API server
     - ports:
         - protocol: TCP
           port: 443
         - protocol: TCP
           port: 6443
+    # Allow the control-plane node diagnostics' own-node kubelet check
+    - ports:
+        - protocol: TCP
+          port: 10250
     {{if .EndpointHealthCheckUrl}}
     # EndpointHealthCheckUrl is a user-configured host that control-plane agents
     # ping. Standard NetworkPolicy has no ICMP protocol, and the target host can't
