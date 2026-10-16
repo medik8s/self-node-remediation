@@ -53,7 +53,6 @@ var _ = Describe("Rebooter tests", func() {
 				Expect(isSoftwareRebootCalled).To(BeTrue())
 			})
 		})
-
 	})
 
 })
