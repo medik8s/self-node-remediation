@@ -2,7 +2,9 @@ package testconfig
 
 import (
 	"context"
+	"net"
 	"strconv"
+	"testing"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -19,8 +21,66 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/v5/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/v5/internal/controller"
 	"github.com/medik8s/self-node-remediation/v5/internal/controller/tests/shared"
 )
+
+// Without sorting, this can reorder the rendered NetworkPolicy's
+// egress rules, which looks like a real change to apply.ApplyObject
+// and triggers an unnecessary update on every recheck.
+func TestIpsToSortedCIDRsIsOrderIndependent(t *testing.T) {
+	ipv4A := net.ParseIP("203.0.113.10")
+	ipv4B := net.ParseIP("203.0.113.11")
+	ipv4C := net.ParseIP("203.0.113.12")
+	ipv6A := net.ParseIP("2001:db8::1")
+	ipv6B := net.ParseIP("2001:db8::2")
+
+	orderings := [][]net.IP{
+		{ipv4A, ipv4B, ipv4C, ipv6A, ipv6B},
+		{ipv4C, ipv4A, ipv6B, ipv4B, ipv6A},
+		{ipv6B, ipv6A, ipv4C, ipv4B, ipv4A},
+	}
+
+	var first []string
+	for i, ips := range orderings {
+		got := controller.IpsToSortedCIDRs(ips)
+		if i == 0 {
+			first = got
+			continue
+		}
+		if len(got) != len(first) {
+			t.Fatalf("ordering %d: got %d CIDRs, want %d (same set, different input order): %v vs %v", i, len(got), len(first), got, first)
+		}
+		for j := range got {
+			if got[j] != first[j] {
+				t.Fatalf("ordering %d: result not order-independent at index %d: got %q, want %q (full: %v vs %v)", i, j, got[j], first[j], got, first)
+			}
+		}
+	}
+}
+
+func TestIpsToSortedCIDRsFormatsIPv4As32AndIPv6As128(t *testing.T) {
+	got := controller.IpsToSortedCIDRs([]net.IP{
+		net.ParseIP("203.0.113.5"),
+		net.ParseIP("2001:db8::1"),
+	})
+	want := []string{"2001:db8::1/128", "203.0.113.5/32"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}
+
+func TestIpsToSortedCIDRsEmptyInput(t *testing.T) {
+	got := controller.IpsToSortedCIDRs(nil)
+	if len(got) != 0 {
+		t.Fatalf("got %v, want empty", got)
+	}
+}
 
 var _ = Describe("SNR Config Test", func() {
 	dsName := "self-node-remediation-ds"
@@ -213,8 +273,8 @@ var _ = Describe("SNR Config Test", func() {
 			Expect(ingressRule.Ports[0].Port.IntValue()).To(Equal(config.Spec.HostPort))
 			Expect(*ingressRule.Ports[0].Protocol).To(Equal(corev1.ProtocolTCP))
 
-			By("having exactly 3 egress rules: peer, DNS, HTTPS")
-			Expect(np.Spec.Egress).To(HaveLen(3))
+			By("having exactly 4 egress rules: peer, DNS, HTTPS, kubelet")
+			Expect(np.Spec.Egress).To(HaveLen(4))
 
 			By("allowing egress to peer agent pods on the configured hostPort")
 			foundPeerEgressRule := false
@@ -231,7 +291,7 @@ var _ = Describe("SNR Config Test", func() {
 			}
 			Expect(foundPeerEgressRule).To(BeTrue())
 
-			By("allowing DNS resolution on port 53 for UDP and TCP")
+			By("allowing DNS resolution on ports 53 and 5353 (OVN-Kubernetes Service->pod DNAT target) for UDP and TCP")
 			foundDNSEgressRule := false
 			for _, egressRule := range np.Spec.Egress {
 				hasUDP := false
@@ -242,13 +302,13 @@ var _ = Describe("SNR Config Test", func() {
 				}
 				if len(egressRule.To) == 0 && hasUDP {
 					foundDNSEgressRule = true
-					ports := map[corev1.Protocol]int32{}
+					ports := map[corev1.Protocol][]int32{}
 					for _, p := range egressRule.Ports {
-						ports[*p.Protocol] = p.Port.IntVal
+						ports[*p.Protocol] = append(ports[*p.Protocol], p.Port.IntVal)
 					}
-					Expect(ports).To(Equal(map[corev1.Protocol]int32{
-						corev1.ProtocolUDP: 53,
-						corev1.ProtocolTCP: 53,
+					Expect(ports).To(Equal(map[corev1.Protocol][]int32{
+						corev1.ProtocolUDP: {53, 5353},
+						corev1.ProtocolTCP: {53, 5353},
 					}))
 				}
 			}
@@ -269,6 +329,16 @@ var _ = Describe("SNR Config Test", func() {
 				}
 			}
 			Expect(foundHTTPSEgressRule).To(BeTrue())
+
+			By("allowing the own-node kubelet check on port 10250 (isKubeletServiceRunningOnAddress)")
+			foundKubeletEgressRule := false
+			for _, egressRule := range np.Spec.Egress {
+				if len(egressRule.To) == 0 && len(egressRule.Ports) == 1 && egressRule.Ports[0].Port.IntValue() == 10250 {
+					foundKubeletEgressRule = true
+					Expect(*egressRule.Ports[0].Protocol).To(Equal(corev1.ProtocolTCP))
+				}
+			}
+			Expect(foundKubeletEgressRule).To(BeTrue())
 		})
 
 		It("should recreate the NetworkPolicy if it is deleted", func() {
@@ -295,14 +365,14 @@ var _ = Describe("SNR Config Test", func() {
 			BeforeEach(func() {
 				config.Spec.EndpointHealthCheckUrl = testIP
 			})
-			It("NetworkPolicy should include a 4th egress rule scoped to that IP via ipBlock", func() {
+			It("NetworkPolicy should include a 5th egress rule scoped to that IP via ipBlock", func() {
 				np := &networkingv1.NetworkPolicy{}
 				Eventually(func() error {
 					return k8sClient.Get(context.Background(), networkPolicyKey, np)
 				}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
 
-				By("having a 4th egress rule scoped to the resolved IP, not allowing all egress")
-				Expect(np.Spec.Egress).To(HaveLen(4))
+				By("having a 5th egress rule scoped to the resolved IP, not allowing all egress")
+				Expect(np.Spec.Egress).To(HaveLen(5))
 
 				foundScopedRule := false
 				foundAllowAllRule := false
@@ -333,8 +403,8 @@ var _ = Describe("SNR Config Test", func() {
 					return k8sClient.Get(context.Background(), networkPolicyKey, np)
 				}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
 
-				By("keeping only the original 3 egress rules: peer, DNS, HTTPS")
-				Expect(np.Spec.Egress).To(HaveLen(3))
+				By("keeping only the original 4 egress rules: peer, DNS, HTTPS, kubelet")
+				Expect(np.Spec.Egress).To(HaveLen(4))
 
 				for _, egressRule := range np.Spec.Egress {
 					Expect(len(egressRule.To) == 0 && len(egressRule.Ports) == 0).To(BeFalse(),
