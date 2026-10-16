@@ -19,7 +19,9 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -28,6 +30,7 @@ import (
 
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -50,6 +53,11 @@ import (
 
 const (
 	lastChangedAnnotationKey = "snr.medik8s.io/force-deletion-revision"
+
+	// endpointHealthCheckUrlRecheckInterval controls how often the controller
+	// re-resolves Spec.EndpointHealthCheckUrl to IP(s) and re-renders the
+	// NetworkPolicy's egress exception for it.
+	endpointHealthCheckUrlRecheckInterval = 5 * time.Minute
 )
 
 // SelfNodeRemediationConfigReconciler reconciles a SelfNodeRemediationConfig object
@@ -68,6 +76,7 @@ type SelfNodeRemediationConfigReconciler struct {
 //+kubebuilder:rbac:groups=self-node-remediation.medik8s.io,resources=selfnoderemediationconfigs/finalizers,verbs=update
 //+kubebuilder:rbac:groups="apps",resources=daemonsets,verbs=get;list;watch;update;patch;create;delete
 //+kubebuilder:rbac:groups="apps",resources=daemonsets/finalizers,verbs=update
+//+kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update
 //+kubebuilder:rbac:groups="security.openshift.io",resources=securitycontextconstraints,verbs=use,resourceNames=privileged
 //+kubebuilder:rbac:groups=machine.openshift.io,resources=machines,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=machine.openshift.io,resources=machines/status,verbs=get;update;patch
@@ -112,7 +121,11 @@ func (r *SelfNodeRemediationConfigReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, nil
+	result := ctrl.Result{}
+	if config.Spec.EndpointHealthCheckUrl != "" {
+		result.RequeueAfter = endpointHealthCheckUrlRecheckInterval
+	}
+	return result, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -131,11 +144,52 @@ func (r *SelfNodeRemediationConfigReconciler) SetupWithManager(mgr ctrl.Manager)
 				DeleteFunc: func(_ event.DeleteEvent) bool { return true },
 			}),
 		).
+		Owns(&networkingv1.NetworkPolicy{}, builder.WithPredicates(
+			predicate.Funcs{
+				// skip reconcile for status only changes
+				UpdateFunc: func(ev event.UpdateEvent) bool {
+					return generationChangePredicate.Update(ev)
+				},
+				// we want to recreate the NetworkPolicy in case someone deletes it
+				DeleteFunc: func(_ event.DeleteEvent) bool { return true },
+			}),
+		).
 		Complete(r)
 }
 
 func join(sep string, s []string) string {
 	return strings.Join(s, sep)
+}
+
+// resolveEndpointHealthCheckCIDRs resolves a user-configured EndpointHealthCheckUrl
+// to the /32 (or /128) CIDRs of its current address, so the NetworkPolicy's egress
+// exception for it can be scoped to just those addresses.
+// net.LookupIP resolves IP-literal strings without a DNS lookup
+func resolveEndpointHealthCheckCIDRs(url string) ([]string, error) {
+	if url == "" {
+		return nil, nil
+	}
+	ips, err := net.LookupIP(url)
+	if err != nil {
+		return nil, err
+	}
+	return IpsToSortedCIDRs(ips), nil
+}
+
+// IpsToSortedCIDRs converts resolved IPs to /32 (IPv4) or /128 (IPv6) CIDRs,
+// sorted lexically. This is to prevent returning the same address set
+// in a different order on each lookup
+func IpsToSortedCIDRs(ips []net.IP) []string {
+	cidrs := make([]string, 0, len(ips))
+	for _, ip := range ips {
+		if ip4 := ip.To4(); ip4 != nil {
+			cidrs = append(cidrs, ip4.String()+"/32")
+		} else {
+			cidrs = append(cidrs, ip.String()+"/128")
+		}
+	}
+	sort.Strings(cidrs)
+	return cidrs
 }
 
 func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Context, snrConfig *selfnoderemediationv1alpha1.SelfNodeRemediationConfig) error {
@@ -169,6 +223,14 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 	data.Data["MaxTimeForNoPeersResponse"] = maxTimeForNoPeersResponse.Nanoseconds()
 	data.Data["MaxApiErrorThreshold"] = snrConfig.Spec.MaxApiErrorThreshold
 	data.Data["EndpointHealthCheckUrl"] = snrConfig.Spec.EndpointHealthCheckUrl
+	if endpointCIDRs, err := resolveEndpointHealthCheckCIDRs(snrConfig.Spec.EndpointHealthCheckUrl); err != nil {
+		logger.Error(err, "could not resolve EndpointHealthCheckUrl to an IP; "+
+			"no egress exception will be added until the next recheck succeeds",
+			"EndpointHealthCheckUrl", snrConfig.Spec.EndpointHealthCheckUrl)
+		data.Data["EndpointHealthCheckUrlCIDRs"] = []string(nil)
+	} else {
+		data.Data["EndpointHealthCheckUrlCIDRs"] = endpointCIDRs
+	}
 	data.Data["PreferredAddressTypes"] = snrConfig.Spec.PreferredAddressTypes
 	data.Data["MinPeersForRemediation"] = snrConfig.Spec.MinPeersForRemediation
 	data.Data["HostPort"] = snrConfig.Spec.HostPort
@@ -182,7 +244,7 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 		return err
 	}
 
-	if err := r.checkNumberOfDSObjects(objs); err != nil {
+	if err := r.checkInstallObjects(objs); err != nil {
 		return err
 	}
 
@@ -196,10 +258,12 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 		return err
 	}
 
-	// Sync DaemonSets
+	// Sync the DaemonSet and its accompanying NetworkPolicy
 	for _, obj := range objs {
-		if err := r.removeOldDsOnOperatorUpdate(ctx, obj.GetName(), obj.GetAnnotations()[lastChangedAnnotationKey]); err != nil {
-			return err
+		if obj.GetKind() == "DaemonSet" {
+			if err := r.removeOldDsOnOperatorUpdate(ctx, obj.GetName(), obj.GetAnnotations()[lastChangedAnnotationKey]); err != nil {
+				return err
+			}
 		}
 		err = r.syncK8sResource(ctx, snrConfig, obj)
 		if err != nil {
@@ -260,14 +324,47 @@ func (r *SelfNodeRemediationConfigReconciler) syncCerts(cr *selfnoderemediationv
 	return nil
 }
 
-func (r *SelfNodeRemediationConfigReconciler) checkNumberOfDSObjects(objs []*unstructured.Unstructured) error {
+// checkInstallObjects validates that the rendered /install manifests contain the
+// resources the reconciler knows how to handle: a DaemonSet and its NetworkPolicy
+func (r *SelfNodeRemediationConfigReconciler) checkInstallObjects(objs []*unstructured.Unstructured) error {
+	dsCount := 0
+	networkPolicyCount := 0
+	for _, obj := range objs {
+		switch obj.GetKind() {
+		case "DaemonSet":
+			dsCount++
+		case "NetworkPolicy":
+			networkPolicyCount++
+		default:
+			return fmt.Errorf("/install contains unsupported object kind %q", obj.GetKind())
+		}
+	}
+
 	//Expecting to find a single DS object
-	if len(objs) != 1 {
+	if dsCount != 1 {
 		err := fmt.Errorf("/install folder does not contain exactly one ds object")
-		r.Log.Error(err, "expecting exactly one ds element in /install folder", "actual number of elements", len(objs))
+		r.Log.Error(err, "expecting exactly one ds element in /install folder", "actual number of elements", dsCount)
+		return err
+	}
+
+	//Expecting to find a single NetworkPolicy object, restricting ingress/egress for the DS agent pods
+	if networkPolicyCount != 1 {
+		err := fmt.Errorf("/install folder does not contain exactly one NetworkPolicy object")
+		r.Log.Error(err, "expecting exactly one NetworkPolicy element in /install folder", "actual number of elements", networkPolicyCount)
 		return err
 	}
 	return nil
+}
+
+// findDaemonSetObject returns the DaemonSet object among the rendered /install manifests.
+// checkInstallObjects must be called beforehand to guarantee exactly one such object exists.
+func (r *SelfNodeRemediationConfigReconciler) findDaemonSetObject(objs []*unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	for _, obj := range objs {
+		if obj.GetKind() == "DaemonSet" {
+			return obj, nil
+		}
+	}
+	return nil, fmt.Errorf("/install folder does not contain a ds object")
 }
 
 func (r *SelfNodeRemediationConfigReconciler) updateDsTolerations(objs []*unstructured.Unstructured, tolerations []corev1.Toleration) error {
@@ -277,7 +374,10 @@ func (r *SelfNodeRemediationConfigReconciler) updateDsTolerations(objs []*unstru
 		return nil
 	}
 
-	ds := objs[0]
+	ds, err := r.findDaemonSetObject(objs)
+	if err != nil {
+		return err
+	}
 	existingTolerations, _, err := unstructured.NestedSlice(ds.Object, "spec", "template", "spec", "tolerations")
 	if err != nil {
 		r.Log.Error(err, "error fetching tolerations from ds")
@@ -318,7 +418,10 @@ func (r *SelfNodeRemediationConfigReconciler) updateDsNodeSelectors(objs []*unst
 		return nil
 	}
 
-	ds := objs[0]
+	ds, err := r.findDaemonSetObject(objs)
+	if err != nil {
+		return err
+	}
 	existingNodeSelectorTerms, found, err := unstructured.NestedSlice(ds.Object, "spec", "template", "spec", "affinity", "nodeAffinity", "requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
 	if err != nil {
 		r.Log.Error(err, "error fetching node selector terms from ds")

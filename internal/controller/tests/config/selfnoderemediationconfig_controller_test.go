@@ -2,7 +2,9 @@ package testconfig
 
 import (
 	"context"
+	"net"
 	"strconv"
+	"testing"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -10,6 +12,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,16 +21,79 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/v5/api/v1alpha1"
+	"github.com/medik8s/self-node-remediation/v5/internal/controller"
 	"github.com/medik8s/self-node-remediation/v5/internal/controller/tests/shared"
 )
 
+// Without sorting, this can reorder the rendered NetworkPolicy's
+// egress rules, which looks like a real change to apply.ApplyObject
+// and triggers an unnecessary update on every recheck.
+func TestIpsToSortedCIDRsIsOrderIndependent(t *testing.T) {
+	ipv4A := net.ParseIP("203.0.113.10")
+	ipv4B := net.ParseIP("203.0.113.11")
+	ipv4C := net.ParseIP("203.0.113.12")
+	ipv6A := net.ParseIP("2001:db8::1")
+	ipv6B := net.ParseIP("2001:db8::2")
+
+	orderings := [][]net.IP{
+		{ipv4A, ipv4B, ipv4C, ipv6A, ipv6B},
+		{ipv4C, ipv4A, ipv6B, ipv4B, ipv6A},
+		{ipv6B, ipv6A, ipv4C, ipv4B, ipv4A},
+	}
+
+	var first []string
+	for i, ips := range orderings {
+		got := controller.IpsToSortedCIDRs(ips)
+		if i == 0 {
+			first = got
+			continue
+		}
+		if len(got) != len(first) {
+			t.Fatalf("ordering %d: got %d CIDRs, want %d (same set, different input order): %v vs %v", i, len(got), len(first), got, first)
+		}
+		for j := range got {
+			if got[j] != first[j] {
+				t.Fatalf("ordering %d: result not order-independent at index %d: got %q, want %q (full: %v vs %v)", i, j, got[j], first[j], got, first)
+			}
+		}
+	}
+}
+
+func TestIpsToSortedCIDRsFormatsIPv4As32AndIPv6As128(t *testing.T) {
+	got := controller.IpsToSortedCIDRs([]net.IP{
+		net.ParseIP("203.0.113.5"),
+		net.ParseIP("2001:db8::1"),
+	})
+	want := []string{"2001:db8::1/128", "203.0.113.5/32"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}
+
+func TestIpsToSortedCIDRsEmptyInput(t *testing.T) {
+	got := controller.IpsToSortedCIDRs(nil)
+	if len(got) != 0 {
+		t.Fatalf("got %v, want empty", got)
+	}
+}
+
 var _ = Describe("SNR Config Test", func() {
 	dsName := "self-node-remediation-ds"
+	networkPolicyName := "self-node-remediation-ds-np"
 	var config *selfnoderemediationv1alpha1.SelfNodeRemediationConfig
 	var ds *appsv1.DaemonSet
 	dsKey := types.NamespacedName{
 		Namespace: shared.Namespace,
 		Name:      dsName,
+	}
+	networkPolicyKey := types.NamespacedName{
+		Namespace: shared.Namespace,
+		Name:      networkPolicyName,
 	}
 	BeforeEach(func() {
 		ds = &appsv1.DaemonSet{}
@@ -37,6 +103,7 @@ var _ = Describe("SNR Config Test", func() {
 	AfterEach(func() {
 		tmpConfig := &selfnoderemediationv1alpha1.SelfNodeRemediationConfig{}
 		tmpDs := &appsv1.DaemonSet{}
+		tmpNetworkPolicy := &networkingv1.NetworkPolicy{}
 		//verify config exist
 		Eventually(func(g Gomega) {
 			g.Expect(k8sClient.Get(context.Background(), client.ObjectKeyFromObject(config), tmpConfig)).To(Succeed())
@@ -60,6 +127,21 @@ var _ = Describe("SNR Config Test", func() {
 			err := k8sClient.Get(context.Background(), dsKey, &appsv1.DaemonSet{})
 			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+
+		//NetworkPolicy is best-effort here: some specs intentionally pre-create a DaemonSet with an
+		//incompatible selector, which makes every sync of the DS+NetworkPolicy
+		//pair fail before the NetworkPolicy is ever created. Clean it up if it exists,
+		//but don't require it, since the dedicated "NetworkPolicy should be created
+		//alongside the DaemonSet" test already asserts its creation
+		if err := k8sClient.Get(context.Background(), networkPolicyKey, tmpNetworkPolicy); err == nil {
+			Expect(k8sClient.Delete(context.TODO(), tmpNetworkPolicy)).To(Succeed())
+			Eventually(func(g Gomega) {
+				err := k8sClient.Get(context.Background(), networkPolicyKey, &networkingv1.NetworkPolicy{})
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+		} else {
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		}
 	})
 
 	Context("DS installation", func() {
@@ -156,6 +238,178 @@ var _ = Describe("SNR Config Test", func() {
 					envVars := getEnvVarMap(container.Env)
 					g.Expect(envVars["PREFERRED_ADDRESS_TYPES"].Value).To(Equal("InternalDNS,InternalIP"))
 				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+			})
+		})
+
+		It("NetworkPolicy should be created alongside the DaemonSet", func() {
+			np := &networkingv1.NetworkPolicy{}
+			Eventually(func() error {
+				return k8sClient.Get(context.Background(), networkPolicyKey, np)
+			}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
+
+			By("owning the NetworkPolicy via the config CR")
+			Expect(len(np.OwnerReferences)).To(Equal(1))
+			Expect(np.OwnerReferences[0].Name).To(Equal(config.Name))
+			Expect(np.OwnerReferences[0].Kind).To(Equal("SelfNodeRemediationConfig"))
+
+			By("selecting only the agent pods")
+			Expect(np.Spec.PodSelector.MatchLabels).To(Equal(map[string]string{
+				"app.kubernetes.io/name":      "self-node-remediation",
+				"app.kubernetes.io/component": "agent",
+			}))
+
+			By("restricting both ingress and egress")
+			Expect(np.Spec.PolicyTypes).To(ConsistOf(networkingv1.PolicyTypeIngress, networkingv1.PolicyTypeEgress))
+
+			By("allowing ingress from peer agent pods on the configured hostPort only")
+			Expect(np.Spec.Ingress).To(HaveLen(1))
+			ingressRule := np.Spec.Ingress[0]
+			Expect(ingressRule.From).To(HaveLen(1))
+			Expect(ingressRule.From[0].PodSelector.MatchLabels).To(Equal(map[string]string{
+				"app.kubernetes.io/name":      "self-node-remediation",
+				"app.kubernetes.io/component": "agent",
+			}))
+			Expect(ingressRule.Ports).To(HaveLen(1))
+			Expect(ingressRule.Ports[0].Port.IntValue()).To(Equal(config.Spec.HostPort))
+			Expect(*ingressRule.Ports[0].Protocol).To(Equal(corev1.ProtocolTCP))
+
+			By("having exactly 4 egress rules: peer, DNS, HTTPS, kubelet")
+			Expect(np.Spec.Egress).To(HaveLen(4))
+
+			By("allowing egress to peer agent pods on the configured hostPort")
+			foundPeerEgressRule := false
+			for _, egressRule := range np.Spec.Egress {
+				if len(egressRule.To) == 1 && egressRule.To[0].PodSelector != nil {
+					foundPeerEgressRule = true
+					Expect(egressRule.To[0].PodSelector.MatchLabels).To(Equal(map[string]string{
+						"app.kubernetes.io/name":      "self-node-remediation",
+						"app.kubernetes.io/component": "agent",
+					}))
+					Expect(egressRule.Ports).To(HaveLen(1))
+					Expect(egressRule.Ports[0].Port.IntValue()).To(Equal(config.Spec.HostPort))
+				}
+			}
+			Expect(foundPeerEgressRule).To(BeTrue())
+
+			By("allowing DNS resolution on ports 53 and 5353 (OVN-Kubernetes Service->pod DNAT target) for UDP and TCP")
+			foundDNSEgressRule := false
+			for _, egressRule := range np.Spec.Egress {
+				hasUDP := false
+				for _, p := range egressRule.Ports {
+					if *p.Protocol == corev1.ProtocolUDP {
+						hasUDP = true
+					}
+				}
+				if len(egressRule.To) == 0 && hasUDP {
+					foundDNSEgressRule = true
+					ports := map[corev1.Protocol][]int32{}
+					for _, p := range egressRule.Ports {
+						ports[*p.Protocol] = append(ports[*p.Protocol], p.Port.IntVal)
+					}
+					Expect(ports).To(Equal(map[corev1.Protocol][]int32{
+						corev1.ProtocolUDP: {53, 5353},
+						corev1.ProtocolTCP: {53, 5353},
+					}))
+				}
+			}
+			Expect(foundDNSEgressRule).To(BeTrue())
+
+			By("allowing HTTPS egress on ports 443 and 6443")
+			foundHTTPSEgressRule := false
+			for _, egressRule := range np.Spec.Egress {
+				if len(egressRule.To) == 0 && len(egressRule.Ports) == 2 && *egressRule.Ports[0].Protocol == corev1.ProtocolTCP {
+					foundHTTPSEgressRule = true
+					ports := map[corev1.Protocol][]int32{}
+					for _, p := range egressRule.Ports {
+						ports[*p.Protocol] = append(ports[*p.Protocol], p.Port.IntVal)
+					}
+					Expect(ports).To(Equal(map[corev1.Protocol][]int32{
+						corev1.ProtocolTCP: {443, 6443},
+					}))
+				}
+			}
+			Expect(foundHTTPSEgressRule).To(BeTrue())
+
+			By("allowing the own-node kubelet check on port 10250 (isKubeletServiceRunningOnAddress)")
+			foundKubeletEgressRule := false
+			for _, egressRule := range np.Spec.Egress {
+				if len(egressRule.To) == 0 && len(egressRule.Ports) == 1 && egressRule.Ports[0].Port.IntValue() == 10250 {
+					foundKubeletEgressRule = true
+					Expect(*egressRule.Ports[0].Protocol).To(Equal(corev1.ProtocolTCP))
+				}
+			}
+			Expect(foundKubeletEgressRule).To(BeTrue())
+		})
+
+		It("should recreate the NetworkPolicy if it is deleted", func() {
+			np := &networkingv1.NetworkPolicy{}
+			Eventually(func() error {
+				return k8sClient.Get(context.Background(), networkPolicyKey, np)
+			}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
+			originalUID := np.UID
+
+			Expect(k8sClient.Delete(context.Background(), np)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				recreated := &networkingv1.NetworkPolicy{}
+				g.Expect(k8sClient.Get(context.Background(), networkPolicyKey, recreated)).To(Succeed())
+				g.Expect(recreated.UID).NotTo(Equal(originalUID))
+			}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+		})
+		When("Configuration has EndpointHealthCheckUrl set to a resolvable address", func() {
+			// Use an IP literal rather than a hostname: net.LookupIP
+			// resolves IP-literal strings immediately without a DNS lookup, so this
+			// keeps the test deterministic and network-independent, while still
+			// exercising the same resolution code path production hostnames use.
+			const testIP = "203.0.113.5"
+			BeforeEach(func() {
+				config.Spec.EndpointHealthCheckUrl = testIP
+			})
+			It("NetworkPolicy should include a 5th egress rule scoped to that IP via ipBlock", func() {
+				np := &networkingv1.NetworkPolicy{}
+				Eventually(func() error {
+					return k8sClient.Get(context.Background(), networkPolicyKey, np)
+				}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
+
+				By("having a 5th egress rule scoped to the resolved IP, not allowing all egress")
+				Expect(np.Spec.Egress).To(HaveLen(5))
+
+				foundScopedRule := false
+				foundAllowAllRule := false
+				for _, egressRule := range np.Spec.Egress {
+					if len(egressRule.To) == 0 && len(egressRule.Ports) == 0 {
+						foundAllowAllRule = true
+					}
+					if len(egressRule.To) == 1 && egressRule.To[0].IPBlock != nil {
+						foundScopedRule = true
+						Expect(egressRule.To[0].IPBlock.CIDR).To(Equal(testIP + "/32"))
+						Expect(egressRule.Ports).To(BeEmpty())
+					}
+				}
+				Expect(foundScopedRule).To(BeTrue())
+				Expect(foundAllowAllRule).To(BeFalse())
+			})
+		})
+		When("Configuration has EndpointHealthCheckUrl set to an address that can't be resolved", func() {
+			// ".invalid" is a reserved TLD that resolvers must never resolve,
+			// so this deterministically exercises the resolution-failure path
+			// without depending on real network conditions.
+			BeforeEach(func() {
+				config.Spec.EndpointHealthCheckUrl = "definitely-not-a-real-host.invalid"
+			})
+			It("should fail closed: add no egress exception rather than allowing all egress", func() {
+				np := &networkingv1.NetworkPolicy{}
+				Eventually(func() error {
+					return k8sClient.Get(context.Background(), networkPolicyKey, np)
+				}, 10*time.Second, 250*time.Millisecond).Should(BeNil())
+
+				By("keeping only the original 4 egress rules: peer, DNS, HTTPS, kubelet")
+				Expect(np.Spec.Egress).To(HaveLen(4))
+
+				for _, egressRule := range np.Spec.Egress {
+					Expect(len(egressRule.To) == 0 && len(egressRule.Ports) == 0).To(BeFalse(),
+						"should never fall back to an unrestricted allow-all egress rule")
+				}
 			})
 		})
 		When("Configuration has customized tolerations", func() {

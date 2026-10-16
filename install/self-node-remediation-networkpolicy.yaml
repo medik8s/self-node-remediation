@@ -1,0 +1,73 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: self-node-remediation-ds-np
+  namespace: {{.Namespace}}
+  labels:
+    k8s-app: self-node-remediation
+spec:
+  # Applies only to the self-node-remediation agent pods created by the
+  # self-node-remediation-ds DaemonSet (not the operator/controller-manager pods).
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: self-node-remediation
+      app.kubernetes.io/component: agent
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Agents dial each other on the peer health-checking hostPort. Only allow
+    # that traffic to originate from other agent pods in this namespace.
+    # (Note: kubelet liveness/readiness/startup probes to this pod are not
+    # pod-to-pod traffic and are not subject to this ingress restriction.)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: self-node-remediation
+              app.kubernetes.io/component: agent
+      ports:
+        - protocol: TCP
+          port: {{.HostPort}}
+  egress:
+    # Allow outbound peer-to-peer health check calls to other agent pods.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: self-node-remediation
+              app.kubernetes.io/component: agent
+      ports:
+        - protocol: TCP
+          port: {{.HostPort}}
+    # Allow DNS resolution, required to resolve Kubernetes node names.
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+        - protocol: UDP
+          port: 5353
+        - protocol: TCP
+          port: 5353
+    # Allow HTTPS egress, needed to reach the Kubernetes API server
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    # Allow the control-plane node diagnostics' own-node kubelet check
+    - ports:
+        - protocol: TCP
+          port: 10250
+    {{if .EndpointHealthCheckUrl}}
+    # EndpointHealthCheckUrl is a user-configured host that control-plane agents
+    # ping. Standard NetworkPolicy has no ICMP protocol, and the target host can't
+    # be scoped by pod/namespace selector. Instead, the controller resolves 
+    # it to its current IP(s) and scopes the exception to those addresses via ipBlock
+    {{range .EndpointHealthCheckUrlCIDRs}}
+    - to:
+        - ipBlock:
+            cidr: {{.}}
+    {{end}}
+    {{if not .EndpointHealthCheckUrlCIDRs}}
+    {{end}}
+    {{end}}

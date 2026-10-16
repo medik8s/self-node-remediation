@@ -182,6 +182,15 @@ func (manager *Manager) isEndpointAccessible() bool {
 		manager.log.Error(err, "could not access endpoint", "endpoint URL", manager.endpointHealthCheckUrl)
 		return false
 	}
+
+	// pinger.Run() only returns an error on setup/socket failures. If every
+	// ping request times out, Run() still returns nil, so we must check that
+	// at least one reply was received before declaring the endpoint accessible.
+	stats := pinger.Statistics()
+	if stats.PacketsRecv == 0 {
+		manager.log.Error(fmt.Errorf("no ping replies received"), "could not access endpoint", "endpoint URL", manager.endpointHealthCheckUrl, "packetsSent", stats.PacketsSent)
+		return false
+	}
 	return true
 }
 
