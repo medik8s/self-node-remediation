@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -229,6 +230,131 @@ var _ = Describe("Self Node Remediation E2E", func() {
 			})
 
 		})
+
+		Describe("Failure domain partition", func() {
+			// failure domains set with peerTopologyKey: two workers in zone a, the other workers and the whole control
+			// plane in zone b
+			// - cut the agents of zone a from the API and from the agents of zone b
+			// - the first worker of zone a to decide only gets an api error from the other one, which is ignored: it
+			//   reboots, then the other one gets no answer at all and reboots too
+			// - zone b keeps the API: no reboot there
+
+			const zoneLabel = "self-node-remediation.medik8s.io/e2e-zone"
+			// short, so that every agent learns the addresses of the agents restarted with the topology key
+			const peerUpdateInterval = 15 * time.Second
+
+			var zoneA, zoneB []*v1.Node
+			rebootMarkers := map[string]string{}
+			zoneALogs := map[string]func() string{}
+
+			setZone := func(node *v1.Node, zone string) {
+				value := "null"
+				if zone != "" {
+					value = strconv.Quote(zone)
+				}
+				patch := client.RawPatch(types.MergePatchType, []byte(fmt.Sprintf(`{"metadata":{"labels":{%q:%s}}}`, zoneLabel, value)))
+				ExpectWithOffset(1, k8sClient.Patch(context.Background(), &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: node.GetName()}}, patch)).To(Succeed())
+			}
+
+			// setPeerTopology sets peerTopologyKey and peerUpdateInterval, and waits until every agent runs with them
+			setPeerTopology := func(topologyKey string, interval *metav1.Duration) {
+				config := &v1alpha1.SelfNodeRemediationConfig{}
+				key := client.ObjectKey{Name: v1alpha1.ConfigCRName, Namespace: testNamespace}
+				EventuallyWithOffset(1, func() error {
+					if err := k8sClient.Get(context.Background(), key, config); err != nil {
+						return err
+					}
+					config.Spec.PeerTopologyKey = topologyKey
+					config.Spec.PeerUpdateInterval = interval
+					return k8sClient.Update(context.Background(), config)
+				}, 1*time.Minute, 5*time.Second).Should(Succeed())
+
+				EventuallyWithOffset(1, func(g Gomega) {
+					ds := &appsv1.DaemonSet{}
+					g.Expect(k8sClient.Get(context.Background(), types.NamespacedName{Name: "self-node-remediation-ds", Namespace: testNamespace}, ds)).To(Succeed())
+					g.Expect(ds.Status.ObservedGeneration).To(Equal(ds.Generation))
+					g.Expect(ds.Spec.Template.Spec.Containers[0].Env).To(ContainElement(v1.EnvVar{Name: "PEER_TOPOLOGY_KEY", Value: topologyKey}))
+				}, 2*time.Minute, 5*time.Second).Should(Succeed())
+				ensureSnrRunning(workerNodes)
+				ensureSnrRunning(controlPlaneNodes)
+			}
+
+			BeforeEach(func() {
+				if len(workerNodes.Items) < 3 {
+					Skip("needs 3 worker nodes: 2 in the partitioned zone, 1 outside of it")
+				}
+				zoneA = []*v1.Node{&workerNodes.Items[0], &workerNodes.Items[1]}
+				zoneB = []*v1.Node{}
+				for i := 2; i < len(workerNodes.Items); i++ {
+					zoneB = append(zoneB, &workerNodes.Items[i])
+				}
+				for i := range controlPlaneNodes.Items {
+					zoneB = append(zoneB, &controlPlaneNodes.Items[i])
+				}
+				nodeUnderTest = zoneA[0]
+
+				for _, node := range zoneA {
+					setZone(node, "a")
+					DeferCleanup(setZone, node, "")
+				}
+				for _, node := range zoneB {
+					setZone(node, "b")
+					DeferCleanup(setZone, node, "")
+				}
+				config := &v1alpha1.SelfNodeRemediationConfig{}
+				Expect(k8sClient.Get(context.Background(), client.ObjectKey{Name: v1alpha1.ConfigCRName, Namespace: testNamespace}, config)).To(Succeed())
+				DeferCleanup(setPeerTopology, config.Spec.PeerTopologyKey, config.Spec.PeerUpdateInterval)
+				setPeerTopology(zoneLabel, &metav1.Duration{Duration: peerUpdateInterval})
+				// agents restarted early in the rollout learn the addresses of the agents restarted after them
+				time.Sleep(2 * peerUpdateInterval)
+			})
+
+			JustBeforeEach(func() {
+				zoneBAgents := []string{}
+				for _, node := range zoneB {
+					rebootMarkers[node.GetName()] = utils.GetRebootMarker(context.Background(), k8sClientSet, node)
+					zoneBAgents = append(zoneBAgents, findSnrPod(node).Status.PodIP)
+				}
+				for _, node := range zoneA {
+					rebootMarkers[node.GetName()] = utils.GetRebootMarker(context.Background(), k8sClientSet, node)
+					// the agents of zone a reboot right after their decision: keep what they log until then
+					zoneALogs[node.GetName()] = followSnrLogs(node)
+				}
+				By("cutting zone a from the API and from the agents of zone b")
+				wg := sync.WaitGroup{}
+				for _, node := range zoneA {
+					wg.Add(1)
+					go func() {
+						defer GinkgoRecover()
+						defer wg.Done()
+						killApiConnection(node, append(append([]string{}, apiIPs...), zoneBAgents...), false)
+					}()
+				}
+				wg.Wait()
+			})
+
+			It("should remediate the partitioned zone only", func() {
+				wg := sync.WaitGroup{}
+				for _, node := range zoneA {
+					wg.Add(1)
+					go func() {
+						defer GinkgoRecover()
+						defer wg.Done()
+						utils.CheckReboot(context.Background(), k8sClientSet, node, rebootMarkers[node.GetName()])
+						Eventually(zoneALogs[node.GetName()], 1*time.Minute, 5*time.Second).Should(
+							ContainSubstring("UnHealthyBecauseNodeIsIsolated"), "logs of the agent on %s", node.GetName())
+					}()
+				}
+				wg.Wait()
+				// the api error of the other agent of zone a was not taken as an answer
+				Expect(zoneALogs[zoneA[0].GetName()]() + zoneALogs[zoneA[1].GetName()]()).To(
+					ContainSubstring("Ignoring api errors reported by peers of my own failure domain"))
+				for _, node := range zoneB {
+					Expect(utils.GetRebootMarker(context.Background(), k8sClientSet, node)).To(Equal(rebootMarkers[node.GetName()]),
+						"node %s of zone b rebooted", node.GetName())
+				}
+			})
+		})
 	})
 
 	Describe("Control Plane Remediation", func() {
@@ -263,6 +389,7 @@ var _ = Describe("Self Node Remediation E2E", func() {
 		})
 
 	})
+
 })
 
 func checkPodDeleted(oldPodName string) bool {
@@ -377,6 +504,40 @@ func checkSnrLogs(node *v1.Node, expected []string, since *metav1.Time) {
 		}
 		return logs
 	}, 6*time.Minute, 10*time.Second).Should(And(matchers...), "logs don't contain expected strings")
+}
+
+// followSnrLogs streams the logs of the agent running on the node from now on, until the agent stops or the spec ends,
+// and returns a function giving what was received so far
+func followSnrLogs(node *v1.Node) func() string {
+	pod := findSnrPod(node)
+	ctx, cancel := context.WithCancel(context.Background())
+	DeferCleanup(cancel)
+	stream, err := k8sClientSet.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &v1.PodLogOptions{
+		Follow:    true,
+		SinceTime: &metav1.Time{Time: time.Now()},
+	}).Stream(ctx)
+	ExpectWithOffset(1, err).ToNot(HaveOccurred())
+
+	var mutex sync.Mutex
+	logs := &bytes.Buffer{}
+	go func() {
+		defer stream.Close()
+		chunk := make([]byte, 4096)
+		for {
+			n, err := stream.Read(chunk)
+			mutex.Lock()
+			logs.Write(chunk[:n])
+			mutex.Unlock()
+			if err != nil {
+				return
+			}
+		}
+	}()
+	return func() string {
+		mutex.Lock()
+		defer mutex.Unlock()
+		return logs.String()
+	}
 }
 
 func findSnrPod(node *v1.Node) *v1.Pod {
