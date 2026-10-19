@@ -259,6 +259,7 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 	// peersToAsk is being reduced at every iteration, iterate until no peers left to ask
 	for i := 0; len(peersToAsk) > 0; i++ {
 
+		// batch size is over all peers; the voting threshold below uses nrVotingPeers
 		batchSize := utils.GetNextBatchSize(nrAllPeers, len(peersToAsk))
 		chosenPeersIPs := c.popPeerIPs(&peersToAsk, batchSize)
 		responses := c.collectHealthStatus(chosenPeersIPs, snapshot.InMyDomain)
@@ -295,7 +296,9 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 				apiErrorsResponses)
 			apiErrorsResponsesSum += apiErrorsResponses
 			// TODO: consider using [m|n]hc.spec.maxUnhealthy instead of 50%
-			if apiErrorsResponsesSum > nrVotingPeers/2 { // already reached more than 50% of the peers and all of them returned api error
+			// already reached more than 50% of the voting peers (outside-domain when topology-aware, all peers
+			// otherwise) and all of them returned api error
+			if apiErrorsResponsesSum > nrVotingPeers/2 {
 				// assuming this is a control plane failure as others can't access api-server as well
 				c.config.Log.Info("More than 50% of the nodes couldn't access the api-server, assuming "+
 					"this is a control plane failure, so we are going to return healthy in that case",
