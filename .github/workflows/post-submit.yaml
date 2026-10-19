@@ -1,13 +1,17 @@
-name: Publish Container Images
+name: Post Submit
 on:
   push:
     branches:
       - main
 
+permissions:
+  contents: write
+  pull-requests: read
+
 jobs:
   push_to_registry:
     name: Build and push unversioned images to quay.io/medik8s
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -26,5 +30,8 @@ jobs:
           password: ${{ secrets.QUAY_PASSWORD }}
           registry: quay.io
 
-      - name: Build and push CSV version v0.0.1 with latest images
-        run: make container-build-community container-push
+      - name: Build and push the committed operator version with latest images
+        # Keep the real CSV version; only the container tags use latest.
+        run: >-
+          make container-build-community container-push
+          IMAGE_TAG=latest CONTAINER_TOOL=docker
