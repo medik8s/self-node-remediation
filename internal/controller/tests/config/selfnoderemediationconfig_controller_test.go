@@ -21,8 +21,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	selfnoderemediationv1alpha1 "github.com/medik8s/self-node-remediation/v5/api/v1alpha1"
-	"github.com/medik8s/self-node-remediation/v5/internal/controller"
 	"github.com/medik8s/self-node-remediation/v5/internal/controller/tests/shared"
+	"github.com/medik8s/self-node-remediation/v5/internal/utils"
 )
 
 // Without sorting, this can reorder the rendered NetworkPolicy's
@@ -43,7 +43,7 @@ func TestIpsToSortedCIDRsIsOrderIndependent(t *testing.T) {
 
 	var first []string
 	for i, ips := range orderings {
-		got := controller.IpsToSortedCIDRs(ips)
+		got := utils.IpsToSortedCIDRs(ips)
 		if i == 0 {
 			first = got
 			continue
@@ -60,7 +60,7 @@ func TestIpsToSortedCIDRsIsOrderIndependent(t *testing.T) {
 }
 
 func TestIpsToSortedCIDRsFormatsIPv4As32AndIPv6As128(t *testing.T) {
-	got := controller.IpsToSortedCIDRs([]net.IP{
+	got := utils.IpsToSortedCIDRs([]net.IP{
 		net.ParseIP("203.0.113.5"),
 		net.ParseIP("2001:db8::1"),
 	})
@@ -76,9 +76,90 @@ func TestIpsToSortedCIDRsFormatsIPv4As32AndIPv6As128(t *testing.T) {
 }
 
 func TestIpsToSortedCIDRsEmptyInput(t *testing.T) {
-	got := controller.IpsToSortedCIDRs(nil)
+	got := utils.IpsToSortedCIDRs(nil)
 	if len(got) != 0 {
 		t.Fatalf("got %v, want empty", got)
+	}
+}
+
+const unresolvableURL = "definitely-not-a-real-host.invalid"
+
+func TestResolveEndpointCIDRsWithFallbackFailsClosedWithNoPriorCache(t *testing.T) {
+	cidrs, newURL, newCIDRs, err := utils.ResolveEndpointCIDRsWithFallback(unresolvableURL, "", nil)
+	if err == nil {
+		t.Fatalf("expected a resolution error for %q, got none", unresolvableURL)
+	}
+	if len(cidrs) != 0 {
+		t.Fatalf("expected no CIDRs on a first-ever resolution failure, got %v", cidrs)
+	}
+	if newURL != "" || len(newCIDRs) != 0 {
+		t.Fatalf("expected the (empty) cache to be left unchanged, got url=%q cidrs=%v", newURL, newCIDRs)
+	}
+}
+
+func TestResolveEndpointCIDRsWithFallbackReusesCacheOnTransientFailureForSameURL(t *testing.T) {
+	cachedURL := unresolvableURL
+	cachedCIDRs := []string{"203.0.113.5/32"}
+
+	cidrs, newURL, newCIDRs, err := utils.ResolveEndpointCIDRsWithFallback(unresolvableURL, cachedURL, cachedCIDRs)
+	if err == nil {
+		t.Fatalf("expected a resolution error for %q, got none", unresolvableURL)
+	}
+	if len(cidrs) != 1 || cidrs[0] != "203.0.113.5/32" {
+		t.Fatalf("expected the previously resolved CIDRs to be reused on a transient failure, got %v", cidrs)
+	}
+	if newURL != cachedURL || len(newCIDRs) != 1 || newCIDRs[0] != "203.0.113.5/32" {
+		t.Fatalf("expected the cache to be left unchanged, got url=%q cidrs=%v", newURL, newCIDRs)
+	}
+}
+
+func TestResolveEndpointCIDRsWithFallbackFailsClosedWhenURLChanged(t *testing.T) {
+	cachedURL := "203.0.113.5"
+	cachedCIDRs := []string{"203.0.113.5/32"}
+
+	cidrs, newURL, newCIDRs, err := utils.ResolveEndpointCIDRsWithFallback(unresolvableURL, cachedURL, cachedCIDRs)
+	if err == nil {
+		t.Fatalf("expected a resolution error for %q, got none", unresolvableURL)
+	}
+	if len(cidrs) != 0 {
+		t.Fatalf("expected no CIDRs when the failing URL doesn't match the cached URL, got %v", cidrs)
+	}
+
+	if newURL != cachedURL || len(newCIDRs) != 1 || newCIDRs[0] != "203.0.113.5/32" {
+		t.Fatalf("expected the stale cache to be left unchanged, got url=%q cidrs=%v", newURL, newCIDRs)
+	}
+}
+
+func TestResolveEndpointCIDRsWithFallbackUpdatesCacheOnSuccess(t *testing.T) {
+	const testIP = "203.0.113.5"
+	cidrs, newURL, newCIDRs, err := utils.ResolveEndpointCIDRsWithFallback(testIP, "", nil)
+	if err != nil {
+		t.Fatalf("unexpected resolution error for IP literal %q: %v", testIP, err)
+	}
+	if len(cidrs) != 1 || cidrs[0] != testIP+"/32" {
+		t.Fatalf("got %v, want [%s/32]", cidrs, testIP)
+	}
+	if newURL != testIP || len(newCIDRs) != 1 || newCIDRs[0] != testIP+"/32" {
+		t.Fatalf("expected the cache to be updated to the new resolution, got url=%q cidrs=%v", newURL, newCIDRs)
+	}
+}
+
+// An empty EndpointHealthCheckUrl (field unset/cleared) resolves successfully
+// to no CIDRs, which must also clear any stale cached CIDRs from a
+// previously-configured URL
+func TestResolveEndpointCIDRsWithFallbackClearsCacheWhenURLCleared(t *testing.T) {
+	cachedURL := "203.0.113.5"
+	cachedCIDRs := []string{"203.0.113.5/32"}
+
+	cidrs, newURL, newCIDRs, err := utils.ResolveEndpointCIDRsWithFallback("", cachedURL, cachedCIDRs)
+	if err != nil {
+		t.Fatalf("unexpected error resolving an empty URL: %v", err)
+	}
+	if len(cidrs) != 0 {
+		t.Fatalf("expected no CIDRs for an empty URL, got %v", cidrs)
+	}
+	if newURL != "" || len(newCIDRs) != 0 {
+		t.Fatalf("expected the cache to be cleared, got url=%q cidrs=%v", newURL, newCIDRs)
 	}
 }
 
@@ -391,11 +472,8 @@ var _ = Describe("SNR Config Test", func() {
 			})
 		})
 		When("Configuration has EndpointHealthCheckUrl set to an address that can't be resolved", func() {
-			// ".invalid" is a reserved TLD that resolvers must never resolve,
-			// so this deterministically exercises the resolution-failure path
-			// without depending on real network conditions.
 			BeforeEach(func() {
-				config.Spec.EndpointHealthCheckUrl = "definitely-not-a-real-host.invalid"
+				config.Spec.EndpointHealthCheckUrl = unresolvableURL
 			})
 			It("should fail closed: add no egress exception rather than allowing all egress", func() {
 				np := &networkingv1.NetworkPolicy{}
