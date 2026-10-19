@@ -857,7 +857,7 @@ func TestTopologyDomains(t *testing.T) {
 			p.SetTopologyKey(tc.topologyKey)
 			p.myTopologyDomain = tc.myDomain
 			p.workerPeersAddresses = addresses
-			p.updateTopologyDomains(nodes, pods)
+			p.updateTopologyDomains(Worker, nodes, pods)
 
 			snapshot := p.GetPeersSnapshot(Worker)
 			if !reflect.DeepEqual(snapshot.Addresses, addresses) {
@@ -874,16 +874,30 @@ func TestTopologyDomains(t *testing.T) {
 		})
 	}
 
-	t.Run("an update scoped to another role does not forget the peers of this role", func(t *testing.T) {
+	t.Run("an update of the control plane peers does not touch the worker peers", func(t *testing.T) {
 		p := New("me", time.Minute, nil, logr.Discard(), time.Second)
 		p.SetTopologyKey(topologyKey)
 		p.myTopologyDomain = "zone-a"
 		p.workerPeersAddresses = addresses
-		p.updateTopologyDomains(nodes, pods) // workers
+		p.updateTopologyDomains(Worker, nodes, pods)
 		controlPlanes := v1.NodeList{Items: []v1.Node{node("cp", "zone-a")}}
-		p.updateTopologyDomains(controlPlanes, pods) // control planes, same pod list, none of them on "cp"
+		p.updateTopologyDomains(ControlPlane, controlPlanes, pods) // same pod list, none of them on "cp"
 		if !p.GetPeersSnapshot(Worker).InMyDomain["10.0.0.1"] {
 			t.Error("expected the worker peer domain to survive a control plane peers update")
+		}
+	})
+
+	t.Run("the address of an agent that is gone is dropped on the next update", func(t *testing.T) {
+		p := New("me", time.Minute, nil, logr.Discard(), time.Second)
+		p.SetTopologyKey(topologyKey)
+		p.myTopologyDomain = "zone-a"
+		p.updateTopologyDomains(Worker, nodes, pods)
+		// the agent of "same" restarts with a new IP
+		restarted := v1.PodList{Items: []v1.Pod{pod("same", "10.0.0.9"), pod("other", "10.0.0.2"), pod("unlabeled", "10.0.0.3")}}
+		p.updateTopologyDomains(Worker, nodes, restarted)
+		expected := map[string]string{"10.0.0.9": "zone-a", "10.0.0.2": "zone-b"}
+		if got := p.topologyDomains[Worker]; !reflect.DeepEqual(got, expected) {
+			t.Errorf("worker peer domains = %v, expected %v", got, expected)
 		}
 	})
 
@@ -892,12 +906,12 @@ func TestTopologyDomains(t *testing.T) {
 		p.SetTopologyKey(topologyKey)
 		p.myTopologyDomain = "zone-a"
 		p.workerPeersAddresses = addresses
-		p.updateTopologyDomains(nodes, pods)
+		p.updateTopologyDomains(Worker, nodes, pods)
 		if !p.GetPeersSnapshot(Worker).InMyDomain["10.0.0.1"] {
 			t.Fatal("expected 10.0.0.1 to be in my domain before the update")
 		}
 		relabeled := v1.NodeList{Items: []v1.Node{node("same", ""), node("other", "zone-b"), node("unlabeled", "")}}
-		p.updateTopologyDomains(relabeled, pods)
+		p.updateTopologyDomains(Worker, relabeled, pods)
 		if p.GetPeersSnapshot(Worker).InMyDomain["10.0.0.1"] {
 			t.Error("expected 10.0.0.1 to be forgotten after its node lost the label")
 		}
@@ -946,7 +960,7 @@ func TestControlPlaneDomains(t *testing.T) {
 		p := New("me", time.Minute, nil, logr.Discard(), time.Second)
 		p.SetTopologyKey(topologyKey)
 		p.myTopologyDomain = "zone-a"
-		p.updateTopologyDomains(nodes, v1.PodList{}) // no agent pod anywhere
+		p.updateTopologyDomains(ControlPlane, nodes, v1.PodList{}) // no agent pod anywhere
 		p.updateControlPlaneNodeDomains(nodes)
 		if got := p.GetControlPlaneDomains(); got.InOtherDomain != 2 {
 			t.Errorf("expected 2 control plane nodes in other domains without any agent pod, got %+v", got)
