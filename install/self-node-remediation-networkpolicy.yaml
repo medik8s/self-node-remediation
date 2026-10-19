@@ -68,6 +68,4 @@ spec:
         - ipBlock:
             cidr: {{.}}
     {{end}}
-    {{if not .EndpointHealthCheckUrlCIDRs}}
-    {{end}}
     {{end}}

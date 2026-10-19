@@ -19,9 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
-	"net"
 	"os"
-	"sort"
 	"strings"
 	"time"
 
@@ -49,15 +47,11 @@ import (
 	"github.com/medik8s/self-node-remediation/v5/internal/certificates"
 	"github.com/medik8s/self-node-remediation/v5/internal/reboot"
 	"github.com/medik8s/self-node-remediation/v5/internal/render"
+	"github.com/medik8s/self-node-remediation/v5/internal/utils"
 )
 
 const (
 	lastChangedAnnotationKey = "snr.medik8s.io/force-deletion-revision"
-
-	// endpointHealthCheckUrlRecheckInterval controls how often the controller
-	// re-resolves Spec.EndpointHealthCheckUrl to IP(s) and re-renders the
-	// NetworkPolicy's egress exception for it.
-	endpointHealthCheckUrlRecheckInterval = 5 * time.Minute
 )
 
 // SelfNodeRemediationConfigReconciler reconciles a SelfNodeRemediationConfig object
@@ -69,6 +63,12 @@ type SelfNodeRemediationConfigReconciler struct {
 	InstallFileFolder        string
 	Namespace                string
 	RebootDurationCalculator reboot.Calculator
+
+	// endpointCIDRResolver resolves Spec.EndpointHealthCheckUrl to CIDRs,
+	// caching the last successful resolution so a transient resolve failure
+	// doesn't wipe out a working NetworkPolicy egress exception. See
+	// utils.CachedCIDRResolver.
+	endpointCIDRResolver utils.CachedCIDRResolver
 }
 
 //+kubebuilder:rbac:groups=self-node-remediation.medik8s.io,resources=selfnoderemediationconfigs,verbs=get;list;watch;create;update;patch;delete
@@ -76,7 +76,7 @@ type SelfNodeRemediationConfigReconciler struct {
 //+kubebuilder:rbac:groups=self-node-remediation.medik8s.io,resources=selfnoderemediationconfigs/finalizers,verbs=update
 //+kubebuilder:rbac:groups="apps",resources=daemonsets,verbs=get;list;watch;update;patch;create;delete
 //+kubebuilder:rbac:groups="apps",resources=daemonsets/finalizers,verbs=update
-//+kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update
+//+kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;delete;update
 //+kubebuilder:rbac:groups="security.openshift.io",resources=securitycontextconstraints,verbs=use,resourceNames=privileged
 //+kubebuilder:rbac:groups=machine.openshift.io,resources=machines,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=machine.openshift.io,resources=machines/status,verbs=get;update;patch
@@ -121,11 +121,7 @@ func (r *SelfNodeRemediationConfigReconciler) Reconcile(ctx context.Context, req
 		return ctrl.Result{}, err
 	}
 
-	result := ctrl.Result{}
-	if config.Spec.EndpointHealthCheckUrl != "" {
-		result.RequeueAfter = endpointHealthCheckUrlRecheckInterval
-	}
-	return result, nil
+	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -161,37 +157,6 @@ func join(sep string, s []string) string {
 	return strings.Join(s, sep)
 }
 
-// resolveEndpointHealthCheckCIDRs resolves a user-configured EndpointHealthCheckUrl
-// to the /32 (or /128) CIDRs of its current address, so the NetworkPolicy's egress
-// exception for it can be scoped to just those addresses.
-// net.LookupIP resolves IP-literal strings without a DNS lookup
-func resolveEndpointHealthCheckCIDRs(url string) ([]string, error) {
-	if url == "" {
-		return nil, nil
-	}
-	ips, err := net.LookupIP(url)
-	if err != nil {
-		return nil, err
-	}
-	return IpsToSortedCIDRs(ips), nil
-}
-
-// IpsToSortedCIDRs converts resolved IPs to /32 (IPv4) or /128 (IPv6) CIDRs,
-// sorted lexically. This is to prevent returning the same address set
-// in a different order on each lookup
-func IpsToSortedCIDRs(ips []net.IP) []string {
-	cidrs := make([]string, 0, len(ips))
-	for _, ip := range ips {
-		if ip4 := ip.To4(); ip4 != nil {
-			cidrs = append(cidrs, ip4.String()+"/32")
-		} else {
-			cidrs = append(cidrs, ip.String()+"/128")
-		}
-	}
-	sort.Strings(cidrs)
-	return cidrs
-}
-
 func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Context, snrConfig *selfnoderemediationv1alpha1.SelfNodeRemediationConfig) error {
 	logger := r.Log.WithName("syncConfigDaemonset")
 	logger.Info("Start to sync config daemonset")
@@ -223,14 +188,13 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 	data.Data["MaxTimeForNoPeersResponse"] = maxTimeForNoPeersResponse.Nanoseconds()
 	data.Data["MaxApiErrorThreshold"] = snrConfig.Spec.MaxApiErrorThreshold
 	data.Data["EndpointHealthCheckUrl"] = snrConfig.Spec.EndpointHealthCheckUrl
-	if endpointCIDRs, err := resolveEndpointHealthCheckCIDRs(snrConfig.Spec.EndpointHealthCheckUrl); err != nil {
+	endpointCIDRs, err := r.endpointCIDRResolver.Resolve(snrConfig.Spec.EndpointHealthCheckUrl)
+	if err != nil {
 		logger.Error(err, "could not resolve EndpointHealthCheckUrl to an IP; "+
-			"no egress exception will be added until the next recheck succeeds",
+			"keeping the previously resolved egress exception (if any) until the next resolution succeeds",
 			"EndpointHealthCheckUrl", snrConfig.Spec.EndpointHealthCheckUrl)
-		data.Data["EndpointHealthCheckUrlCIDRs"] = []string(nil)
-	} else {
-		data.Data["EndpointHealthCheckUrlCIDRs"] = endpointCIDRs
 	}
+	data.Data["EndpointHealthCheckUrlCIDRs"] = endpointCIDRs
 	data.Data["PreferredAddressTypes"] = snrConfig.Spec.PreferredAddressTypes
 	data.Data["MinPeersForRemediation"] = snrConfig.Spec.MinPeersForRemediation
 	data.Data["HostPort"] = snrConfig.Spec.HostPort

@@ -11,6 +11,9 @@ import (
 	. "github.com/onsi/gomega"
 
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -118,6 +121,76 @@ var _ = Describe("Control-plane Manager", func() {
 			}
 			manager := newTestManager(unreachableHost, []string{"InternalIP"}, addresses)
 			Expect(manager.isKubeletServiceRunning()).To(BeTrue())
+		})
+	})
+
+	// These cover the helpers behind ensureEndpointNetworkPolicyUpToDate
+	Describe("EndpointHealthCheckUrl NetworkPolicy exception", func() {
+		port53 := intstr.FromInt32(53)
+		portRule := networkingv1.NetworkPolicyEgressRule{
+			Ports: []networkingv1.NetworkPolicyPort{{Port: &port53}},
+		}
+		podSelectorRule := networkingv1.NetworkPolicyEgressRule{
+			To: []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{}}},
+		}
+		cidrRuleA := networkingv1.NetworkPolicyEgressRule{
+			To: []networkingv1.NetworkPolicyPeer{{IPBlock: &networkingv1.IPBlock{CIDR: "203.0.113.5/32"}}},
+		}
+		cidrRuleB := networkingv1.NetworkPolicyEgressRule{
+			To: []networkingv1.NetworkPolicyPeer{{IPBlock: &networkingv1.IPBlock{CIDR: "203.0.113.6/32"}}},
+		}
+
+		Describe("isEndpointCIDRRule", func() {
+			It("identifies a ports-only rule as not a CIDR rule", func() {
+				Expect(isEndpointCIDRRule(portRule)).To(BeFalse())
+			})
+			It("identifies a podSelector-only rule as not a CIDR rule", func() {
+				Expect(isEndpointCIDRRule(podSelectorRule)).To(BeFalse())
+			})
+			It("identifies a bare ipBlock rule as a CIDR rule", func() {
+				Expect(isEndpointCIDRRule(cidrRuleA)).To(BeTrue())
+			})
+		})
+
+		Describe("endpointCIDRsFromEgress", func() {
+			It("extracts and sorts only the CIDR rules, ignoring everything else", func() {
+				egress := []networkingv1.NetworkPolicyEgressRule{portRule, cidrRuleB, podSelectorRule, cidrRuleA}
+				Expect(endpointCIDRsFromEgress(egress)).To(Equal([]string{"203.0.113.5/32", "203.0.113.6/32"}))
+			})
+			It("returns empty when there are no CIDR rules", func() {
+				Expect(endpointCIDRsFromEgress([]networkingv1.NetworkPolicyEgressRule{portRule, podSelectorRule})).To(BeEmpty())
+			})
+		})
+
+		Describe("replaceEndpointCIDRRules", func() {
+			It("drops existing CIDR rules and appends fresh ones, preserving all other rules", func() {
+				egress := []networkingv1.NetworkPolicyEgressRule{portRule, cidrRuleA, podSelectorRule}
+				got := replaceEndpointCIDRRules(egress, []string{"198.51.100.1/32"})
+				Expect(got).To(HaveLen(3))
+				Expect(got).To(ContainElement(portRule))
+				Expect(got).To(ContainElement(podSelectorRule))
+				Expect(endpointCIDRsFromEgress(got)).To(Equal([]string{"198.51.100.1/32"}))
+			})
+			It("removes all CIDR rules and adds none when cidrs is empty (fail-closed)", func() {
+				egress := []networkingv1.NetworkPolicyEgressRule{portRule, cidrRuleA}
+				got := replaceEndpointCIDRRules(egress, nil)
+				Expect(got).To(Equal([]networkingv1.NetworkPolicyEgressRule{portRule}))
+			})
+		})
+
+		Describe("sameCIDRs", func() {
+			It("is true for equal slices", func() {
+				Expect(sameCIDRs([]string{"a", "b"}, []string{"a", "b"})).To(BeTrue())
+			})
+			It("is false for different lengths", func() {
+				Expect(sameCIDRs([]string{"a"}, []string{"a", "b"})).To(BeFalse())
+			})
+			It("is false for different contents", func() {
+				Expect(sameCIDRs([]string{"a", "b"}, []string{"a", "c"})).To(BeFalse())
+			})
+			It("is true for two empty/nil slices", func() {
+				Expect(sameCIDRs(nil, []string{})).To(BeTrue())
+			})
 		})
 	})
 })
