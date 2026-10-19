@@ -25,9 +25,11 @@ The node then decides whether to self-fence. Peers are queried in batches, and c
 1. **API reachable** — healthy; no action (the peer check only runs after API failure).
 2. **Any peer reports Healthy** — considered healthy; no reboot.
 3. **Any peer reports Unhealthy** (and no peer in that batch reported Healthy) — an SNR CR exists for this node; **self-fence**.
-4. **> 50% of all peers in the initial peer list report ApiError** — assumed control-plane / API-wide outage; **do not reboot** (rebooting would not help). Only peers that reply with ApiError count toward this threshold; the total is compared with the full initial peer count.
+4. **> 50% of all peers in the initial peer list report ApiError** — assumed control-plane / API-wide outage; **do not reboot** (rebooting would not help). Only peers that reply with ApiError count toward this threshold; the total is compared with the full initial peer count (or with the peers outside of the node's failure domain, see below).
 5. **Fewer peers available than `MinPeersForRemediation`** (default `1`) — cannot get a reliable second opinion; considered **healthy**, **do not reboot**, returned immediately without waiting. An empty peer list returns healthy with the default minimum; setting the minimum to `0` instead causes immediate self-fencing.
 6. **Peers were queried but none responded** (node is isolated) — **self-fence** once `MaxTimeForNoPeersResponse` elapses, so the node's at-most-one workloads can safely reschedule. Short blips are ridden out by the error-count and no-response grace windows. This timeout applies only after peers were actually contacted — not to the empty-peer-list cases above.
+
+**Failure domains** (optional `peerTopologyKey`, a node label such as `topology.kubernetes.io/zone`): an ApiError from a peer in the node's own domain is not counted, neither as a response (rule 6) nor toward rule 4, whose majority is then computed over the peers outside of the domain. A domain cut from the rest of the cluster therefore self-fences instead of its nodes keeping each other alive. This applies only when a strict majority of the control-plane nodes and at least `MinPeersForRemediation` peers are outside of the node's domain; otherwise rules 1–6 apply unchanged.
 
 Control-plane nodes additionally re-verify peer reachability even when the local `readyz` passes, because a network-isolated API server can still return 200 (it does not check etcd connectivity).
 
