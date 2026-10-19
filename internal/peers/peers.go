@@ -42,10 +42,9 @@ type Peers struct {
 	mutex                                            sync.Mutex
 	apiServerTimeout                                 time.Duration
 	workerPeersAddresses, controlPlanePeersAddresses []v1.PodIP
-	// topologyKey is the node label identifying the failure domain of a node, empty when the feature is disabled.
-	// Set once before Start.
-	topologyKey string
 	// The fields below are guarded by mutex.
+	// topologyKey is the node label identifying the failure domain of a node, empty when the feature is disabled.
+	topologyKey string
 	// myTopologyDomain is the value of topologyKey on our own node, empty when unknown
 	myTopologyDomain string
 	// topologyDomains maps a peer pod IP to the failure domain of its node, only for peers whose node carries the label
@@ -83,8 +82,10 @@ func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Read
 }
 
 // SetTopologyKey enables failure domain awareness: peers are grouped by the value of the given node label.
-// An empty key disables the feature. Must be called before Start.
+// An empty key disables the feature. Own node's domain is read by Start: call it before Start.
 func (p *Peers) SetTopologyKey(key string) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
 	p.topologyKey = key
 }
 
@@ -111,16 +112,17 @@ func (p *Peers) Start(ctx context.Context) error {
 		p.workerPeerSelector = createSelector(hostname, commonlabels.WorkerRole)
 		p.controlPlanePeerSelector = createSelector(hostname, getControlPlaneLabel(myNode))
 	}
-	if p.topologyKey != "" {
-		myTopologyDomain := myNode.Labels[p.topologyKey]
-		// read concurrently by the API connectivity check
-		p.mutex.Lock()
-		p.myTopologyDomain = myTopologyDomain
-		p.mutex.Unlock()
+	// read concurrently by the API connectivity check
+	p.mutex.Lock()
+	topologyKey := p.topologyKey
+	p.myTopologyDomain = myNode.Labels[topologyKey]
+	myTopologyDomain := p.myTopologyDomain
+	p.mutex.Unlock()
+	if topologyKey != "" {
 		if myTopologyDomain == "" {
-			p.log.Info("topology key is set but own node does not carry the label, failure domain awareness is disabled on this node", "topologyKey", p.topologyKey)
+			p.log.Info("topology key is set but own node does not carry the label, failure domain awareness is disabled on this node", "topologyKey", topologyKey)
 		} else {
-			p.log.Info("failure domain awareness enabled", "topologyKey", p.topologyKey, "myTopologyDomain", myTopologyDomain)
+			p.log.Info("failure domain awareness enabled", "topologyKey", topologyKey, "myTopologyDomain", myTopologyDomain)
 		}
 	}
 

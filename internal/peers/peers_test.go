@@ -1003,6 +1003,7 @@ func TestTopologyStateIsGuardedByTheMutex(t *testing.T) {
 		for ctx.Err() == nil {
 			p.GetPeersSnapshot(Worker)
 			p.GetControlPlaneDomains()
+			p.SetTopologyKey(topologyKey)
 		}
 	}()
 	if err := p.Start(ctx); err != nil {
