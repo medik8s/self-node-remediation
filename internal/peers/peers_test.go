@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -725,8 +726,8 @@ func TestStartVerifiesPeerAddresses(t *testing.T) {
 
 func TestUpdateControlPlanePeersNotFoundDoesNotResetWorkerList(t *testing.T) {
 	p := New("my-node", time.Minute, fakeNotFoundReader{}, logr.Discard(), time.Second)
-	p.workerPeerSelector = labels.Everything()
-	p.controlPlanePeerSelector = labels.Everything()
+	p.workerPeerSelectors = []labels.Selector{labels.Everything()}
+	p.controlPlanePeerSelectors = []labels.Selector{labels.Everything()}
 	p.workerPeersAddresses = []v1.PodIP{{IP: "10.0.0.1"}}
 	p.controlPlanePeersAddresses = []v1.PodIP{{IP: "10.0.0.2"}} // sentinel: must be cleared by the callback
 
@@ -745,7 +746,7 @@ func TestUpdateControlPlanePeersNotFoundDoesNotResetWorkerList(t *testing.T) {
 
 func TestRefreshControlPlanePeersForIsolationCheckPreservesCacheOnEmpty(t *testing.T) {
 	p := New("my-node", time.Minute, fakeNotFoundReader{}, logr.Discard(), time.Second)
-	p.controlPlanePeerSelector = labels.Everything()
+	p.controlPlanePeerSelectors = []labels.Selector{labels.Everything()}
 	p.controlPlanePeersAddresses = []v1.PodIP{{IP: "10.0.0.2"}} // must survive a NotFound via this method
 
 	err := p.RefreshControlPlanePeersForIsolationCheck(context.Background())
@@ -827,7 +828,7 @@ func TestGetPeersAddressesDoesNotStallDuringSlowUpdatePeers(t *testing.T) {
 	defer close(release)
 
 	p := New("my-node", time.Minute, &slowReader{entered: entered, release: release}, logr.Discard(), time.Minute)
-	p.workerPeerSelector = labels.Everything()
+	p.workerPeerSelectors = []labels.Selector{labels.Everything()}
 
 	go func() {
 		_ = p.updateWorkerPeers(context.Background()) // blocks inside List until release closes
@@ -907,7 +908,7 @@ func TestOverlappingControlPlaneRefreshDoesNotOverwriteNewerAddresses(t *testing
 		currentIP:              "10.0.0.2",
 	}
 	p := New("my-node", time.Hour, reader, logr.Discard(), time.Minute)
-	p.controlPlanePeerSelector = labels.Everything()
+	p.controlPlanePeerSelectors = []labels.Selector{labels.Everything()}
 
 	var releaseOnce sync.Once
 	releasePeriodic := func() {
@@ -979,7 +980,7 @@ func TestControlPlaneRefreshWaitHonorsContextCancellation(t *testing.T) {
 		currentIP:              "10.0.0.2",
 	}
 	p := New("my-node", time.Hour, reader, logr.Discard(), time.Minute)
-	p.controlPlanePeerSelector = labels.Everything()
+	p.controlPlanePeerSelectors = []labels.Selector{labels.Everything()}
 
 	var releaseOnce sync.Once
 	releasePeriodic := func() {
@@ -1203,6 +1204,53 @@ func TestControlPlaneDomains(t *testing.T) {
 			t.Errorf("expected only the refreshed node to be known, got %+v", got)
 		}
 	})
+}
+
+// TestControlPlanePeersWithEitherRoleLabel starts the peers of a worker on a cluster whose control plane nodes carry
+// only node-role.kubernetes.io/control-plane (Kubernetes 1.24+), only node-role.kubernetes.io/master, or both
+// (OpenShift): all of them are control plane peers, each listed once.
+func TestControlPlanePeersWithEitherRoleLabel(t *testing.T) {
+	const topologyKey = v1.LabelTopologyZone
+	node := func(name, zone string, roles ...string) v1.Node {
+		labels := map[string]string{hostnameLabelName: name, topologyKey: zone}
+		for _, role := range roles {
+			labels[role] = ""
+		}
+		return v1.Node{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels}}
+	}
+	pod := func(nodeName, ip string) v1.Pod {
+		return v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: "snr-" + nodeName},
+			Spec:       v1.PodSpec{NodeName: nodeName},
+			Status:     v1.PodStatus{PodIPs: []v1.PodIP{{IP: ip}}},
+		}
+	}
+	reader := &mockReaderWithPeers{
+		ownNodeLabels: map[string]string{hostnameLabelName: "test-hostname", "node-role.kubernetes.io/worker": "", topologyKey: "zone-a"},
+		nodes: []v1.Node{
+			node("cp-control-plane", "zone-b", "node-role.kubernetes.io/control-plane"),
+			node("cp-master", "zone-c", "node-role.kubernetes.io/master"),
+			node("cp-both", "zone-a", "node-role.kubernetes.io/master", "node-role.kubernetes.io/control-plane"),
+		},
+		pods: []v1.Pod{pod("cp-control-plane", "10.0.0.1"), pod("cp-master", "10.0.0.2"), pod("cp-both", "10.0.0.3")},
+	}
+
+	p := New("test-node", time.Hour, reader, logr.Discard(), time.Second)
+	p.SetTopologyKey(topologyKey)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if err := p.Start(ctx); err != nil {
+		t.Fatalf("Start() returned an error: %v", err)
+	}
+
+	if got := p.GetControlPlaneDomains(); got != (ControlPlaneDomains{InMyDomain: 1, InOtherDomain: 2}) {
+		t.Errorf("GetControlPlaneDomains() = %+v, expected one control plane node in our domain and two in others", got)
+	}
+	addresses := p.GetPeersAddresses(ControlPlane)
+	sort.Slice(addresses, func(i, j int) bool { return addresses[i].IP < addresses[j].IP })
+	if expected := []v1.PodIP{{IP: "10.0.0.1"}, {IP: "10.0.0.2"}, {IP: "10.0.0.3"}}; !reflect.DeepEqual(addresses, expected) {
+		t.Errorf("control plane peer addresses = %v, expected %v", addresses, expected)
+	}
 }
 
 // TestTopologyStateIsGuardedByTheMutex reads the failure domain state from another goroutine while Start

@@ -36,7 +36,7 @@ const (
 type Peers struct {
 	client.Reader
 	log                                              logr.Logger
-	workerPeerSelector, controlPlanePeerSelector     labels.Selector
+	workerPeerSelectors, controlPlanePeerSelectors   []labels.Selector
 	peerUpdateInterval                               time.Duration
 	myNodeName                                       string
 	mutex                                            sync.Mutex    // protects the cached addresses and the topology state
@@ -112,8 +112,14 @@ func (p *Peers) Start(ctx context.Context) error {
 		p.log.Error(err, "failed to get own hostname")
 		return err
 	} else {
-		p.workerPeerSelector = createSelector(hostname, commonlabels.WorkerRole)
-		p.controlPlanePeerSelector = createSelector(hostname, getControlPlaneLabel(myNode))
+		p.workerPeerSelectors = []labels.Selector{createSelector(hostname, commonlabels.WorkerRole)}
+		// control plane nodes carry node-role.kubernetes.io/control-plane (Kubernetes 1.24+), the older
+		// node-role.kubernetes.io/master, or both (OpenShift): a node with either label is a control plane peer,
+		// whatever the labels of our own node
+		p.controlPlanePeerSelectors = []labels.Selector{
+			createSelector(hostname, commonlabels.ControlPlaneRole),
+			createSelector(hostname, commonlabels.MasterRole),
+		}
 	}
 	// read concurrently by the API connectivity check
 	p.mutex.Lock()
@@ -151,8 +157,8 @@ func (p *Peers) Start(ctx context.Context) error {
 
 func (p *Peers) updateWorkerPeers(ctx context.Context) error {
 	setterFunc := func(addresses []v1.PodIP) { p.workerPeersAddresses = addresses }
-	selectorGetter := func() labels.Selector { return p.workerPeerSelector }
-	return p.updatePeers(ctx, Worker, selectorGetter, setterFunc, nil)
+	selectorsGetter := func() []labels.Selector { return p.workerPeerSelectors }
+	return p.updatePeers(ctx, Worker, selectorsGetter, setterFunc, nil)
 }
 
 // updateControlPlanePeers re-reads control plane peer addresses immediately,
@@ -171,7 +177,7 @@ func (p *Peers) updateControlPlanePeers(ctx context.Context) error {
 // used by the isolation check's reactive retry, where a transient empty
 // result shouldn't be mistaken for "no peers are configured."
 func (p *Peers) RefreshControlPlanePeersForIsolationCheck(ctx context.Context) error {
-	if p.controlPlanePeerSelector == nil {
+	if p.controlPlanePeerSelectors == nil {
 		return fmt.Errorf("control plane peer selector not initialized")
 	}
 	setterFunc := func(addresses []v1.PodIP) {
@@ -197,27 +203,38 @@ func (p *Peers) updateControlPlanePeersWithSetter(ctx context.Context, setAddres
 		return ctx.Err()
 	}
 
-	selectorGetter := func() labels.Selector { return p.controlPlanePeerSelector }
-	return p.updatePeers(ctx, ControlPlane, selectorGetter, setAddresses, setNodes)
+	selectorsGetter := func() []labels.Selector { return p.controlPlanePeerSelectors }
+	return p.updatePeers(ctx, ControlPlane, selectorsGetter, setAddresses, setNodes)
 }
 
-// updatePeers refreshes the peers of one role. setNodes, when not nil, receives the listed nodes of that role.
-// The List calls run without the mutex, the writes (setAddresses, setNodes, topology domains) under it.
-func (p *Peers) updatePeers(ctx context.Context, role Role, getSelector func() labels.Selector, setAddresses func(addresses []v1.PodIP), setNodes func(nodes v1.NodeList)) error {
+// updatePeers refreshes the peers of one role: the nodes matching any of the selectors, each listed once.
+// setNodes, when not nil, receives the listed nodes of that role. The List calls run without the mutex, the writes
+// (setAddresses, setNodes, topology domains) under it.
+func (p *Peers) updatePeers(ctx context.Context, role Role, getSelectors func() []labels.Selector, setAddresses func(addresses []v1.PodIP), setNodes func(nodes v1.NodeList)) error {
 	readerCtx, cancel := context.WithTimeout(ctx, p.apiServerTimeout)
 	defer cancel()
 
 	nodes := v1.NodeList{}
+	listed := map[string]bool{}
 	// get some nodes, but not ourself
 	var err error
-	if err = p.List(readerCtx, &nodes, client.MatchingLabelsSelector{Selector: getSelector()}); err != nil {
-		if !apierrors.IsNotFound(err) {
-			p.log.Error(err, "failed to update peer list")
-			return pkgerrors.Wrap(err, "failed to update peer list")
+	for _, selector := range getSelectors() {
+		selected := v1.NodeList{}
+		if listErr := p.List(readerCtx, &selected, client.MatchingLabelsSelector{Selector: selector}); listErr != nil {
+			if !apierrors.IsNotFound(listErr) {
+				p.log.Error(listErr, "failed to update peer list")
+				return pkgerrors.Wrap(listErr, "failed to update peer list")
+			}
+			// we are the only node at the moment... reset peerList
+			p.log.Error(listErr, "failed to update peer list")
+			err = pkgerrors.Wrap(listErr, "failed to update peer list")
 		}
-		// we are the only node at the moment... reset peerList
-		p.log.Error(err, "failed to update peer list")
-		err = pkgerrors.Wrap(err, "failed to update peer list")
+		for _, node := range selected.Items {
+			if !listed[node.Name] {
+				listed[node.Name] = true
+				nodes.Items = append(nodes.Items, node)
+			}
+		}
 	}
 
 	var addresses []v1.PodIP
@@ -400,11 +417,4 @@ func createSelector(hostNameToExclude string, nodeTypeLabel string) labels.Selec
 	selector := labels.NewSelector()
 	selector = selector.Add(*reqNotMe, *reqPeers)
 	return selector
-}
-
-func getControlPlaneLabel(node *v1.Node) string {
-	if _, isControlPlaneLabelExist := node.Labels[commonlabels.ControlPlaneRole]; isControlPlaneLabelExist {
-		return commonlabels.ControlPlaneRole
-	}
-	return commonlabels.MasterRole
 }
