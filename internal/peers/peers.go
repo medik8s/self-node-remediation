@@ -36,12 +36,35 @@ const (
 type Peers struct {
 	client.Reader
 	log                                              logr.Logger
-	workerPeerSelector, controlPlanePeerSelector     labels.Selector
+	workerPeerSelectors, controlPlanePeerSelectors   []labels.Selector
 	peerUpdateInterval                               time.Duration
 	myNodeName                                       string
 	mutex                                            sync.Mutex
 	apiServerTimeout                                 time.Duration
 	workerPeersAddresses, controlPlanePeersAddresses []v1.PodIP
+	// The fields below are guarded by mutex.
+	// topologyKey is the node label identifying the failure domain of a node, empty when the feature is disabled.
+	topologyKey string
+	// myTopologyDomain is the value of topologyKey on our own node, empty when unknown
+	myTopologyDomain string
+	// topologyDomains maps, per role, a peer pod IP to the failure domain of its node, only for peers whose node
+	// carries the label. Rebuilt for a role at every refresh of its peers.
+	topologyDomains map[Role]map[string]string
+	// controlPlaneNodeDomains maps every control plane node other than our own to its failure domain (empty when the
+	// node has no label). It is built from the nodes, not from the agent pods, so that it stays complete when the
+	// agent does not run on control plane nodes.
+	controlPlaneNodeDomains map[string]string
+}
+
+// ControlPlaneDomains describes where the control plane nodes other than our own node are located, relative to our
+// own failure domain.
+type ControlPlaneDomains struct {
+	// InMyDomain is the number of control plane nodes known to be in our own failure domain
+	InMyDomain int
+	// InOtherDomain is the number of control plane nodes known to be in another failure domain
+	InOtherDomain int
+	// Unknown is the number of control plane nodes that do not carry the topology label
+	Unknown int
 }
 
 func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Reader, log logr.Logger, apiServerTimeout time.Duration) *Peers {
@@ -54,7 +77,17 @@ func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Read
 		apiServerTimeout:           apiServerTimeout,
 		workerPeersAddresses:       []v1.PodIP{},
 		controlPlanePeersAddresses: []v1.PodIP{},
+		topologyDomains:            map[Role]map[string]string{},
+		controlPlaneNodeDomains:    map[string]string{},
 	}
+}
+
+// SetTopologyKey enables failure domain awareness: peers are grouped by the value of the given node label.
+// An empty key disables the feature. Own node's domain is read by Start: call it before Start.
+func (p *Peers) SetTopologyKey(key string) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	p.topologyKey = key
 }
 
 func (p *Peers) Start(ctx context.Context) error {
@@ -77,8 +110,27 @@ func (p *Peers) Start(ctx context.Context) error {
 		p.log.Error(err, "failed to get own hostname")
 		return err
 	} else {
-		p.workerPeerSelector = createSelector(hostname, commonlabels.WorkerRole)
-		p.controlPlanePeerSelector = createSelector(hostname, getControlPlaneLabel(myNode))
+		p.workerPeerSelectors = []labels.Selector{createSelector(hostname, commonlabels.WorkerRole)}
+		// control plane nodes carry node-role.kubernetes.io/control-plane (Kubernetes 1.24+), the older
+		// node-role.kubernetes.io/master, or both (OpenShift): a node with either label is a control plane peer,
+		// whatever the labels of our own node
+		p.controlPlanePeerSelectors = []labels.Selector{
+			createSelector(hostname, commonlabels.ControlPlaneRole),
+			createSelector(hostname, commonlabels.MasterRole),
+		}
+	}
+	// read concurrently by the API connectivity check
+	p.mutex.Lock()
+	topologyKey := p.topologyKey
+	p.myTopologyDomain = myNode.Labels[topologyKey]
+	myTopologyDomain := p.myTopologyDomain
+	p.mutex.Unlock()
+	if topologyKey != "" {
+		if myTopologyDomain == "" {
+			p.log.Info("topology key is set but own node does not carry the label, failure domain awareness is disabled on this node", "topologyKey", topologyKey)
+		} else {
+			p.log.Info("failure domain awareness enabled", "topologyKey", topologyKey, "myTopologyDomain", myTopologyDomain)
+		}
 	}
 
 	p.log.Info("peer starting", "name", p.myNodeName)
@@ -103,17 +155,19 @@ func (p *Peers) Start(ctx context.Context) error {
 
 func (p *Peers) updateWorkerPeers(ctx context.Context) error {
 	setterFunc := func(addresses []v1.PodIP) { p.workerPeersAddresses = addresses }
-	selectorGetter := func() labels.Selector { return p.workerPeerSelector }
-	return p.updatePeers(ctx, selectorGetter, setterFunc)
+	selectorsGetter := func() []labels.Selector { return p.workerPeerSelectors }
+	return p.updatePeers(ctx, Worker, selectorsGetter, setterFunc, nil)
 }
 
 func (p *Peers) updateControlPlanePeers(ctx context.Context) error {
 	setterFunc := func(addresses []v1.PodIP) { p.controlPlanePeersAddresses = addresses }
-	selectorGetter := func() labels.Selector { return p.controlPlanePeerSelector }
-	return p.updatePeers(ctx, selectorGetter, setterFunc)
+	selectorsGetter := func() []labels.Selector { return p.controlPlanePeerSelectors }
+	return p.updatePeers(ctx, ControlPlane, selectorsGetter, setterFunc, p.updateControlPlaneNodeDomains)
 }
 
-func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selector, setAddresses func(addresses []v1.PodIP)) error {
+// updatePeers refreshes the peers of one role: the nodes matching any of the selectors, each listed once.
+// setNodes, when not nil, receives the listed nodes of that role.
+func (p *Peers) updatePeers(ctx context.Context, role Role, getSelectors func() []labels.Selector, setAddresses func(addresses []v1.PodIP), setNodes func(nodes v1.NodeList)) error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
@@ -121,14 +175,27 @@ func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selec
 	defer cancel()
 
 	nodes := v1.NodeList{}
+	listed := map[string]bool{}
 	// get some nodes, but not ourself
-	if err := p.List(readerCtx, &nodes, client.MatchingLabelsSelector{Selector: getSelector()}); err != nil {
-		if apierrors.IsNotFound(err) {
-			// we are the only node at the moment... reset peerList
-			p.workerPeersAddresses = []v1.PodIP{}
+	for _, selector := range getSelectors() {
+		selected := v1.NodeList{}
+		if err := p.List(readerCtx, &selected, client.MatchingLabelsSelector{Selector: selector}); err != nil {
+			if apierrors.IsNotFound(err) {
+				// we are the only node at the moment... reset peerList
+				p.workerPeersAddresses = []v1.PodIP{}
+			}
+			p.log.Error(err, "failed to update peer list")
+			return pkgerrors.Wrap(err, "failed to update peer list")
 		}
-		p.log.Error(err, "failed to update peer list")
-		return pkgerrors.Wrap(err, "failed to update peer list")
+		for _, node := range selected.Items {
+			if !listed[node.Name] {
+				listed[node.Name] = true
+				nodes.Items = append(nodes.Items, node)
+			}
+		}
+	}
+	if setNodes != nil {
+		setNodes(nodes)
 	}
 
 	pods := v1.PodList{}
@@ -145,7 +212,70 @@ func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selec
 
 	addresses, err := p.mapNodesToPrimaryPodIPs(nodes, pods)
 	setAddresses(addresses)
+	p.updateTopologyDomains(role, nodes, pods)
 	return err
+}
+
+// updateControlPlaneNodeDomains records the failure domain of every control plane node other than our own.
+func (p *Peers) updateControlPlaneNodeDomains(nodes v1.NodeList) {
+	if p.topologyKey == "" {
+		return
+	}
+	domains := make(map[string]string, len(nodes.Items))
+	for _, node := range nodes.Items {
+		domains[node.Name] = node.Labels[p.topologyKey] // empty when the node has no label
+	}
+	p.controlPlaneNodeDomains = domains
+}
+
+// GetControlPlaneDomains returns how the control plane nodes other than our own node are spread over the failure
+// domains, relative to our own domain. All counts are zero when failure domain awareness is disabled or our own
+// domain is unknown.
+func (p *Peers) GetControlPlaneDomains() ControlPlaneDomains {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	domains := ControlPlaneDomains{}
+	if p.myTopologyDomain == "" {
+		return domains
+	}
+	for _, domain := range p.controlPlaneNodeDomains {
+		switch domain {
+		case "":
+			domains.Unknown++
+		case p.myTopologyDomain:
+			domains.InMyDomain++
+		default:
+			domains.InOtherDomain++
+		}
+	}
+	return domains
+}
+
+// updateTopologyDomains rebuilds, for the peers of one role, the failure domain of every peer whose node carries
+// the topology label. Peers without the label are deliberately left out: they are treated as being outside of our
+// own domain. The map is rebuilt from the current nodes and agent pods, so that the address of an agent that is
+// gone (e.g. restarted with a new IP) is dropped.
+func (p *Peers) updateTopologyDomains(role Role, nodes v1.NodeList, pods v1.PodList) {
+	if p.topologyKey == "" {
+		return
+	}
+	domainByNode := map[string]string{}
+	for _, node := range nodes.Items {
+		if domain := node.Labels[p.topologyKey]; domain != "" {
+			domainByNode[node.Name] = domain
+		}
+	}
+	domains := map[string]string{}
+	for _, pod := range pods.Items {
+		if len(pod.Status.PodIPs) == 0 || pod.Status.PodIPs[0].IP == "" {
+			continue
+		}
+		if domain, labeled := domainByNode[pod.Spec.NodeName]; labeled {
+			domains[pod.Status.PodIPs[0].IP] = domain
+		}
+	}
+	p.topologyDomains[role] = domains
 }
 
 func (p *Peers) mapNodesToPrimaryPodIPs(nodes v1.NodeList, pods v1.PodList) ([]v1.PodIP, error) {
@@ -191,17 +321,53 @@ func (p *Peers) GetPeersAddresses(role Role) []v1.PodIP {
 	return addressesCopy
 }
 
+// Snapshot is a consistent view of the peers of one role, taken under a single lock, so that the addresses,
+// the failure domain classification and the number of peers outside of our own domain all describe the
+// same peer list even if a peer refresh happens meanwhile.
+type Snapshot struct {
+	// Addresses are the pod IPs of the peers
+	Addresses []v1.PodIP
+	// InMyDomain tells, per pod IP, whether the peer is known to be in our own failure domain.
+	// Empty when failure domain awareness is disabled or our own domain is unknown.
+	InMyDomain map[string]bool
+	// OutsideMyDomain is the number of peers that are not in our own failure domain (including peers whose
+	// domain is unknown), or 0 when failure domain awareness is disabled or our own domain is unknown.
+	OutsideMyDomain int
+}
+
+// GetPeersSnapshot returns a consistent snapshot of the peers of the given role, see Snapshot.
+func (p *Peers) GetPeersSnapshot(role Role) Snapshot {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	addresses := p.workerPeersAddresses
+	if role == ControlPlane {
+		addresses = p.controlPlanePeersAddresses
+	}
+	snapshot := Snapshot{
+		Addresses:  make([]v1.PodIP, len(addresses)),
+		InMyDomain: map[string]bool{},
+	}
+	copy(snapshot.Addresses, addresses)
+
+	if p.myTopologyDomain == "" {
+		return snapshot
+	}
+	for _, address := range addresses {
+		domain, known := p.topologyDomains[role][address.IP]
+		if known && domain == p.myTopologyDomain {
+			snapshot.InMyDomain[address.IP] = true
+		} else {
+			snapshot.OutsideMyDomain++
+		}
+	}
+	return snapshot
+}
+
 func createSelector(hostNameToExclude string, nodeTypeLabel string) labels.Selector {
 	reqNotMe, _ := labels.NewRequirement(hostnameLabelName, selection.NotEquals, []string{hostNameToExclude})
 	reqPeers, _ := labels.NewRequirement(nodeTypeLabel, selection.Exists, []string{})
 	selector := labels.NewSelector()
 	selector = selector.Add(*reqNotMe, *reqPeers)
 	return selector
-}
-
-func getControlPlaneLabel(node *v1.Node) string {
-	if _, isControlPlaneLabelExist := node.Labels[commonlabels.ControlPlaneRole]; isControlPlaneLabelExist {
-		return commonlabels.ControlPlaneRole
-	}
-	return commonlabels.MasterRole
 }

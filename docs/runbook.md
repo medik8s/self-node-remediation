@@ -50,6 +50,7 @@ Inspect **Conditions** (**Processing**, **Succeeded**, **Disabled**), **`status.
 | **`maxTimeForNoPeersResponse`** | Floor for peer-interaction timing in the calculated minimum reboot duration; **30s** default, now configurable (previously a hardcoded constant). |
 | **`hostPort`** | gRPC peer health port (**must align** with firewall / other services). |
 | **`minPeersForRemediation`** | Minimum worker peers required before trusting peer-based isolation signals (**0** disables peer requirement — use with care). |
+| **`peerTopologyKey`** | Node label naming the failure domain (e.g. **`topology.kubernetes.io/zone`**); empty by default (unchanged evaluation). ApiError answers from peers of the node's own domain are ignored when a strict majority of the control plane and at least **`minPeersForRemediation`** peers are outside of it, so a partitioned domain self-reboots. The agent reads its own node's label at start. |
 | **`isSoftwareRebootEnabled`** | Allow **software reboot** when watchdog unusable. |
 | **`customDsTolerations`** | Schedule agents on tainted nodes (e.g. infra). |
 | **`endpointHealthCheckUrl`** | Control-plane diagnostic **ping** (ICMP, not HTTP) check when workers cannot be used as peers. |
@@ -75,7 +76,7 @@ Verify **`kubectl version`** / **`Server Version`** vs operator expectations if 
 3. **Agent on node** — SNR agent **pod** scheduled? Annotation **`is-reboot-capable.self-node-remediation.medik8s.io=true`**?
 4. **Exclude label** — Node has **`remediation.medik8s.io/exclude-from-remediation=true`**? Remediation is skipped; look for **`RemediationSkipped`** on the SNR.
 5. **Node taints / finalizer** — **`kubectl describe node <node>`**: **`remediation.medik8s.io/self-node-remediation`** (NoSchedule), **`node.kubernetes.io/out-of-service`** when using OOS strategy; SNR **`self-node-remediation.medik8s.io/snr-finalizer`** until cleanup completes.
-6. **Peers** — enough nodes? **`minPeersForRemediation`**? Network **TCP** to peer IPs on **`hostPort`**?
+6. **Peers** — enough nodes? **`minPeersForRemediation`**? Network **TCP** to peer IPs on **`hostPort`**? With **`peerTopologyKey`**, the agent logs whether failure domain awareness is active, and why not.
 7. **API check** — agent logs for **`/readyz`** failures; transient vs sustained outage.
 8. **Watchdog** — logs for **Malfunction** / **software reboot** path; **`IS_SOFTWARE_REBOOT_ENABLED`** / config **`isSoftwareRebootEnabled`**.
 9. **NHC** — timeout annotation **`remediation.medik8s.io/nhc-timed-out`** ends remediation early.
