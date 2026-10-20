@@ -89,7 +89,10 @@ rules:
   verbs:
   - create
   - delete
+  - get
+  - list
   - update
+  - watch
 - apiGroups:
   - security.openshift.io
   resourceNames:

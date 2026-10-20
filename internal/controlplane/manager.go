@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -16,21 +17,30 @@ import (
 	"github.com/medik8s/common/pkg/nodes"
 
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/medik8s/self-node-remediation/v5/internal/certificates"
 	"github.com/medik8s/self-node-remediation/v5/internal/peers"
+	"github.com/medik8s/self-node-remediation/v5/internal/utils"
 )
 
 const (
-	defaultKubeletPort  = "10250"
-	nodeNameAddressType = "NodeName"
+	defaultKubeletPort        = "10250"
+	nodeNameAddressType       = "NodeName"
+	endpointNetworkPolicyName = "self-node-remediation-ds-np"
+
+	// how long isEndpointAccessible waits for a
+	// NetworkPolicy patch to actually take effect
+	endpointAccessRetriesAfterNetworkPolicyPatch = 5
+	endpointAccessRetryBackoff                   = 2 * time.Second
 )
 
 // Manager contains logic and info needed to fence and remediate controlplane nodes
 type Manager struct {
 	nodeName                     string
+	namespace                    string
 	nodeRole                     peers.Role
 	preferredAddressTypes        []string
 	nodeAddresses                []corev1.NodeAddress
@@ -54,14 +64,21 @@ func NewManager(nodeName string, myClient client.Client) *Manager {
 		preferredAddressTypes[i] = strings.TrimSpace(addressType)
 	}
 
+	log := ctrl.Log.WithName("controlPlane").WithName("Manager")
+	namespace, err := utils.GetDeploymentNamespace()
+	if err != nil {
+		log.Error(err, "could not determine deployment namespace; will not keep the EndpointHealthCheckUrl NetworkPolicy exception up to date before pinging")
+	}
+
 	return &Manager{
 		nodeName:                     nodeName,
+		namespace:                    namespace,
 		endpointHealthCheckUrl:       os.Getenv("END_POINT_HEALTH_CHECK_URL"),
 		preferredAddressTypes:        preferredAddressTypes,
 		kubeletPort:                  defaultKubeletPort,
 		client:                       myClient,
 		wasEndpointAccessibleAtStart: false,
-		log:                          ctrl.Log.WithName("controlPlane").WithName("Manager"),
+		log:                          log,
 	}
 }
 
@@ -170,6 +187,31 @@ func (manager *Manager) isEndpointAccessible() bool {
 		return true
 	}
 
+	// re-resolve EndpointHealthCheckUrl and, if needed, patch its
+	// NetworkPolicy egress exception
+	patched := manager.ensureEndpointNetworkPolicyUpToDate(context.TODO())
+
+	if manager.pingEndpoint() {
+		return true
+	}
+	if !patched {
+		return false
+	}
+
+	// We just patched the NetworkPolicy because EndpointHealthCheckUrl
+	// resolved to a new address. Enforcing that patch in the cluster's CNI
+	// is asynchronous, so a ping made immediately after patching can still
+	// be blocked by the old rule for a short window. Retry a few times
+	for i := 0; i < endpointAccessRetriesAfterNetworkPolicyPatch; i++ {
+		time.Sleep(endpointAccessRetryBackoff)
+		if manager.pingEndpoint() {
+			return true
+		}
+	}
+	return false
+}
+
+func (manager *Manager) pingEndpoint() bool {
 	pinger, err := ping.NewPinger(manager.endpointHealthCheckUrl)
 	if err != nil {
 		manager.log.Error(err, "could not access endpoint", "endpoint URL", manager.endpointHealthCheckUrl)
@@ -181,6 +223,92 @@ func (manager *Manager) isEndpointAccessible() bool {
 	if err := pinger.Run(); err != nil {
 		manager.log.Error(err, "could not access endpoint", "endpoint URL", manager.endpointHealthCheckUrl)
 		return false
+	}
+
+	// pinger.Run() only returns an error on setup/socket failures. If every
+	// ping request times out, Run() still returns nil, so we must check that
+	// at least one reply was received before declaring the endpoint accessible.
+	stats := pinger.Statistics()
+	if stats.PacketsRecv == 0 {
+		manager.log.Error(fmt.Errorf("no ping replies received"), "could not access endpoint", "endpoint URL", manager.endpointHealthCheckUrl, "packetsSent", stats.PacketsSent)
+		return false
+	}
+	return true
+}
+
+// ensureEndpointNetworkPolicyUpToDate re-resolves endpointHealthCheckUrl and,
+// if its address(es) changed since the NetworkPolicy was last written,
+// patches that NetworkPolicy's egress exception for it.
+func (manager *Manager) ensureEndpointNetworkPolicyUpToDate(ctx context.Context) bool {
+	if manager.namespace == "" {
+		return false
+	}
+
+	cidrs, err := utils.ResolveURLToSortedCIDRs(manager.endpointHealthCheckUrl)
+	if err != nil {
+		manager.log.Error(err, "could not resolve endpoint health check URL to an IP; leaving its NetworkPolicy egress exception as-is", "endpoint URL", manager.endpointHealthCheckUrl)
+		return false
+	}
+
+	np := &networkingv1.NetworkPolicy{}
+	key := client.ObjectKey{Name: endpointNetworkPolicyName, Namespace: manager.namespace}
+	if err := manager.client.Get(ctx, key, np); err != nil {
+		manager.log.Error(err, "could not get NetworkPolicy to check its endpoint egress exception", "name", endpointNetworkPolicyName, "namespace", manager.namespace)
+		return false
+	}
+
+	if sameCIDRs(endpointCIDRsFromEgress(np.Spec.Egress), cidrs) {
+		return false
+	}
+
+	np.Spec.Egress = replaceEndpointCIDRRules(np.Spec.Egress, cidrs)
+	if err := manager.client.Update(ctx, np); err != nil {
+		manager.log.Error(err, "could not update NetworkPolicy's endpoint egress exception to the newly resolved address(es)", "name", endpointNetworkPolicyName, "namespace", manager.namespace)
+		return false
+	}
+	manager.log.Info("updated NetworkPolicy's endpoint egress exception to the newly resolved address(es)",
+		"name", endpointNetworkPolicyName, "namespace", manager.namespace, "cidrs", cidrs)
+	return true
+}
+
+func isEndpointCIDRRule(rule networkingv1.NetworkPolicyEgressRule) bool {
+	return len(rule.Ports) == 0 && len(rule.To) == 1 && rule.To[0].IPBlock != nil
+}
+
+func endpointCIDRsFromEgress(egress []networkingv1.NetworkPolicyEgressRule) []string {
+	var cidrs []string
+	for _, rule := range egress {
+		if isEndpointCIDRRule(rule) {
+			cidrs = append(cidrs, rule.To[0].IPBlock.CIDR)
+		}
+	}
+	sort.Strings(cidrs)
+	return cidrs
+}
+
+func replaceEndpointCIDRRules(egress []networkingv1.NetworkPolicyEgressRule, cidrs []string) []networkingv1.NetworkPolicyEgressRule {
+	kept := make([]networkingv1.NetworkPolicyEgressRule, 0, len(egress)+len(cidrs))
+	for _, rule := range egress {
+		if !isEndpointCIDRRule(rule) {
+			kept = append(kept, rule)
+		}
+	}
+	for _, cidr := range cidrs {
+		kept = append(kept, networkingv1.NetworkPolicyEgressRule{
+			To: []networkingv1.NetworkPolicyPeer{{IPBlock: &networkingv1.IPBlock{CIDR: cidr}}},
+		})
+	}
+	return kept
+}
+
+func sameCIDRs(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
 	}
 	return true
 }
