@@ -122,28 +122,33 @@ func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selec
 
 	nodes := v1.NodeList{}
 	// get some nodes, but not ourself
-	if err := p.List(readerCtx, &nodes, client.MatchingLabelsSelector{Selector: getSelector()}); err != nil {
-		if apierrors.IsNotFound(err) {
-			// we are the only node at the moment... reset peerList
-			p.workerPeersAddresses = []v1.PodIP{}
+	var err error
+	if err = p.List(readerCtx, &nodes, client.MatchingLabelsSelector{Selector: getSelector()}); err != nil {
+		if !apierrors.IsNotFound(err) {
+			p.log.Error(err, "failed to update peer list")
+			return pkgerrors.Wrap(err, "failed to update peer list")
 		}
+		// we are the only node at the moment... reset peerList
 		p.log.Error(err, "failed to update peer list")
-		return pkgerrors.Wrap(err, "failed to update peer list")
+		err = pkgerrors.Wrap(err, "failed to update peer list")
 	}
 
-	pods := v1.PodList{}
-	listOptions := &client.ListOptions{
-		LabelSelector: labels.SelectorFromSet(labels.Set{
-			"app.kubernetes.io/name":      "self-node-remediation",
-			"app.kubernetes.io/component": "agent",
-		}),
-	}
-	if err := p.List(readerCtx, &pods, listOptions); err != nil {
-		p.log.Error(err, "could not get pods")
-		return pkgerrors.Wrap(err, "could not get pods")
+	var addresses []v1.PodIP
+	if len(nodes.Items) > 0 {
+		pods := v1.PodList{}
+		listOptions := &client.ListOptions{
+			LabelSelector: labels.SelectorFromSet(labels.Set{
+				"app.kubernetes.io/name":      "self-node-remediation",
+				"app.kubernetes.io/component": "agent",
+			}),
+		}
+		if err = p.List(readerCtx, &pods, listOptions); err != nil {
+			p.log.Error(err, "could not get pods")
+			return pkgerrors.Wrap(err, "could not get pods")
+		}
+		addresses, err = p.mapNodesToPrimaryPodIPs(nodes, pods)
 	}
 
-	addresses, err := p.mapNodesToPrimaryPodIPs(nodes, pods)
 	setAddresses(addresses)
 	return err
 }

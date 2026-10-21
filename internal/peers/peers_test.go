@@ -11,8 +11,10 @@ import (
 	"github.com/go-logr/logr"
 
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -679,5 +681,37 @@ func TestStartVerifiesPeerAddresses(t *testing.T) {
 
 			t.Logf("Test passed: %s", tc.description)
 		})
+	}
+}
+
+// fakeNotFoundReader returns a NotFound error for every List call, regardless
+// of what's actually in the underlying client - used to exercise the
+// apierrors.IsNotFound branch in updatePeers, which real List() calls don't
+// normally hit.
+type fakeNotFoundReader struct {
+	client.Reader
+}
+
+func (fakeNotFoundReader) List(_ context.Context, _ client.ObjectList, _ ...client.ListOption) error {
+	return apierrors.NewNotFound(schema.GroupResource{Resource: "nodes"}, "")
+}
+
+func TestUpdateControlPlanePeersNotFoundDoesNotResetWorkerList(t *testing.T) {
+	p := New("my-node", time.Minute, fakeNotFoundReader{}, logr.Discard(), time.Second)
+	p.workerPeerSelector = labels.Everything()
+	p.controlPlanePeerSelector = labels.Everything()
+	p.workerPeersAddresses = []v1.PodIP{{IP: "10.0.0.1"}}
+	p.controlPlanePeersAddresses = []v1.PodIP{{IP: "10.0.0.2"}} // sentinel: must be cleared by the callback
+
+	err := p.updateControlPlanePeers(context.Background())
+
+	if err == nil {
+		t.Fatal("expected NotFound error to propagate")
+	}
+	if len(p.workerPeersAddresses) != 1 || p.workerPeersAddresses[0].IP != "10.0.0.1" {
+		t.Errorf("worker list must be untouched by a control-plane NotFound, got %v", p.workerPeersAddresses)
+	}
+	if len(p.controlPlanePeersAddresses) != 0 {
+		t.Errorf("control-plane list should be reset to empty, got %v", p.controlPlanePeersAddresses)
 	}
 }
