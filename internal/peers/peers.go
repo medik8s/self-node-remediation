@@ -114,9 +114,6 @@ func (p *Peers) updateControlPlanePeers(ctx context.Context) error {
 }
 
 func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selector, setAddresses func(addresses []v1.PodIP)) error {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
 	readerCtx, cancel := context.WithTimeout(ctx, p.apiServerTimeout)
 	defer cancel()
 
@@ -125,7 +122,9 @@ func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selec
 	if err := p.List(readerCtx, &nodes, client.MatchingLabelsSelector{Selector: getSelector()}); err != nil {
 		if apierrors.IsNotFound(err) {
 			// we are the only node at the moment... reset peerList
+			p.mutex.Lock()
 			p.workerPeersAddresses = []v1.PodIP{}
+			p.mutex.Unlock()
 		}
 		p.log.Error(err, "failed to update peer list")
 		return pkgerrors.Wrap(err, "failed to update peer list")
@@ -144,6 +143,9 @@ func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selec
 	}
 
 	addresses, err := p.mapNodesToPrimaryPodIPs(nodes, pods)
+
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
 	setAddresses(addresses)
 	return err
 }
