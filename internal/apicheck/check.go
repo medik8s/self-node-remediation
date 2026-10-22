@@ -280,6 +280,29 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 // getControlPlanePeersStatus contacts peer control plane nodes and returns whether they can be reached
 // and whether they consider this node unhealthy (i.e. a SNR CR exists for it).
 func (c *ApiConnectivityCheck) getControlPlanePeersStatus() (canBeReached bool, consideredUnhealthy bool) {
+	canBeReached, consideredUnhealthy = c.dialControlPlanePeers()
+	if !canBeReached {
+		// Every dial failed. Before trusting that as isolation, rule out the
+		// cheaper explanation: our cached peer IPs are stale (e.g. a DaemonSet
+		// rollout replaced peer pods since Peers' last scheduled refresh) rather
+		// than the peers actually being unreachable. Force a refresh and retry once.
+		refreshCtx, cancel := context.WithTimeout(context.Background(), c.config.ApiServerTimeout)
+		err := c.config.Peers.RefreshControlPlanePeersForIsolationCheck(refreshCtx)
+		cancel()
+		if err != nil {
+			c.config.Log.Info("peer refresh after failed dial also failed, trusting original result", "error", err)
+		} else {
+			canBeReached, consideredUnhealthy = c.dialControlPlanePeers()
+		}
+	}
+
+	return canBeReached, consideredUnhealthy
+}
+
+// dialControlPlanePeers contacts peer control plane nodes using whatever
+// addresses Peers currently has cached, and returns whether any of them
+// could be reached and whether they consider this node unhealthy.
+func (c *ApiConnectivityCheck) dialControlPlanePeers() (canBeReached bool, consideredUnhealthy bool) {
 	peersToAsk := c.config.Peers.GetPeersAddresses(peers.ControlPlane)
 	numOfControlPlanePeers := len(peersToAsk)
 	if numOfControlPlanePeers == 0 {
