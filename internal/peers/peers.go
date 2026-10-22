@@ -124,6 +124,9 @@ func (p *Peers) updateControlPlanePeers(ctx context.Context) error {
 // used by the isolation check's reactive retry, where a transient empty
 // result shouldn't be mistaken for "no peers are configured."
 func (p *Peers) RefreshControlPlanePeersForIsolationCheck(ctx context.Context) error {
+	if p.controlPlanePeerSelector == nil {
+		return fmt.Errorf("control plane peer selector not initialized")
+	}
 	setterFunc := func(addresses []v1.PodIP) {
 		if len(addresses) == 0 && len(p.controlPlanePeersAddresses) > 0 {
 			return
