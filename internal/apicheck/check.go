@@ -98,7 +98,7 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 		}
 		if failure != "" {
 			c.config.Log.Info(fmt.Sprintf("failed to check api server: %s", failure))
-			if isHealthy := c.isConsideredHealthy(); !isHealthy {
+			if isHealthy := c.isConsideredHealthy(ctx); !isHealthy {
 				// we have a problem on this node
 				c.config.Log.Error(err, "we are unhealthy, triggering a reboot")
 				if err := c.config.Rebooter.Reboot(); err != nil {
@@ -117,7 +117,7 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 		if c.isControlPlane() {
 			// Directly check peer reachability to detect isolation.
 			// Skip errorCount threshold since readyz succeeded (not an API error).
-			canBeReached, cpUnhealthy := c.getControlPlanePeersStatus()
+			canBeReached, cpUnhealthy := c.getControlPlanePeersStatus(ctx)
 
 			// If CP peers say we're unhealthy, trigger remediation immediately
 			if cpUnhealthy {
@@ -135,7 +135,7 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 				// Note: If 2/3 CPs are dead (not isolated), this remediates the survivor.
 				// Acceptable since cluster already lacks quorum and is non-functional.
 				c.config.Log.Info("CP node: readyz passed but no CP peers reachable, treating as failure")
-				if isHealthy := c.isConsideredHealthy(); !isHealthy {
+				if isHealthy := c.isConsideredHealthy(ctx); !isHealthy {
 					c.config.Log.Info("CP isolation detected despite passing readyz, triggering reboot")
 					if err := c.config.Rebooter.Reboot(); err != nil {
 						c.config.Log.Error(err, "failed to trigger reboot")
@@ -162,12 +162,12 @@ func (c *ApiConnectivityCheck) isControlPlane() bool {
 
 // isConsideredHealthy keeps track of the number of errors reported, and when a certain amount of error occur within a certain
 // time, ask peers if this node is healthy. Returns if the node is considered to be healthy or not.
-func (c *ApiConnectivityCheck) isConsideredHealthy() bool {
+func (c *ApiConnectivityCheck) isConsideredHealthy(ctx context.Context) bool {
 	workerPeersResponse := c.getWorkerPeersResponse()
 	if !c.isControlPlane() {
 		return workerPeersResponse.IsHealthy
 	}
-	canBeReached, cpUnhealthy := c.getControlPlanePeersStatus()
+	canBeReached, cpUnhealthy := c.getControlPlanePeersStatus(ctx)
 	if cpUnhealthy {
 		c.config.Log.Info("Peer control plane nodes reported this node as unhealthy, triggering remediation")
 		return false
@@ -279,7 +279,30 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 
 // getControlPlanePeersStatus contacts peer control plane nodes and returns whether they can be reached
 // and whether they consider this node unhealthy (i.e. a SNR CR exists for it).
-func (c *ApiConnectivityCheck) getControlPlanePeersStatus() (canBeReached bool, consideredUnhealthy bool) {
+func (c *ApiConnectivityCheck) getControlPlanePeersStatus(ctx context.Context) (canBeReached bool, consideredUnhealthy bool) {
+	canBeReached, consideredUnhealthy = c.dialControlPlanePeers()
+	if !canBeReached {
+		// Every dial failed. Before trusting that as isolation, rule out the
+		// cheaper explanation: our cached peer IPs are stale (e.g. a DaemonSet
+		// rollout replaced peer pods since Peers' last scheduled refresh) rather
+		// than the peers actually being unreachable. Force a refresh and retry once.
+		refreshCtx, cancel := context.WithTimeout(ctx, c.config.ApiServerTimeout)
+		err := c.config.Peers.RefreshControlPlanePeersForIsolationCheck(refreshCtx)
+		cancel()
+		if err != nil {
+			c.config.Log.Info("peer refresh after failed dial also failed, trusting original result", "error", err)
+		} else {
+			canBeReached, consideredUnhealthy = c.dialControlPlanePeers()
+		}
+	}
+
+	return canBeReached, consideredUnhealthy
+}
+
+// dialControlPlanePeers contacts peer control plane nodes using whatever
+// addresses Peers currently has cached, and returns whether any of them
+// could be reached and whether they consider this node unhealthy.
+func (c *ApiConnectivityCheck) dialControlPlanePeers() (canBeReached bool, consideredUnhealthy bool) {
 	peersToAsk := c.config.Peers.GetPeersAddresses(peers.ControlPlane)
 	numOfControlPlanePeers := len(peersToAsk)
 	if numOfControlPlanePeers == 0 {
