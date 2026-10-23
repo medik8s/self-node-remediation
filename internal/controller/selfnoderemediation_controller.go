@@ -548,6 +548,14 @@ func (r *SelfNodeRemediationReconciler) handleFencingCompletedPhase(node *corev1
 func (r *SelfNodeRemediationReconciler) recoverNode(node *corev1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
 	r.logger.Info("fencing completed, cleaning up")
 
+	// out-of-service should already be removed by useOutOfServiceTaint, but that removal
+	// may not yet be visible via the cached client read that produced this node snapshot.
+	// Clear it explicitly here too, mirroring the NHC-timeout cleanup path, so a stale
+	// snapshot can't leave it permanently stuck on the node.
+	if err := r.removeOutOfServiceTaint(node); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	if err := r.removeNoScheduleTaint(node); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -746,7 +754,7 @@ func (r *SelfNodeRemediationReconciler) addNoScheduleTaint(node *corev1.Node) er
 		return nil
 	}
 
-	patch := client.MergeFrom(node.DeepCopy())
+	patch := client.MergeFromWithOptions(node.DeepCopy(), client.MergeFromWithOptimisticLock{})
 	taint := *NodeNoScheduleTaint
 	now := metav1.Now()
 	taint.TimeAdded = &now
@@ -765,7 +773,7 @@ func (r *SelfNodeRemediationReconciler) removeNoScheduleTaint(node *corev1.Node)
 		return nil
 	}
 
-	patch := client.MergeFrom(node.DeepCopy())
+	patch := client.MergeFromWithOptions(node.DeepCopy(), client.MergeFromWithOptimisticLock{})
 	if taints, deleted := utils.DeleteTaint(node.Spec.Taints, NodeNoScheduleTaint); !deleted {
 		r.logger.Info("Failed to remove taint from node, taint not found", "node name", node.Name, "taint key", NodeNoScheduleTaint.Key, "taint effect", NodeNoScheduleTaint.Effect)
 		return nil
@@ -796,7 +804,7 @@ func (r *SelfNodeRemediationReconciler) addOutOfServiceTaint(node *corev1.Node) 
 		return nil
 	}
 
-	patch := client.MergeFrom(node.DeepCopy())
+	patch := client.MergeFromWithOptions(node.DeepCopy(), client.MergeFromWithOptimisticLock{})
 	taint := *OutOfServiceTaint
 	now := metav1.Now()
 	taint.TimeAdded = &now
@@ -816,7 +824,7 @@ func (r *SelfNodeRemediationReconciler) removeOutOfServiceTaint(node *corev1.Nod
 		return nil
 	}
 
-	patch := client.MergeFrom(node.DeepCopy())
+	patch := client.MergeFromWithOptions(node.DeepCopy(), client.MergeFromWithOptimisticLock{})
 	if taints, deleted := utils.DeleteTaint(node.Spec.Taints, OutOfServiceTaint); !deleted {
 		r.logger.Info("Failed to remove taint from node, taint not found", "node name", node.Name, "taint key", OutOfServiceTaint.Key, "taint effect", OutOfServiceTaint.Effect)
 		return nil
