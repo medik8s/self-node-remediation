@@ -715,3 +715,81 @@ func TestUpdateControlPlanePeersNotFoundDoesNotResetWorkerList(t *testing.T) {
 		t.Errorf("control-plane list should be reset to empty, got %v", p.controlPlanePeersAddresses)
 	}
 }
+
+func TestRefreshControlPlanePeersForIsolationCheckPreservesCacheOnEmpty(t *testing.T) {
+	p := New("my-node", time.Minute, fakeNotFoundReader{}, logr.Discard(), time.Second)
+	p.controlPlanePeerSelector = labels.Everything()
+	p.controlPlanePeersAddresses = []v1.PodIP{{IP: "10.0.0.2"}} // must survive a NotFound via this method
+
+	err := p.RefreshControlPlanePeersForIsolationCheck(context.Background())
+
+	if err == nil {
+		t.Fatal("expected NotFound error to propagate")
+	}
+	if len(p.controlPlanePeersAddresses) != 1 || p.controlPlanePeersAddresses[0].IP != "10.0.0.2" {
+		t.Errorf("control-plane list must be preserved on an empty/NotFound result, got %v", p.controlPlanePeersAddresses)
+	}
+}
+
+// TestUpdateControlPlanePeersOnDemand verifies that updateControlPlanePeers,
+// called directly (not through Start's periodic loop), immediately picks up
+// a change to peer pod IPs -- the behavior apicheck relies on to recover from
+// a stale cache after a failed dial, without waiting for peerUpdateInterval.
+func TestUpdateControlPlanePeersOnDemand(t *testing.T) {
+	node := v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "cp-peer",
+			Labels: map[string]string{
+				hostnameLabelName:                       "cp-peer",
+				"node-role.kubernetes.io/control-plane": "",
+			},
+		},
+	}
+	pod := v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "snr-pod-cp-peer",
+			Labels: map[string]string{
+				"app.kubernetes.io/name":      "self-node-remediation",
+				"app.kubernetes.io/component": "agent",
+			},
+		},
+		Spec:   v1.PodSpec{NodeName: "cp-peer"},
+		Status: v1.PodStatus{PodIPs: []v1.PodIP{{IP: "10.0.2.1"}}},
+	}
+	mockReader := &mockReaderWithPeers{
+		nodes: []v1.Node{node},
+		pods:  []v1.Pod{pod},
+	}
+
+	// A long peerUpdateInterval so Start's own background loop won't refresh
+	// again on its own during this test -- any change we observe must come
+	// from the direct updateControlPlanePeers call below.
+	p := New("test-node", time.Hour, mockReader, logr.Discard(), 5*time.Second)
+
+	startCtx, cancelStart := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancelStart()
+	if err := p.Start(startCtx); err != nil {
+		t.Fatalf("Start() returned an error: %v", err)
+	}
+
+	addrs := p.GetPeersAddresses(ControlPlane)
+	if len(addrs) != 1 || addrs[0].IP != "10.0.2.1" {
+		t.Fatalf("expected initial address 10.0.2.1, got %v", addrs)
+	}
+
+	// Simulate a DaemonSet rollout replacing the peer pod with a new IP.
+	mockReader.pods = []v1.Pod{{
+		ObjectMeta: pod.ObjectMeta,
+		Spec:       pod.Spec,
+		Status:     v1.PodStatus{PodIPs: []v1.PodIP{{IP: "10.0.2.99"}}},
+	}}
+
+	if err := p.updateControlPlanePeers(context.Background()); err != nil {
+		t.Fatalf("updateControlPlanePeers() returned an error: %v", err)
+	}
+
+	addrs = p.GetPeersAddresses(ControlPlane)
+	if len(addrs) != 1 || addrs[0].IP != "10.0.2.99" {
+		t.Fatalf("expected updated address 10.0.2.99 after on-demand refresh, got %v", addrs)
+	}
+}

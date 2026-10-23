@@ -107,8 +107,32 @@ func (p *Peers) updateWorkerPeers(ctx context.Context) error {
 	return p.updatePeers(ctx, selectorGetter, setterFunc)
 }
 
+// updateControlPlanePeers re-reads control plane peer addresses immediately,
+// bypassing peerUpdateInterval. A result with no addresses (including a
+// NotFound on the node list) replaces the cache, same as the periodic
+// refresh -- this is the authoritative read. Callers that instead need to
+// tolerate a transient empty result without losing track of previously-known
+// peers should use RefreshControlPlanePeersForIsolationCheck.
 func (p *Peers) updateControlPlanePeers(ctx context.Context) error {
 	setterFunc := func(addresses []v1.PodIP) { p.controlPlanePeersAddresses = addresses }
+	selectorGetter := func() labels.Selector { return p.controlPlanePeerSelector }
+	return p.updatePeers(ctx, selectorGetter, setterFunc)
+}
+
+// RefreshControlPlanePeersForIsolationCheck is like updateControlPlanePeers,
+// but an empty result preserves the existing cache instead of clearing it --
+// used by the isolation check's reactive retry, where a transient empty
+// result shouldn't be mistaken for "no peers are configured."
+func (p *Peers) RefreshControlPlanePeersForIsolationCheck(ctx context.Context) error {
+	if p.controlPlanePeerSelector == nil {
+		return fmt.Errorf("control plane peer selector not initialized")
+	}
+	setterFunc := func(addresses []v1.PodIP) {
+		if len(addresses) == 0 && len(p.controlPlanePeersAddresses) > 0 {
+			return
+		}
+		p.controlPlanePeersAddresses = addresses
+	}
 	selectorGetter := func() labels.Selector { return p.controlPlanePeerSelector }
 	return p.updatePeers(ctx, selectorGetter, setterFunc)
 }
