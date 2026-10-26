@@ -65,6 +65,8 @@ Implemented on **`SelfNodeRemediation.spec.remediationStrategy`**:
 - Consecutive failures increment a counter; below **`MaxApiErrorThreshold`**, the node is still treated as healthy.
 - Above threshold, **worker peers** are consulted via **gRPC** (`peerhealth` client/server) to see if a **`SelfNodeRemediation`** exists for this node — peers answer using Kubernetes API + **`IsSNRMatching`** logic.
 - **`MinPeersForRemediation`**: if not enough peer addresses are discovered, the implementation **avoids** declaring unhealthy (reduces false-positive reboots). **Isolated** node scenarios may still mark unhealthy when peers cannot be contacted (**`UnHealthyBecauseNodeIsIsolated`**).
+- **Peer lists** (`internal/peers`, refreshed every **`peerUpdateInterval`**): worker peers are the nodes labeled **`node-role.kubernetes.io/worker`**; control-plane peers are the nodes labeled **`node-role.kubernetes.io/control-plane`** or **`node-role.kubernetes.io/master`**.
+- **`PeerTopologyKey`** (optional, **`PEER_TOPOLOGY_KEY`** env): `peers` also records the failure domain (value of that node label) of every peer and control-plane node. When a strict majority of the control-plane nodes and at least **`MinPeersForRemediation`** peers are outside of the node's domain, **ApiError** answers from same-domain peers are ignored and the > 50% control-plane-failure majority is computed over the peers outside of the domain; otherwise the evaluation is unchanged.
 - **`controlplane.Manager`** (`internal/controlplane`): on control-plane nodes, “healthy?” combines worker peer responses with **diagnostics** (configurable **endpoint URL**, kubelet reachability, ping to other control-plane machines).
 
 ---
@@ -87,7 +89,7 @@ Implemented on **`SelfNodeRemediation.spec.remediationStrategy`**:
 | CRD | Purpose |
 |-----|---------|
 | **`SelfNodeRemediation`** (`snr`) | Per-node remediation instance; **Processing/Succeeded/Disabled** conditions; **phase**, **timeAssumedRebooted**, **lastError**. |
-| **`SelfNodeRemediationConfig`** (`snrconfig`) | Operator namespace singleton **`self-node-remediation-config`**: watchdog path, intervals, thresholds, **hostPort**, tolerations, **minPeersForRemediation**, etc. |
+| **`SelfNodeRemediationConfig`** (`snrconfig`) | Operator namespace singleton **`self-node-remediation-config`**: watchdog path, intervals, thresholds, **hostPort**, tolerations, **minPeersForRemediation**, **peerTopologyKey**, etc. |
 | **`SelfNodeRemediationTemplate`** (`snrt`) | Template for NHC — default **`self-node-remediation-automatic-strategy-template`** with **`Automatic`** strategy. |
 
 ---
