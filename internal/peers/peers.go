@@ -138,9 +138,6 @@ func (p *Peers) RefreshControlPlanePeersForIsolationCheck(ctx context.Context) e
 }
 
 func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selector, setAddresses func(addresses []v1.PodIP)) error {
-	p.mutex.Lock()
-	defer p.mutex.Unlock()
-
 	readerCtx, cancel := context.WithTimeout(ctx, p.apiServerTimeout)
 	defer cancel()
 
@@ -173,6 +170,9 @@ func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selec
 		addresses, err = p.mapNodesToPrimaryPodIPs(nodes, pods)
 	}
 
+
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
 	setAddresses(addresses)
 	return err
 }
