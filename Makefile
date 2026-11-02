@@ -46,7 +46,7 @@ BLUE_ICON_PATH = "./config/assets/snr_icon_blue.png"
 # To re-generate a bundle for another specific version without changing the standard setup, you can:
 # - use the VERSION as arg of the bundle target (e.g make bundle VERSION=5.8.1)
 # - use environment variables to overwrite this value (e.g export VERSION=5.8.1)
-DEFAULT_VERSION := 99.9
+DEFAULT_VERSION := 99.9.9
 DEFAULT_PREVIOUS_VERSION := 5.8.0
 DEFAULT_SKIP_RANGE_LOWER := 0.4.0
 VERSION ?= $(DEFAULT_VERSION)
