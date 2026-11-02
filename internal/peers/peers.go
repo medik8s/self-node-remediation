@@ -39,7 +39,8 @@ type Peers struct {
 	workerPeerSelector, controlPlanePeerSelector     labels.Selector
 	peerUpdateInterval                               time.Duration
 	myNodeName                                       string
-	mutex                                            sync.Mutex
+	mutex                                            sync.Mutex    // protects cached address slices
+	controlPlaneRefreshSem                           chan struct{} // serializes control plane refreshes
 	apiServerTimeout                                 time.Duration
 	workerPeersAddresses, controlPlanePeersAddresses []v1.PodIP
 }
@@ -51,6 +52,7 @@ func New(myNodeName string, peerUpdateInterval time.Duration, reader client.Read
 		peerUpdateInterval:         peerUpdateInterval,
 		myNodeName:                 myNodeName,
 		mutex:                      sync.Mutex{},
+		controlPlaneRefreshSem:     make(chan struct{}, 1),
 		apiServerTimeout:           apiServerTimeout,
 		workerPeersAddresses:       []v1.PodIP{},
 		controlPlanePeersAddresses: []v1.PodIP{},
@@ -115,8 +117,7 @@ func (p *Peers) updateWorkerPeers(ctx context.Context) error {
 // peers should use RefreshControlPlanePeersForIsolationCheck.
 func (p *Peers) updateControlPlanePeers(ctx context.Context) error {
 	setterFunc := func(addresses []v1.PodIP) { p.controlPlanePeersAddresses = addresses }
-	selectorGetter := func() labels.Selector { return p.controlPlanePeerSelector }
-	return p.updatePeers(ctx, selectorGetter, setterFunc)
+	return p.updateControlPlanePeersWithSetter(ctx, setterFunc)
 }
 
 // RefreshControlPlanePeersForIsolationCheck is like updateControlPlanePeers,
@@ -133,8 +134,24 @@ func (p *Peers) RefreshControlPlanePeersForIsolationCheck(ctx context.Context) e
 		}
 		p.controlPlanePeersAddresses = addresses
 	}
+	return p.updateControlPlanePeersWithSetter(ctx, setterFunc)
+}
+
+func (p *Peers) updateControlPlanePeersWithSetter(ctx context.Context, setAddresses func([]v1.PodIP)) error {
+	// Keep control plane refreshes ordered without holding the cache mutex over List calls.
+	select {
+	case p.controlPlaneRefreshSem <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			<-p.controlPlaneRefreshSem
+			return err
+		}
+		defer func() { <-p.controlPlaneRefreshSem }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
 	selectorGetter := func() labels.Selector { return p.controlPlanePeerSelector }
-	return p.updatePeers(ctx, selectorGetter, setterFunc)
+	return p.updatePeers(ctx, selectorGetter, setAddresses)
 }
 
 func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selector, setAddresses func(addresses []v1.PodIP)) error {
@@ -169,7 +186,6 @@ func (p *Peers) updatePeers(ctx context.Context, getSelector func() labels.Selec
 		}
 		addresses, err = p.mapNodesToPrimaryPodIPs(nodes, pods)
 	}
-
 
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
