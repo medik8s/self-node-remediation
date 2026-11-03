@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,6 +19,39 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// fakeNotFoundReader returns a NotFound error for every List call, regardless
+// of what's actually in the underlying client - used to exercise the
+// apierrors.IsNotFound branch in updatePeers, which real List() calls don't
+// normally hit.
+type fakeNotFoundReader struct {
+	client.Reader
+}
+
+func (fakeNotFoundReader) List(_ context.Context, _ client.ObjectList, _ ...client.ListOption) error {
+	return apierrors.NewNotFound(schema.GroupResource{Resource: "nodes"}, "")
+}
+
+// slowReader blocks every List call until release is closed, simulating an
+// API server that's unreachable for the duration of a call. entered is
+// closed on the first call, so callers can synchronize on the call actually
+// being in-flight instead of sleeping and hoping; updatePeers may call List
+// more than once (nodes, then pods), so the close is guarded by sync.Once.
+type slowReader struct {
+	client.Reader
+	entered     chan struct{}
+	release     chan struct{}
+	enteredOnce sync.Once
+}
+
+func (s *slowReader) List(ctx context.Context, _ client.ObjectList, _ ...client.ListOption) error {
+	s.enteredOnce.Do(func() { close(s.entered) })
+	select {
+	case <-s.release:
+	case <-ctx.Done():
+	}
+	return ctx.Err()
+}
 
 func TestMapNodesToPrimaryPodIPs(t *testing.T) {
 	testCases := []struct {
@@ -684,18 +718,6 @@ func TestStartVerifiesPeerAddresses(t *testing.T) {
 	}
 }
 
-// fakeNotFoundReader returns a NotFound error for every List call, regardless
-// of what's actually in the underlying client - used to exercise the
-// apierrors.IsNotFound branch in updatePeers, which real List() calls don't
-// normally hit.
-type fakeNotFoundReader struct {
-	client.Reader
-}
-
-func (fakeNotFoundReader) List(_ context.Context, _ client.ObjectList, _ ...client.ListOption) error {
-	return apierrors.NewNotFound(schema.GroupResource{Resource: "nodes"}, "")
-}
-
 func TestUpdateControlPlanePeersNotFoundDoesNotResetWorkerList(t *testing.T) {
 	p := New("my-node", time.Minute, fakeNotFoundReader{}, logr.Discard(), time.Second)
 	p.workerPeerSelector = labels.Everything()
@@ -791,5 +813,209 @@ func TestUpdateControlPlanePeersOnDemand(t *testing.T) {
 	addrs = p.GetPeersAddresses(ControlPlane)
 	if len(addrs) != 1 || addrs[0].IP != "10.0.2.99" {
 		t.Fatalf("expected updated address 10.0.2.99 after on-demand refresh, got %v", addrs)
+	}
+}
+
+func TestGetPeersAddressesDoesNotStallDuringSlowUpdatePeers(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+
+	p := New("my-node", time.Minute, &slowReader{entered: entered, release: release}, logr.Discard(), time.Minute)
+	p.workerPeerSelector = labels.Everything()
+
+	go func() {
+		_ = p.updateWorkerPeers(context.Background()) // blocks inside List until release closes
+	}()
+
+	select {
+	case <-entered:
+		// updatePeers is now inside List - this is the exact moment we need
+		// to catch it at, whether or not it's holding the mutex
+	case <-time.After(time.Second):
+		t.Fatal("updatePeers never reached List()")
+	}
+
+	done := make(chan struct{})
+	go func() {
+		p.GetPeersAddresses(Worker) // must return promptly, not block on the in-flight List call
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// pass - the lock wasn't held across the slow List call
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("GetPeersAddresses blocked on updatePeers' in-flight List call")
+	}
+}
+
+type interleavingControlPlaneRefreshReader struct {
+	client.Reader
+
+	mutex                  sync.Mutex
+	podListCalls           int
+	periodicPodListEntered chan struct{}
+	releasePeriodicPodList chan struct{}
+	oldIP                  string
+	currentIP              string
+}
+
+func (r *interleavingControlPlaneRefreshReader) List(ctx context.Context, list client.ObjectList, _ ...client.ListOption) error {
+	switch objectList := list.(type) {
+	case *v1.NodeList:
+		objectList.Items = []v1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "peer-node"}}}
+		return nil
+	case *v1.PodList:
+		r.mutex.Lock()
+		r.podListCalls++
+		callNumber := r.podListCalls
+		r.mutex.Unlock()
+
+		ip := r.currentIP
+		if callNumber == 1 {
+			close(r.periodicPodListEntered)
+			select {
+			case <-r.releasePeriodicPodList:
+				ip = r.oldIP
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+
+		objectList.Items = []v1.Pod{{
+			ObjectMeta: metav1.ObjectMeta{Name: "peer-agent"},
+			Spec:       v1.PodSpec{NodeName: "peer-node"},
+			Status:     v1.PodStatus{PodIPs: []v1.PodIP{{IP: ip}}},
+		}}
+		return nil
+	default:
+		return errors.New("unexpected list type")
+	}
+}
+
+func TestOverlappingControlPlaneRefreshDoesNotOverwriteNewerAddresses(t *testing.T) {
+	reader := &interleavingControlPlaneRefreshReader{
+		periodicPodListEntered: make(chan struct{}),
+		releasePeriodicPodList: make(chan struct{}),
+		oldIP:                  "10.0.0.1",
+		currentIP:              "10.0.0.2",
+	}
+	p := New("my-node", time.Hour, reader, logr.Discard(), time.Minute)
+	p.controlPlanePeerSelector = labels.Everything()
+
+	var releaseOnce sync.Once
+	releasePeriodic := func() {
+		releaseOnce.Do(func() { close(reader.releasePeriodicPodList) })
+	}
+	t.Cleanup(releasePeriodic)
+
+	periodicDone := make(chan error, 1)
+	go func() {
+		periodicDone <- p.updateControlPlanePeers(context.Background())
+	}()
+
+	select {
+	case <-reader.periodicPodListEntered:
+	case <-time.After(time.Second):
+		t.Fatal("periodic refresh did not reach the pod List")
+	}
+
+	onDemandDone := make(chan error, 1)
+	go func() {
+		onDemandDone <- p.RefreshControlPlanePeersForIsolationCheck(context.Background())
+	}()
+
+	// Without refresh serialization, the on-demand refresh completes while the
+	// periodic refresh is blocked, allowing the old periodic result to overwrite it.
+	onDemandFinishedBeforeRelease := false
+	select {
+	case err := <-onDemandDone:
+		if err != nil {
+			t.Fatalf("on-demand refresh returned an error: %v", err)
+		}
+		onDemandFinishedBeforeRelease = true
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	releasePeriodic()
+
+	select {
+	case err := <-periodicDone:
+		if err != nil {
+			t.Fatalf("periodic refresh returned an error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("periodic refresh did not finish")
+	}
+
+	if !onDemandFinishedBeforeRelease {
+		select {
+		case err := <-onDemandDone:
+			if err != nil {
+				t.Fatalf("on-demand refresh returned an error: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("on-demand refresh did not finish")
+		}
+	}
+
+	addresses := p.GetPeersAddresses(ControlPlane)
+	if len(addresses) != 1 || addresses[0].IP != reader.currentIP {
+		t.Fatalf("expected current peer IP %s after both refreshes, got %v (on-demand completed before periodic release: %t)", reader.currentIP, addresses, onDemandFinishedBeforeRelease)
+	}
+}
+
+func TestControlPlaneRefreshWaitHonorsContextCancellation(t *testing.T) {
+	reader := &interleavingControlPlaneRefreshReader{
+		periodicPodListEntered: make(chan struct{}),
+		releasePeriodicPodList: make(chan struct{}),
+		oldIP:                  "10.0.0.1",
+		currentIP:              "10.0.0.2",
+	}
+	p := New("my-node", time.Hour, reader, logr.Discard(), time.Minute)
+	p.controlPlanePeerSelector = labels.Everything()
+
+	var releaseOnce sync.Once
+	releasePeriodic := func() {
+		releaseOnce.Do(func() { close(reader.releasePeriodicPodList) })
+	}
+	t.Cleanup(releasePeriodic)
+
+	periodicDone := make(chan error, 1)
+	go func() {
+		periodicDone <- p.updateControlPlanePeers(context.Background())
+	}()
+
+	select {
+	case <-reader.periodicPodListEntered:
+	case <-time.After(time.Second):
+		t.Fatal("periodic refresh did not reach the pod List")
+	}
+
+	refreshCtx, cancelRefresh := context.WithCancel(context.Background())
+	onDemandDone := make(chan error, 1)
+	go func() {
+		onDemandDone <- p.RefreshControlPlanePeersForIsolationCheck(refreshCtx)
+	}()
+	cancelRefresh()
+
+	select {
+	case err := <-onDemandDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("expected canceled context error, got %v", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("on-demand refresh remained blocked after its context was canceled")
+	}
+
+	releasePeriodic()
+	select {
+	case err := <-periodicDone:
+		if err != nil {
+			t.Fatalf("periodic refresh returned an error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("periodic refresh did not finish")
 	}
 }
