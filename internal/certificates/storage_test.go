@@ -153,3 +153,61 @@ var _ = Describe("Certificates", func() {
 
 	})
 })
+
+var _ = Describe("Certificate Namespace Scoping", func() {
+	It("should always create secret in operator's namespace", func() {
+		// This test validates that SecretCertStorage enforces namespace scoping.
+		// SNR only needs access to secrets in the operator's deployment namespace,
+		// not cluster-wide (principle of least privilege). This test ensures the secret is created in
+		// the correct namespace as specified during SecretCertStorage construction.
+
+		operatorNs := "snr-operator-namespace"
+		otherNs := "some-other-namespace"
+
+		ctx := context.Background()
+		directClient, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
+		Expect(err).ToNot(HaveOccurred())
+
+		// Create test namespaces
+		opNs := &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: operatorNs}}
+		Expect(directClient.Create(ctx, opNs)).To(Succeed())
+		defer func() { _ = directClient.Delete(ctx, opNs) }()
+
+		otherNsObj := &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: otherNs}}
+		Expect(directClient.Create(ctx, otherNsObj)).To(Succeed())
+		defer func() { _ = directClient.Delete(ctx, otherNsObj) }()
+
+		// Create SecretCertStorage with operator namespace
+		store := NewSecretCertStorage(k8sClient, k8sCache, ctrl.Log.WithName("TestNamespaceScoping"), operatorNs)
+
+		toBuffer := func(data string) *bytes.Buffer {
+			b := &bytes.Buffer{}
+			b.WriteString(data)
+			return b
+		}
+
+		// Store certs - should create in operator namespace only
+		Expect(store.StoreCerts(toBuffer("ca"), toBuffer("cert"), toBuffer("key"))).ToNot(HaveOccurred())
+
+		// Verify secret exists in operator namespace
+		secretInOperatorNs := &v1.Secret{}
+		err = directClient.Get(ctx, client.ObjectKey{
+			Namespace: operatorNs,
+			Name:      secretName,
+		}, secretInOperatorNs)
+		Expect(err).ToNot(HaveOccurred(), "Secret should exist in operator namespace")
+		Expect(secretInOperatorNs.Namespace).To(Equal(operatorNs))
+
+		// Verify secret does NOT exist in other namespace
+		secretInOtherNs := &v1.Secret{}
+		err = directClient.Get(ctx, client.ObjectKey{
+			Namespace: otherNs,
+			Name:      secretName,
+		}, secretInOtherNs)
+		Expect(err).To(HaveOccurred(), "Secret should NOT exist in other namespace")
+		Expect(err.Error()).To(ContainSubstring("not found"))
+
+		// Cleanup
+		Expect(directClient.Delete(ctx, secretInOperatorNs)).To(Succeed())
+	})
+})
