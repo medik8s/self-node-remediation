@@ -3,6 +3,7 @@ package testcontroler
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"reflect"
 	"time"
@@ -17,10 +18,13 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	machinev1beta1 "github.com/openshift/api/machine/v1beta1"
@@ -728,6 +732,215 @@ var _ = Describe("SNR Controller", func() {
 					"watchdog should be triggered: readyz passed but CP peers unreachable (CP isolation detected)")
 			})
 		})
+	})
+})
+
+// staleReadNodeClient wraps a real client.Client (typically a fake client) and, for Get calls
+// on a specific Node, returns a pre-captured snapshot for the first staleCallsRemaining calls,
+// then passes calls through to the live client. This deterministically simulates a manager-cache
+// read that lags behind a recent write, which is the root cause of RHWA-1895. All non-Get calls
+// (including Patch, which carries the optimistic-lock assertion) pass through to the live client.
+type staleReadNodeClient struct {
+	client.Client
+	staleNodeName       string
+	staleNode           *corev1.Node
+	staleCallsRemaining int
+}
+
+func (c *staleReadNodeClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if node, ok := obj.(*corev1.Node); ok && key.Name == c.staleNodeName && c.staleCallsRemaining > 0 {
+		c.staleCallsRemaining--
+		c.staleNode.DeepCopyInto(node)
+		return nil
+	}
+	return c.Client.Get(ctx, key, obj, opts...)
+}
+
+// This Describe is intentionally self-contained: it uses its own fake client instead of the
+// shared envtest cluster, so it doesn't depend on, or interfere with, the rest of the suite's
+// BeforeEach/AfterEach wiring around the shared unhealthy/peer nodes.
+//
+// It drives the reconciler purely through its exported Reconcile method (same entrypoint the
+// manager uses), but engineers the exact stale-snapshot condition described in RHWA-1895
+// deterministically via staleReadNodeClient, rather than relying on envtest's informer cache to
+// race in a way that (as verified) it practically never does on a local control plane.
+var _ = Describe("SNR Controller cleanup - stale node snapshot regression (RHWA-1895)", func() {
+	// SNR is matched to a node by name by default, so both must share a name
+	const staleTestNodeName = "rhwa-1895-node"
+
+	var (
+		scheme          *runtime.Scheme
+		liveClient      client.Client
+		reconcilerSNR   *v1alpha1.SelfNodeRemediation
+		fencingComplete = "Fencing-Completed" // mirrors the controller's internal fencingCompletedPhase
+	)
+
+	newReconciler := func(c client.Client) *controller.SelfNodeRemediationReconciler {
+		return &controller.SelfNodeRemediationReconciler{
+			Client:   c,
+			Log:      ctrl.Log.WithName("rhwa-1895-test"),
+			Recorder: record.NewFakeRecorder(100),
+			IsAgent:  false,
+		}
+	}
+
+	BeforeEach(func() {
+		scheme = runtime.NewScheme()
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+		Expect(v1alpha1.AddToScheme(scheme)).To(Succeed())
+
+		snrConfig := shared.GenerateTestConfig()
+
+		reconcilerSNR = &v1alpha1.SelfNodeRemediation{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:       staleTestNodeName,
+				Namespace:  shared.Namespace,
+				Finalizers: []string{controller.SNRFinalizer},
+			},
+			Spec: v1alpha1.SelfNodeRemediationSpec{
+				RemediationStrategy: v1alpha1.ResourceDeletionRemediationStrategy,
+			},
+			Status: v1alpha1.SelfNodeRemediationStatus{
+				Phase: &fencingComplete,
+			},
+		}
+
+		node := &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: staleTestNodeName},
+			Spec: corev1.NodeSpec{
+				Taints: []corev1.Taint{*controller.NodeNoScheduleTaint, *controller.OutOfServiceTaint},
+			},
+		}
+
+		liveClient = fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithStatusSubresource(&v1alpha1.SelfNodeRemediation{}).
+			WithObjects(snrConfig, reconcilerSNR, node).
+			Build()
+	})
+
+	It("does not resurrect the out-of-service taint when cleanup reads a stale node snapshot", func() {
+		// snapshot captured with both taints still present, at the resourceVersion that existed
+		// before the out-of-service taint was removed
+		staleNode := &corev1.Node{}
+		Expect(liveClient.Get(context.Background(), client.ObjectKey{Name: staleTestNodeName}, staleNode)).To(Succeed())
+		Expect(staleNode.Spec.Taints).To(ConsistOf(*controller.NodeNoScheduleTaint, *controller.OutOfServiceTaint))
+
+		// a prior (already-completed) reconcile removes out-of-service for real, bumping the
+		// live resourceVersion past what staleNode holds
+		liveNode := staleNode.DeepCopy()
+		liveNode.Spec.Taints = []corev1.Taint{*controller.NodeNoScheduleTaint}
+		Expect(liveClient.Update(context.Background(), liveNode)).To(Succeed())
+		Expect(liveNode.ResourceVersion).NotTo(Equal(staleNode.ResourceVersion))
+
+		// now simulate NHC deleting the SNR, which triggers cleanup
+		Expect(liveClient.Delete(context.Background(), reconcilerSNR)).To(Succeed())
+
+		staleClient := &staleReadNodeClient{
+			Client:              liveClient,
+			staleNodeName:       staleTestNodeName,
+			staleNode:           staleNode,
+			staleCallsRemaining: math.MaxInt,
+		}
+		r := newReconciler(staleClient)
+
+		_, reconcileErr := r.Reconcile(context.Background(), ctrl.Request{
+			NamespacedName: client.ObjectKeyFromObject(reconcilerSNR),
+		})
+
+		// With the fix (optimistic-locked patches), the stale-snapshot patch must be rejected
+		// as a conflict instead of being silently applied.
+		Expect(reconcileErr).To(HaveOccurred())
+		Expect(apierrors.IsConflict(reconcileErr)).To(BeTrue())
+
+		// and the live node must be unaffected: out-of-service must NOT have been resurrected
+		afterNode := &corev1.Node{}
+		Expect(liveClient.Get(context.Background(), client.ObjectKey{Name: staleTestNodeName}, afterNode)).To(Succeed())
+		Expect(afterNode.Spec.Taints).To(ConsistOf(*controller.NodeNoScheduleTaint))
+	})
+
+	It("full cross-operator race: conflict on stale read, successful retry removes all remediation taints", func() {
+		farTaint := corev1.Taint{
+			Key:    "remediation.medik8s.io/fence-agents-remediation",
+			Effect: corev1.TaintEffectNoSchedule,
+		}
+		unreachableTaint := corev1.Taint{
+			Key:    "node.kubernetes.io/unreachable",
+			Effect: corev1.TaintEffectNoSchedule,
+		}
+
+		// Rebuild the node with unreachable, FAR, SNR, and out-of-service taints.
+		fullNode := &corev1.Node{}
+		Expect(liveClient.Get(context.Background(), client.ObjectKey{Name: staleTestNodeName}, fullNode)).To(Succeed())
+		fullNode.Spec.Taints = []corev1.Taint{
+			unreachableTaint,
+			farTaint,
+			*controller.NodeNoScheduleTaint,
+			*controller.OutOfServiceTaint,
+		}
+		Expect(liveClient.Update(context.Background(), fullNode)).To(Succeed())
+
+		// Capture the stale snapshot while all four taints are present.
+		staleNode := &corev1.Node{}
+		Expect(liveClient.Get(context.Background(), client.ObjectKey{Name: staleTestNodeName}, staleNode)).To(Succeed())
+		Expect(staleNode.Spec.Taints).To(HaveLen(4))
+
+		// Simulate FAR removing its taint after the snapshot was captured.
+		farCleanedNode := staleNode.DeepCopy()
+		remainingTaints := make([]corev1.Taint, 0, len(farCleanedNode.Spec.Taints)-1)
+		for _, taint := range farCleanedNode.Spec.Taints {
+			if taint.Key != farTaint.Key {
+				remainingTaints = append(remainingTaints, taint)
+			}
+		}
+		farCleanedNode.Spec.Taints = remainingTaints
+		Expect(liveClient.Update(context.Background(), farCleanedNode)).To(Succeed())
+		Expect(farCleanedNode.ResourceVersion).NotTo(Equal(staleNode.ResourceVersion))
+
+		// Simulate NHC deleting the SNR, which triggers cleanup.
+		freshSNR := &v1alpha1.SelfNodeRemediation{}
+		Expect(liveClient.Get(context.Background(), client.ObjectKeyFromObject(reconcilerSNR), freshSNR)).To(Succeed())
+		// Keep the fake SNR present for ReconcileManager's deferred status update after it removes
+		// SNRFinalizer; the fake client otherwise deletes it immediately when the last finalizer goes.
+		const testFinalizer = "tests.medik8s.io/keep-during-status-update"
+		freshSNR.Finalizers = append(freshSNR.Finalizers, testFinalizer)
+		Expect(liveClient.Update(context.Background(), freshSNR)).To(Succeed())
+		if freshSNR.DeletionTimestamp == nil {
+			Expect(liveClient.Delete(context.Background(), freshSNR)).To(Succeed())
+		}
+
+		// The first reconcile sees the stale node snapshot and must conflict.
+		staleClient := &staleReadNodeClient{
+			Client:              liveClient,
+			staleNodeName:       staleTestNodeName,
+			staleNode:           staleNode,
+			staleCallsRemaining: 1,
+		}
+		r := newReconciler(staleClient)
+
+		_, err := r.Reconcile(context.Background(), ctrl.Request{
+			NamespacedName: client.ObjectKeyFromObject(reconcilerSNR),
+		})
+		Expect(err).To(HaveOccurred())
+		Expect(apierrors.IsConflict(err)).To(BeTrue(), "first reconcile should fail with conflict, got: %v", err)
+
+		// The stale patch was rejected, so FAR's taint must remain absent from the live node.
+		midNode := &corev1.Node{}
+		Expect(liveClient.Get(context.Background(), client.ObjectKey{Name: staleTestNodeName}, midNode)).To(Succeed())
+		for _, taint := range midNode.Spec.Taints {
+			Expect(taint.Key).NotTo(Equal(farTaint.Key), "FAR taint must not be resurrected after conflict")
+		}
+
+		// Retry with a fresh node read, as controller-runtime does after a reconcile error.
+		_, err = r.Reconcile(context.Background(), ctrl.Request{
+			NamespacedName: client.ObjectKeyFromObject(reconcilerSNR),
+		})
+		Expect(err).NotTo(HaveOccurred(), "retry reconcile should succeed with fresh node data")
+
+		finalNode := &corev1.Node{}
+		Expect(liveClient.Get(context.Background(), client.ObjectKey{Name: staleTestNodeName}, finalNode)).To(Succeed())
+		Expect(finalNode.Spec.Taints).To(ConsistOf(unreachableTaint),
+			"final node should have only the unreachable taint; got: %v", finalNode.Spec.Taints)
 	})
 })
 
