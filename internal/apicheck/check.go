@@ -3,7 +3,9 @@ package apicheck
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -389,8 +391,9 @@ func (c *ApiConnectivityCheck) getHealthStatusFromPeer(endpointIp corev1.PodIP, 
 		return
 	}
 
-	// TODO does this work with IPv6?
-	phClient, err := peerhealth.NewClient(fmt.Sprintf("%v:%v", endpointIp.IP, c.config.PeerHealthPort), c.config.PeerDialTimeout, c.config.Log.WithName("peerhealth client"), c.clientCreds)
+	// net.JoinHostPort correctly brackets IPv6 addresses (e.g. "[fd01::14]:30001")
+	serverAddr := net.JoinHostPort(endpointIp.IP, strconv.Itoa(c.config.PeerHealthPort))
+	phClient, err := peerhealth.NewClient(serverAddr, c.config.PeerDialTimeout, c.config.Log.WithName("peerhealth client"), c.clientCreds)
 	if err != nil {
 		logger.Error(err, "failed to init grpc client")
 		results <- selfNodeRemediation.RequestFailed
