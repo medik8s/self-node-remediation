@@ -83,7 +83,7 @@ Config defaults (override via **`SelfNodeRemediationConfig`**): **`apiCheckInter
 ### 4.3 Watchdog / reboot failures
 
 - **Detection:** **`WatchdogRebooter.Reboot`** errors on unexpected watchdog **Status**; software reboot **`Run`** errors logged.
-- **Behaviour:** Software reboot path still returns **nil** after logging (**`softwareReboot`** swallows run error — ops should inspect logs).
+- **Behaviour:** When every software reboot method fails, **`softwareReboot`** returns an error naming each failed method; the API check logs it and the remediation controller returns it, so the reconcile is retried.
 
 ### 4.4 Agent reboot skipped as duplicate
 

@@ -71,7 +71,7 @@ Implemented on **`SelfNodeRemediation.spec.remediationStrategy`**:
 
 ## Reboot path (`internal/reboot`, `internal/watchdog`)
 
-- **`WatchdogRebooter`**: prefers **stopping watchdog feed** to trigger hardware reset; if no watchdog, watchdog malfunction, or stuck **Triggered** state beyond **`TimeToAssumeRebootHasStarted` (30s)**, falls back to **software reboot**, trying multiple commands **in order** until one succeeds: **`systemctl reboot --force --force`** (direct, then via **`nsenter`**), **`reboot -f`** (direct, then via **`nsenter`**), and finally **`nsenter`** + **`echo b > /proc/sysrq-trigger`** as the **last resort** (the `reboot(2)`-based methods respect PID-namespace isolation; sysrq bypasses it).
+- **`WatchdogRebooter`**: prefers **stopping watchdog feed** to trigger hardware reset; if no watchdog, watchdog malfunction, or stuck **Triggered** state beyond **`TimeToAssumeRebootHasStarted` (30s)**, falls back to **software reboot**, trying multiple methods **in order** until one succeeds: **`systemctl reboot --force --force`** (direct, then via **`nsenter`**), writing **`b`** to **`/proc/sysrq-trigger`** directly from the agent (needs no host binaries), **`reboot -f`** (direct, then via **`nsenter`**), and finally **`nsenter`** + **`echo b > /proc/sysrq-trigger`**. The `systemctl` methods go first because they respect PID-namespace isolation (on Kind, sysrq would reset the CI host); the sysrq write goes before **`reboot -f`** because on some hosts (e.g. Talos) `reboot -f` starts a graceful reboot that can hang.
 - **`IsSoftwareRebootEnabled`** in **`SelfNodeRemediationConfig`** gates whether software reboot is allowed when watchdog cannot be used.
 
 ---

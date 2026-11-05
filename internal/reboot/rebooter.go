@@ -2,7 +2,10 @@ package reboot
 
 import (
 	"errors"
+	"fmt"
+	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -85,26 +88,63 @@ func (r *watchdogRebooter) Reboot() error {
 }
 
 // softwareReboot attempts multiple reboot methods in order, stopping at the
-// first that succeeds. reboot(2)-based methods are tried before sysrq because
-// they respect PID namespace isolation; sysrq bypasses it and is a last resort.
+// first that succeeds.
 func (r *watchdogRebooter) softwareReboot() error {
 	r.log.Info("about to try software reboot")
-	cmds := [][]string{
-		{"systemctl", "reboot", "--force", "--force"},
-		{"nsenter", "-m/proc/1/ns/mnt", "--", "systemctl", "reboot", "--force", "--force"},
-		{"reboot", "-f"},
-		{"nsenter", "-m/proc/1/ns/mnt", "--", "reboot", "-f"},
-		{"nsenter", "-m/proc/1/ns/mnt", "/bin/bash", "-c", "echo b > /proc/sysrq-trigger"},
+	return r.runRebootMethods(softwareRebootMethods())
+}
+
+const sysrqTriggerPath = "/proc/sysrq-trigger"
+
+type rebootMethod struct {
+	name string
+	run  func() error
+}
+
+func softwareRebootMethods() []rebootMethod {
+	return []rebootMethod{
+		commandMethod("systemctl", "reboot", "--force", "--force"),
+		commandMethod("nsenter", "-m/proc/1/ns/mnt", "--", "systemctl", "reboot", "--force", "--force"),
+		sysrqMethod(sysrqTriggerPath),
+		commandMethod("reboot", "-f"),
+		commandMethod("nsenter", "-m/proc/1/ns/mnt", "--", "reboot", "-f"),
+		commandMethod("nsenter", "-m/proc/1/ns/mnt", "/bin/bash", "-c", "echo b > /proc/sysrq-trigger"),
 	}
-	for _, cmd := range cmds {
-		r.log.Info("trying reboot command", "command", cmd)
-		if err := exec.Command(cmd[0], cmd[1:]...).Run(); err != nil {
-			r.log.Error(err, "reboot command failed, trying next", "command", cmd)
+}
+
+func commandMethod(cmd ...string) rebootMethod {
+	return rebootMethod{
+		name: strings.Join(cmd, " "),
+		run:  func() error { return exec.Command(cmd[0], cmd[1:]...).Run() },
+	}
+}
+
+func sysrqMethod(path string) rebootMethod {
+	return rebootMethod{
+		name: "write b to " + path,
+		run: func() error {
+			f, err := os.OpenFile(path, os.O_WRONLY, 0)
+			if err != nil {
+				return err
+			}
+			_, err = f.Write([]byte("b"))
+			return errors.Join(err, f.Close())
+		},
+	}
+}
+
+func (r *watchdogRebooter) runRebootMethods(methods []rebootMethod) error {
+	var errs []error
+	for _, m := range methods {
+		r.log.Info("trying reboot method", "method", m.name)
+		if err := m.run(); err != nil {
+			r.log.Error(err, "reboot method failed, trying next", "method", m.name)
+			errs = append(errs, fmt.Errorf("%s: %w", m.name, err))
 			continue
 		}
 		return nil
 	}
-	return nil
+	return fmt.Errorf("all software reboot methods failed: %w", errors.Join(errs...))
 }
 
 func (r *watchdogRebooter) isWatchdogRebootStuck() bool {
