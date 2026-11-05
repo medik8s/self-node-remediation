@@ -72,6 +72,23 @@ var _ = Describe("Rebooter tests", func() {
 			})
 		})
 	})
+
+	Describe("Software reboot commands", func() {
+		BeforeEach(func() {
+			rebooter = &watchdogRebooter{log: ctrl.Log.WithName("fake rebooter")}
+		})
+
+		It("should succeed when a later command succeeds", func() {
+			Expect(rebooter.runRebootCommands([][]string{{"false"}, {"true"}})).To(Succeed())
+		})
+
+		It("should return an error when all commands fail", func() {
+			err := rebooter.runRebootCommands([][]string{{"false"}, {"/nonexistent/reboot", "-f"}})
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("all software reboot methods failed"))
+			Expect(err.Error()).To(ContainSubstring("/nonexistent/reboot -f"))
+		})
+	})
 })
 
 func fakeSoftwareReboot() error {

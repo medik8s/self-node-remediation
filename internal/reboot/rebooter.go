@@ -2,7 +2,9 @@ package reboot
 
 import (
 	"errors"
+	"fmt"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -89,22 +91,29 @@ func (r *watchdogRebooter) Reboot() error {
 // they respect PID namespace isolation; sysrq bypasses it and is a last resort.
 func (r *watchdogRebooter) softwareReboot() error {
 	r.log.Info("about to try software reboot")
-	cmds := [][]string{
-		{"systemctl", "reboot", "--force", "--force"},
-		{"nsenter", "-m/proc/1/ns/mnt", "--", "systemctl", "reboot", "--force", "--force"},
-		{"reboot", "-f"},
-		{"nsenter", "-m/proc/1/ns/mnt", "--", "reboot", "-f"},
-		{"nsenter", "-m/proc/1/ns/mnt", "/bin/bash", "-c", "echo b > /proc/sysrq-trigger"},
-	}
+	return r.runRebootCommands(softwareRebootCommands)
+}
+
+var softwareRebootCommands = [][]string{
+	{"systemctl", "reboot", "--force", "--force"},
+	{"nsenter", "-m/proc/1/ns/mnt", "--", "systemctl", "reboot", "--force", "--force"},
+	{"reboot", "-f"},
+	{"nsenter", "-m/proc/1/ns/mnt", "--", "reboot", "-f"},
+	{"nsenter", "-m/proc/1/ns/mnt", "/bin/bash", "-c", "echo b > /proc/sysrq-trigger"},
+}
+
+func (r *watchdogRebooter) runRebootCommands(cmds [][]string) error {
+	var errs []error
 	for _, cmd := range cmds {
 		r.log.Info("trying reboot command", "command", cmd)
 		if err := exec.Command(cmd[0], cmd[1:]...).Run(); err != nil {
 			r.log.Error(err, "reboot command failed, trying next", "command", cmd)
+			errs = append(errs, fmt.Errorf("%s: %w", strings.Join(cmd, " "), err))
 			continue
 		}
 		return nil
 	}
-	return nil
+	return fmt.Errorf("all software reboot methods failed: %w", errors.Join(errs...))
 }
 
 func (r *watchdogRebooter) isWatchdogRebootStuck() bool {
