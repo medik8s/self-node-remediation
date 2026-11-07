@@ -441,7 +441,7 @@ protoc-gen-go-grpc: ## Download protoc-gen-go-grpc locally if necessary.
 e2e-test:
 	# KUBECONFIG must be set to the cluster, and SNR needs to be deployed already
     # count arg makes the test ignoring cached test results
-	go test ./e2e -ginkgo.vv -test.v -timeout 80m -count=1 ${TEST_OPS}
+	go test ./e2e -ginkgo.vv -test.v -timeout 100m -count=1 -ginkgo.timeout=90m ${TEST_OPS}
 
 YQ = $(shell pwd)/bin/yq
 .PHONY: yq

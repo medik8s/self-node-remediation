@@ -14,7 +14,7 @@ Behaviour references **`internal/controller/selfnoderemediation_controller.go`**
 
 **`MaxTimeForNoPeersResponse`** is **no longer a fixed constant**: it's now configurable via **`SelfNodeRemediationConfig.spec.maxTimeForNoPeersResponse`** (defaults to **30s** when unset) — floor for peer timing in reboot-duration calculation; also used in api-check staleness (`internal/reboot/calculator.go`, `internal/apicheck/check.go`).
 
-Config defaults (override via **`SelfNodeRemediationConfig`**): **`apiCheckInterval`** default **15s**, **`apiServerTimeout`** **5s**, **`maxApiErrorThreshold`** **3**, **`peerUpdateInterval`** default **15m**, **`hostPort`** default **30001**, **`minPeersForRemediation`** default **1**, **`maxTimeForNoPeersResponse`** default **30s**.
+Config defaults (override via **`SelfNodeRemediationConfig`**): **`apiCheckInterval`** default **15s**, **`apiServerTimeout`** **5s**, **`maxApiErrorThreshold`** **3**, **`peerUpdateInterval`** default **15m**, **`hostPort`** default **30001**, **`minPeersForRemediation`** default **1**, **`maxTimeForNoPeersResponse`** default **30s**, **`peerTopologyKey`** default empty.
 
 ---
 
@@ -59,6 +59,7 @@ Config defaults (override via **`SelfNodeRemediationConfig`**): **`apiCheckInter
 
 - **Detection:** **`ApiConnectivityCheck`** fails **`/readyz`** repeatedly.
 - **Behaviour:** Until **`MaxApiErrorThreshold`**, errors ignored. Above threshold, **peer quorum** determines if node is unhealthy. If the number of discovered peers is **below** **`MinPeersForRemediation`** (this is also what happens with **zero** peers whenever **`MinPeersForRemediation` > 0**, which is the default), the node is treated as **healthy** to avoid a wrong reboot (**`HealthyBecauseNoPeersWereFound`**). Only once that gate is passed can the **zero-peers** path be reached at all—so **isolated** node with **zero** peers is **unhealthy** (**`UnHealthyBecauseNodeIsIsolated`**) **only when `MinPeersForRemediation` == 0**; with the default (**`1`**), zero peers is always **healthy**.
+- **Failure domains:** with **`peerTopologyKey`**, **ApiError** answers from peers in the node's own domain are ignored (the > 50% rule then counts the peers outside of the domain) when a strict majority of the control plane and at least **`MinPeersForRemediation`** peers are outside of the domain: a domain cut from the rest of the cluster reboots (**`UnHealthyBecauseNodeIsIsolated`**) once **`MaxTimeForNoPeersResponse`** elapses. A domain holding at least half of the control plane keeps the unchanged evaluation.
 - **Outcome:** Possible **self-reboot** via **`Rebooter`** only when **`isConsideredHealthy()`** is false — see **`internal/apicheck/check.go`**.
 
 ### 3.3 Control-plane diagnostics (agent)
