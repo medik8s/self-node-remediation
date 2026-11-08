@@ -19,7 +19,7 @@ self-node-remediation/
 │   ├── certificates/                # TLS material for gRPC (Secret-backed storage)
 │   ├── controlplane/                # Control-plane node diagnostics / reachability
 │   ├── peerhealth/                  # gRPC server + client (protobuf), peer SNR CR checks
-│   ├── peers/                       # Peer address discovery + response aggregation
+│   ├── peers/                       # Peer address discovery + response aggregation, failure domains
 │   ├── reboot/                      # Rebooter, reboot-duration calculator
 │   ├── render/                      # Template rendering helpers
 │   ├── snrconfighelper/             # Default SelfNodeRemediationConfig registration
