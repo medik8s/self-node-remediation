@@ -80,6 +80,7 @@ type ApiConnectivityCheckConfig struct {
 	Recorder                  record.EventRecorder
 }
 
+// New returns an API connectivity check for this node. controlPlaneManager is nil on worker nodes.
 func New(config *ApiConnectivityCheckConfig, controlPlaneManager *controlplane.Manager) *ApiConnectivityCheck {
 	return &ApiConnectivityCheck{
 		config:                 config,
@@ -98,6 +99,8 @@ func (c *ApiConnectivityCheck) currentTime() time.Time {
 	return time.Now()
 }
 
+// Start runs the check loop until ctx is done: every CheckInterval it calls the API server's readyz endpoint and
+// hands the result to handleApiCheckFailure or handleApiCheckSuccess.
 func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 
 	cs, err := clientset.NewForConfig(c.config.Cfg)

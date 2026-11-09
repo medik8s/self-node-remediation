@@ -60,6 +60,9 @@ func (r *calculator) SetConfig(config *v1alpha1.SelfNodeRemediationConfig) {
 	r.snrConfig = config
 }
 
+// GetRebootDuration returns the time after which the given node can be assumed to have rebooted: the configured
+// SafeTimeToAssumeNodeRebootedSeconds when it is at least the calculated minimum, otherwise that minimum. The
+// watchdog timeout comes from the node's annotation, floored at minWatchdogTimeout.
 func (r *calculator) GetRebootDuration(ctx context.Context, node *v1.Node) (time.Duration, error) {
 
 	r.snrConfigLock.RLock()

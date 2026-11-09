@@ -44,6 +44,8 @@ func newTestCalculator(spec v1alpha1.SelfNodeRemediationConfigSpec) *calculator 
 	}
 }
 
+// TestMinimumRebootDurationCoversWorstCase checks that the calculated minimum is at least the simulated worst case
+// for every cluster size from 3 to 300 nodes, and equal to it for the sizes that need the most batches.
 func TestMinimumRebootDurationCoversWorstCase(t *testing.T) {
 	spec := defaultSpec(3, 10*time.Minute)
 	got := newTestCalculator(spec).calculateMinimumRebootDuration(minWatchdogTimeout)
@@ -63,6 +65,8 @@ func TestMinimumRebootDurationCoversWorstCase(t *testing.T) {
 	}
 }
 
+// TestMinimumRebootDurationValues pins the calculated minimum for the CRD defaults and for a 10 minute window at
+// the default and at a raised API error threshold.
 func TestMinimumRebootDurationValues(t *testing.T) {
 	testCases := []struct {
 		threshold int
@@ -84,6 +88,8 @@ func TestMinimumRebootDurationValues(t *testing.T) {
 	}
 }
 
+// TestRebootDurationWatchdogFloor checks that a missing, unparsable, zero or too low watchdog annotation yields the
+// minimum watchdog timeout, and that a higher annotation is used as is.
 func TestRebootDurationWatchdogFloor(t *testing.T) {
 	spec := defaultSpec(3, 10*time.Minute)
 	c := newTestCalculator(spec)
