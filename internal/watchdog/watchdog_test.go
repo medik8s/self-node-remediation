@@ -233,6 +233,54 @@ var _ = Describe("Watchdog armed only for a reboot", func() {
 			Expect(wd.StartCount()).To(Equal(1))
 		})
 	})
+
+	Context("when the device timeout cannot be read at start", func() {
+		var ctx context.Context
+
+		BeforeEach(func() {
+			ctx, cancel = context.WithCancel(context.Background())
+			wd = watchdog.NewStandbyFakeWithoutTimeout()
+		})
+
+		Context("with software reboot enabled", func() {
+			BeforeEach(func() {
+				Expect(os.Setenv(watchdog.IsSoftwareRebootEnabledEnvVar, "true")).To(Succeed())
+				DeferCleanup(os.Unsetenv, watchdog.IsSoftwareRebootEnabledEnvVar)
+			})
+
+			It("reports a malfunction instead of a reboot capable node with an unknown timeout", func() {
+
+				go func() {
+					defer GinkgoRecover()
+					Expect(wd.Start(ctx)).To(Succeed())
+				}()
+
+				Eventually(wd.Started(), 1*time.Second).Should(BeClosed())
+				Expect(wd.Status()).To(Equal(watchdog.Malfunction))
+				Expect(wd.GetTimeout()).To(BeZero())
+				Expect(wd.StartCount()).To(BeZero(), "the device must stay closed")
+			})
+		})
+
+		Context("with software reboot disabled", func() {
+			BeforeEach(func() {
+				Expect(os.Setenv(watchdog.IsSoftwareRebootEnabledEnvVar, "false")).To(Succeed())
+				DeferCleanup(os.Unsetenv, watchdog.IsSoftwareRebootEnabledEnvVar)
+			})
+
+			It("fails to start, like a device that cannot be opened", func() {
+				go func() {
+					defer GinkgoRecover()
+					Expect(wd.Start(ctx)).To(MatchError(ContainSubstring("software reboot is disabled")))
+				}()
+
+				Eventually(wd.Started(), 1*time.Second).Should(BeClosed())
+				Expect(wd.Status()).To(Equal(watchdog.Disarmed))
+				Expect(wd.GetTimeout()).To(BeZero())
+				Expect(wd.StartCount()).To(BeZero())
+			})
+		})
+	})
 })
 
 func verifyWatchdogFood(wd watchdog.Watchdog) {

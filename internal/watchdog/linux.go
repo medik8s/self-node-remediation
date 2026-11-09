@@ -1,6 +1,7 @@
 package watchdog
 
 import (
+	stderrors "errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -18,8 +19,13 @@ import (
 )
 
 const (
-	watchdogsFolder     = "/dev"
-	watchdogPrefix      = "watchdog"
+	watchdogsFolder    = "/dev"
+	watchdogPrefix     = "watchdog"
+	sysfsDevCharFolder = "/sys/dev/char"
+)
+
+var (
+	// sysfsWatchdogFolder holds one entry per watchdog class device, a variable for the tests
 	sysfsWatchdogFolder = "/sys/class/watchdog"
 )
 
@@ -175,17 +181,67 @@ func (wd *linuxWatchdog) getTimeout() (*time.Duration, error) {
 	return &timeoutDuration, nil
 }
 
-// timeout reads the device timeout from sysfs, so that it is known while the device is closed. The legacy
-// /dev/watchdog node is the first watchdog device, /dev/watchdogN is watchdogN.
+// timeout reads the device timeout from sysfs, so that it is known while the device is closed. The configured path
+// is resolved first, so that a symlink to another device reads that device's timeout. A watchdog class device is
+// found by name, the legacy /dev/watchdog node being the first one, watchdog0; any other node, such as a custom
+// name, is found through its device numbers under /sys/dev/char.
 func (wd *linuxWatchdog) timeout() (*time.Duration, error) {
-	name := filepath.Base(watchdogDevice)
+	device, err := filepath.EvalSymlinks(watchdogDevice)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to resolve the watchdog device %s", watchdogDevice)
+	}
+
+	var timeoutFiles []string
+	name := filepath.Base(device)
 	if name == watchdogPrefix {
 		name = watchdogPrefix + "0"
 	}
-	timeoutFile := filepath.Join(sysfsWatchdogFolder, name, "timeout")
+	if strings.HasPrefix(name, watchdogPrefix) {
+		timeoutFiles = append(timeoutFiles, filepath.Join(sysfsWatchdogFolder, name, "timeout"))
+	}
+	if deviceNumbersFolder, err := sysfsCharDeviceFolder(device); err != nil {
+		wd.log.Info("failed to get the device numbers of the watchdog, looking it up by name only", "device", device, "error", err.Error())
+	} else {
+		timeoutFiles = append(timeoutFiles, filepath.Join(deviceNumbersFolder, "timeout"))
+	}
+	if len(timeoutFiles) == 0 {
+		return nil, fmt.Errorf("no sysfs entry known for the watchdog device %s", device)
+	}
+
+	var errs []error
+	for _, timeoutFile := range timeoutFiles {
+		timeout, err := readTimeoutFile(timeoutFile)
+		if err == nil {
+			return timeout, nil
+		}
+		errs = append(errs, err)
+	}
+	return nil, errors.Wrapf(stderrors.Join(errs...), "failed to read the timeout of the watchdog device %s", device)
+}
+
+// sysfsCharDeviceFolder returns the sysfs folder of the character device at the given path, through its major and
+// minor numbers
+func sysfsCharDeviceFolder(device string) (string, error) {
+	info, err := os.Stat(device)
+	if err != nil {
+		return "", err
+	}
+	if info.Mode()&os.ModeCharDevice == 0 {
+		return "", fmt.Errorf("%s is not a character device", device)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return "", fmt.Errorf("no device numbers available for %s", device)
+	}
+	rdev := uint64(stat.Rdev)
+	return filepath.Join(sysfsDevCharFolder, fmt.Sprintf("%d:%d", Major(rdev), Minor(rdev))), nil
+}
+
+// readTimeoutFile parses a sysfs watchdog timeout file, which holds the timeout in seconds
+func readTimeoutFile(timeoutFile string) (*time.Duration, error) {
 	raw, err := os.ReadFile(timeoutFile)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to read the watchdog timeout from %s", timeoutFile)
+		return nil, err
 	}
 	seconds, err := strconv.Atoi(strings.TrimSpace(string(raw)))
 	if err != nil {

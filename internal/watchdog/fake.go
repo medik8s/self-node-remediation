@@ -21,6 +21,8 @@ type FakeWatchdog interface {
 // fakeWatchdogImpl provides the fake implementation of the watchdogImpl interface for tests
 type fakeWatchdogImpl struct {
 	IsStartSuccessful bool
+	// IsTimeoutReadable tells whether the device timeout can be read while the device is closed
+	IsTimeoutReadable bool
 	startCount        int
 	*synchronizedWatchdog
 }
@@ -35,8 +37,16 @@ func NewStandbyFake(isStartSuccessful bool) FakeWatchdog {
 	return newFake(isStartSuccessful, true)
 }
 
+// NewStandbyFakeWithoutTimeout returns a fake watchdog that is armed only to reboot, and whose timeout cannot be
+// read while it is closed
+func NewStandbyFakeWithoutTimeout() FakeWatchdog {
+	fake := newFake(true, true)
+	fake.(*fakeWatchdogImpl).IsTimeoutReadable = false
+	return fake
+}
+
 func newFake(isStartSuccessful, armOnlyForReboot bool) FakeWatchdog {
-	fakeWDImpl := &fakeWatchdogImpl{IsStartSuccessful: isStartSuccessful}
+	fakeWDImpl := &fakeWatchdogImpl{IsStartSuccessful: isStartSuccessful, IsTimeoutReadable: true}
 	syncedWD := newSynced(ctrl.Log.WithName("fake watchdog"), fakeWDImpl, armOnlyForReboot)
 	fakeWDImpl.synchronizedWatchdog = syncedWD
 	return fakeWDImpl
@@ -52,6 +62,9 @@ func (f *fakeWatchdogImpl) start() (*time.Duration, error) {
 }
 
 func (f *fakeWatchdogImpl) timeout() (*time.Duration, error) {
+	if !f.IsTimeoutReadable {
+		return nil, errors.New("fakeWatchdogImpl cannot read the timeout")
+	}
 	t := fakeTimeout
 	return &t, nil
 }

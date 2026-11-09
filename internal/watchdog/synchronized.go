@@ -128,7 +128,8 @@ func (swd *synchronizedWatchdog) init() error {
 	return nil
 }
 
-// standby publishes the device timeout without opening the device, see Standby
+// standby publishes the device timeout without opening the device, see Standby. A device whose timeout cannot be
+// read is reported as malfunctioning, so that the node is never marked reboot capable with an unknown timeout.
 func (swd *synchronizedWatchdog) standby() error {
 	swd.mutex.Lock()
 	defer swd.mutex.Unlock()
@@ -140,13 +141,23 @@ func (swd *synchronizedWatchdog) standby() error {
 	}
 
 	defer close(swd.started)
-	timeout, err := swd.impl.timeout()
-	if err != nil {
-		// the manager falls back to its minimum watchdog timeout when the published one is 0
-		swd.log.Error(err, "failed to read the watchdog timeout, publishing none")
-	} else {
-		swd.timeout = *timeout
+	timeout, timeoutErr := swd.impl.timeout()
+	if timeoutErr != nil {
+		// Without the timeout the manager cannot tell when the node is down, so the device is not trusted with the
+		// reboot: like a device that fails to start, it is reported as malfunctioning and the node reboots itself
+		// with a software reboot, or the agent fails when software reboot is disabled.
+		isSoftwareRebootEnabled, err := IsSoftwareRebootEnabled()
+		if err != nil {
+			return errors.Wrapf(err, "software reboot check failed while handling watchdog timeout read failure: %v", timeoutErr)
+		}
+		if !isSoftwareRebootEnabled {
+			return errors.Wrapf(timeoutErr, "failed to read the watchdog timeout, software reboot is disabled")
+		}
+		swd.status = Malfunction
+		swd.log.Error(timeoutErr, "error while reading the watchdog timeout, reverting to software reboot")
+		return nil
 	}
+	swd.timeout = *timeout
 	swd.status = Standby
 	swd.log.Info("watchdog on standby, it will be armed only to reboot the node", "timeout", swd.timeout)
 	return nil
