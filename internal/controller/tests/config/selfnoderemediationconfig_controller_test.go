@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -600,6 +601,60 @@ var _ = Describe("SNR Config Test", func() {
 
 					// Default node selector must always be present when custom is specified
 					verifyNodeSelectorTerms(g)
+				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+			})
+		})
+		When("Configuration has a customized update strategy", func() {
+			var expectedStrategy appsv1.DaemonSetUpdateStrategy
+			BeforeEach(func() {
+				maxUnavailable := intstr.FromString("10%")
+				expectedStrategy = appsv1.DaemonSetUpdateStrategy{
+					Type: appsv1.RollingUpdateDaemonSetStrategyType,
+					RollingUpdate: &appsv1.RollingUpdateDaemonSet{
+						MaxUnavailable: &maxUnavailable,
+					},
+				}
+				config.Spec.CustomDsUpdateStrategy = expectedStrategy.DeepCopy()
+			})
+			It("Daemonset should have the customized update strategy", func() {
+				verifyUpdateStrategy := func(g Gomega) {
+					g.Expect(ds.Spec.UpdateStrategy.Type).To(Equal(expectedStrategy.Type))
+					g.Expect(ds.Spec.UpdateStrategy.RollingUpdate).ToNot(BeNil())
+					g.Expect(ds.Spec.UpdateStrategy.RollingUpdate.MaxUnavailable).To(Equal(expectedStrategy.RollingUpdate.MaxUnavailable))
+				}
+
+				Eventually(func(g Gomega) {
+					ds = &appsv1.DaemonSet{}
+					g.Expect(k8sClient.Get(context.Background(), dsKey, ds)).Should(BeNil())
+					verifyUpdateStrategy(g)
+				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+
+				//update configuration
+				config.Spec.PeerUpdateInterval = &metav1.Duration{Duration: time.Second * 10}
+				Expect(k8sClient.Update(context.Background(), config)).To(Succeed())
+
+				Eventually(func(g Gomega) {
+					ds = &appsv1.DaemonSet{}
+					g.Expect(k8sClient.Get(context.Background(), dsKey, ds)).Should(BeNil())
+
+					//verify ds has new configuration
+					envVars := getEnvVarMap(ds.Spec.Template.Spec.Containers[0].Env)
+					g.Expect(envVars["PEER_UPDATE_INTERVAL"].Value).To(Equal(strconv.Itoa(int(time.Second * 10))))
+
+					//verify update strategy remains on ds after config update
+					verifyUpdateStrategy(g)
+				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+			})
+		})
+		When("Configuration has no customized update strategy", func() {
+			It("Daemonset should keep the default RollingUpdate strategy with maxUnavailable 1", func() {
+				Eventually(func(g Gomega) {
+					ds = &appsv1.DaemonSet{}
+					g.Expect(k8sClient.Get(context.Background(), dsKey, ds)).Should(BeNil())
+
+					g.Expect(ds.Spec.UpdateStrategy.Type).To(Equal(appsv1.RollingUpdateDaemonSetStrategyType))
+					g.Expect(ds.Spec.UpdateStrategy.RollingUpdate).ToNot(BeNil())
+					g.Expect(ds.Spec.UpdateStrategy.RollingUpdate.MaxUnavailable).To(Equal(&intstr.IntOrString{Type: intstr.Int, IntVal: 1}))
 				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 			})
 		})

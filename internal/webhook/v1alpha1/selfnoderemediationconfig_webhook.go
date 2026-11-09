@@ -22,8 +22,10 @@ import (
 	"strconv"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -92,6 +94,7 @@ func (v *SNRConfigValidator) ValidateCreate(_ context.Context, snrConfig *remedi
 		validateTimes(snrConfig),
 		validateCustomTolerations(snrConfig),
 		validateCustomDsNodeSelectors(snrConfig),
+		validateCustomDsUpdateStrategy(snrConfig),
 		validatePeerTopologyKey(snrConfig),
 		validateSingleton(snrConfig),
 	})
@@ -108,6 +111,7 @@ func (v *SNRConfigValidator) ValidateUpdate(_ context.Context, _, snrConfig *rem
 		validateTimes(snrConfig),
 		validateCustomTolerations(snrConfig),
 		validateCustomDsNodeSelectors(snrConfig),
+		validateCustomDsUpdateStrategy(snrConfig),
 		validatePeerTopologyKey(snrConfig),
 	})
 }
@@ -207,6 +211,67 @@ func validateToleration(toleration v1.Toleration) error {
 			return err
 		}
 	}
+	return nil
+}
+
+// validateCustomDsUpdateStrategy validates CustomDsUpdateStrategy, when set, against the constraints
+// of the agent DaemonSet: the strategy type must be a valid DaemonSet strategy type, a rollingUpdate
+// block only makes sense for the RollingUpdate type, maxSurge must stay at zero because the agents
+// bind a host port and own the node's watchdog device (two agents must never run on the same node),
+// and maxUnavailable zero would freeze every rollout since maxSurge cannot compensate
+func validateCustomDsUpdateStrategy(snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) error {
+	strategy := snrConfig.Spec.CustomDsUpdateStrategy
+	if strategy == nil {
+		return nil
+	}
+
+	switch strategy.Type {
+	case "", appsv1.RollingUpdateDaemonSetStrategyType, appsv1.OnDeleteDaemonSetStrategyType:
+		// Valid, nothing to do. Empty means the API server default, which is RollingUpdate.
+	default:
+		err := fmt.Errorf("invalid type for customDsUpdateStrategy: %s", strategy.Type)
+		selfNodeRemediationConfigLog.Error(err, "invalid type for customDsUpdateStrategy", "valid values", []appsv1.DaemonSetUpdateStrategyType{appsv1.RollingUpdateDaemonSetStrategyType, appsv1.OnDeleteDaemonSetStrategyType}, "received value", strategy.Type)
+		return err
+	}
+
+	if strategy.Type == appsv1.OnDeleteDaemonSetStrategyType && strategy.RollingUpdate != nil {
+		err := fmt.Errorf("invalid rollingUpdate for customDsUpdateStrategy: rollingUpdate must be empty when type is %s", appsv1.OnDeleteDaemonSetStrategyType)
+		selfNodeRemediationConfigLog.Error(err, "invalid rollingUpdate for customDsUpdateStrategy: rollingUpdate must be empty when type is OnDelete")
+		return err
+	}
+
+	if strategy.RollingUpdate == nil {
+		return nil
+	}
+
+	if maxSurge := strategy.RollingUpdate.MaxSurge; maxSurge != nil {
+		surge, err := intstr.GetScaledValueFromIntOrPercent(maxSurge, 100, true)
+		if err != nil {
+			err = fmt.Errorf("invalid maxSurge for customDsUpdateStrategy: %w", err)
+			selfNodeRemediationConfigLog.Error(err, "invalid maxSurge for customDsUpdateStrategy")
+			return err
+		}
+		if surge != 0 {
+			err := fmt.Errorf("invalid maxSurge for customDsUpdateStrategy: must be 0, the agents bind a host port and own the node's watchdog device, so two agents must never run on the same node")
+			selfNodeRemediationConfigLog.Error(err, "invalid maxSurge for customDsUpdateStrategy: must be 0", "received value", maxSurge)
+			return err
+		}
+	}
+
+	if maxUnavailable := strategy.RollingUpdate.MaxUnavailable; maxUnavailable != nil {
+		unavailable, err := intstr.GetScaledValueFromIntOrPercent(maxUnavailable, 100, true)
+		if err != nil {
+			err = fmt.Errorf("invalid maxUnavailable for customDsUpdateStrategy: %w", err)
+			selfNodeRemediationConfigLog.Error(err, "invalid maxUnavailable for customDsUpdateStrategy")
+			return err
+		}
+		if unavailable == 0 {
+			err := fmt.Errorf("invalid maxUnavailable for customDsUpdateStrategy: must not be 0, maxSurge is always 0 for the agents so a zero maxUnavailable would freeze every rollout")
+			selfNodeRemediationConfigLog.Error(err, "invalid maxUnavailable for customDsUpdateStrategy: must not be 0", "received value", maxUnavailable)
+			return err
+		}
+	}
+
 	return nil
 }
 

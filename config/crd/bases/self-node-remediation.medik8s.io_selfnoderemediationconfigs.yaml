@@ -134,6 +134,73 @@ spec:
                       type: string
                   type: object
                 type: array
+              customDsUpdateStrategy:
+                description: |-
+                  CustomDsUpdateStrategy replaces the update strategy of the snr agents DaemonSet.
+                  When unset, the DaemonSet keeps the Kubernetes defaults: RollingUpdate with maxUnavailable 1 and
+                  maxSurge 0. That default freezes the whole rollout as soon as a single agent pod cannot be replaced,
+                  for example a pod stuck terminating on an unreachable node, whose deletion the kubelet can never
+                  confirm: it permanently consumes the only disruption slot while the DaemonSet status still looks
+                  healthy. Setting maxUnavailable to a percentage lets a rollout make progress past a bounded number
+                  of such pods and scales with the cluster size; setting type to OnDelete hands the replacement pace
+                  entirely to the cluster administrator.
+                  maxSurge must remain 0 (or unset): the agents bind a host port for peer communication and own the
+                  node's watchdog device, so two agents must never run on the same node.
+                properties:
+                  rollingUpdate:
+                    description: Rolling update config params. Present only if type
+                      = "RollingUpdate".
+                    properties:
+                      maxSurge:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: |-
+                          The maximum number of nodes with an existing available DaemonSet pod that
+                          can have an updated DaemonSet pod during during an update.
+                          Value can be an absolute number (ex: 5) or a percentage of desired pods (ex: 10%).
+                          This can not be 0 if MaxUnavailable is 0.
+                          Absolute number is calculated from percentage by rounding up to a minimum of 1.
+                          Default value is 0.
+                          Example: when this is set to 30%, at most 30% of the total number of nodes
+                          that should be running the daemon pod (i.e. status.desiredNumberScheduled)
+                          can have their a new pod created before the old pod is marked as deleted.
+                          The update starts by launching new pods on 30% of nodes. Once an updated
+                          pod is available (Ready for at least minReadySeconds) the old DaemonSet pod
+                          on that node is marked deleted. If the old pod becomes unavailable for any
+                          reason (Ready transitions to false, is evicted, or is drained) an updated
+                          pod is immediately created on that node without considering surge limits.
+                          Allowing surge implies the possibility that the resources consumed by the
+                          daemonset on any given node can double if the readiness check fails, and
+                          so resource intensive daemonsets should take into account that they may
+                          cause evictions during disruption.
+                        x-kubernetes-int-or-string: true
+                      maxUnavailable:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: |-
+                          The maximum number of DaemonSet pods that can be unavailable during the
+                          update. Value can be an absolute number (ex: 5) or a percentage of total
+                          number of DaemonSet pods at the start of the update (ex: 10%). Absolute
+                          number is calculated from percentage by rounding up.
+                          This cannot be 0 if MaxSurge is 0
+                          Default value is 1.
+                          Example: when this is set to 30%, at most 30% of the total number of nodes
+                          that should be running the daemon pod (i.e. status.desiredNumberScheduled)
+                          can have their pods stopped for an update at any given time. The update
+                          starts by stopping at most 30% of those DaemonSet pods and then brings
+                          up new DaemonSet pods in their place. Once the new pods are available,
+                          it then proceeds onto other DaemonSet pods, thus ensuring that at least
+                          70% of original number of DaemonSet pods are available at all times during
+                          the update.
+                        x-kubernetes-int-or-string: true
+                    type: object
+                  type:
+                    description: Type of daemon set update. Can be "RollingUpdate"
+                      or "OnDelete". Default is RollingUpdate.
+                    type: string
+                type: object
               endpointHealthCheckUrl:
                 description: |-
                   EndpointHealthCheckUrl is an url that self node remediation agents which run on control-plane node will try to access when they can't contact their peers.
