@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -17,8 +18,9 @@ import (
 )
 
 const (
-	watchdogsFolder = "/dev"
-	watchdogPrefix  = "watchdog"
+	watchdogsFolder     = "/dev"
+	watchdogPrefix      = "watchdog"
+	sysfsWatchdogFolder = "/sys/class/watchdog"
 )
 
 var (
@@ -59,7 +61,9 @@ func checkWatchdogExists(watchdogFilePath string) error {
 	return nil
 }
 
-func NewLinux(log logr.Logger) (Watchdog, error) {
+// NewLinux finds the node's watchdog device, loading softdog when there is none. With armOnlyForReboot the device is
+// left closed until a reboot is needed, see Standby.
+func NewLinux(log logr.Logger, armOnlyForReboot bool) (Watchdog, error) {
 	mutex.Lock()
 	if linuxWatchDogInstantiated {
 		mutex.Unlock()
@@ -99,7 +103,7 @@ func NewLinux(log logr.Logger) (Watchdog, error) {
 		log: log,
 	}
 
-	return newSynced(log, wd), nil
+	return newSynced(log, wd, armOnlyForReboot), nil
 }
 
 // this func returns watchdog path with the latest modification time assuming that
@@ -168,6 +172,26 @@ func (wd *linuxWatchdog) getTimeout() (*time.Duration, error) {
 		return nil, err
 	}
 	timeoutDuration := time.Duration(timeout) * time.Second
+	return &timeoutDuration, nil
+}
+
+// timeout reads the device timeout from sysfs, so that it is known while the device is closed. The legacy
+// /dev/watchdog node is the first watchdog device, /dev/watchdogN is watchdogN.
+func (wd *linuxWatchdog) timeout() (*time.Duration, error) {
+	name := filepath.Base(watchdogDevice)
+	if name == watchdogPrefix {
+		name = watchdogPrefix + "0"
+	}
+	timeoutFile := filepath.Join(sysfsWatchdogFolder, name, "timeout")
+	raw, err := os.ReadFile(timeoutFile)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read the watchdog timeout from %s", timeoutFile)
+	}
+	seconds, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		return nil, errors.Wrapf(err, "unexpected watchdog timeout in %s: %q", timeoutFile, strings.TrimSpace(string(raw)))
+	}
+	timeoutDuration := time.Duration(seconds) * time.Second
 	return &timeoutDuration, nil
 }
 

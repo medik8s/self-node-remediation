@@ -59,6 +59,17 @@ spec:
                   Valid time units are "ms", "s", "m", "h".
                 pattern: ^([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$
                 type: string
+              armWatchdogOnlyForReboot:
+                description: |-
+                  ArmWatchdogOnlyForReboot makes the agent keep the node's watchdog device closed until a reboot is decided or
+                  requested. At start the agent still looks for the device (loading softdog when there is none), publishes its
+                  timeout and marks the node as reboot capable; it opens the device, without feeding it, only when it has to
+                  reboot the node. A killed or crashed agent then never resets its node.
+                  Mind that this accidental reset is also what fences a node whose agent died after the manager prepared its
+                  reboot: with the device closed, such a node may still be running when the safe time to assume it rebooted
+                  has passed and its workloads are released. Enable this only together with a release that waits for proof of
+                  the reboot.
+                type: boolean
               customDsNodeSelectorRequirements:
                 description: |-
                   CustomDsNodeSelectorRequirements allows to add custom nodeSelector terms to already defined matchExpressions for snr agents
