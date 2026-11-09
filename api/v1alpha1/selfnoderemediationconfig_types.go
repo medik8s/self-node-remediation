@@ -180,6 +180,15 @@ type SelfNodeRemediationConfigSpec struct {
 	// single-domain clusters): only their answers would be counted, so MinPeersForRemediation applies to them.
 	// +optional
 	PeerTopologyKey string `json:"peerTopologyKey,omitempty"`
+
+	// RequireBootIDChange makes the manager release an unhealthy node's workloads only once the node proves that it
+	// rebooted: its status.nodeInfo.bootID must differ from the one recorded when the reboot was prepared, in addition
+	// to the safe time to assume the node rebooted having passed. Without it, the workloads are released on the safe
+	// time alone, so a node that is still running at that time (a reboot that failed, an agent that died after the
+	// reboot was prepared) can end up running the same workload twice. With it, a node that never comes back keeps
+	// its workloads until the remediation is deleted or NodeHealthCheck times it out, so someone has to act on it.
+	// +optional
+	RequireBootIDChange bool `json:"requireBootIDChange,omitempty"`
 }
 
 // SelfNodeRemediationConfigStatus defines the observed state of SelfNodeRemediationConfig

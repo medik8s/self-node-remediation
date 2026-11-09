@@ -130,6 +130,11 @@ spec:
                   LastError captures the last error that occurred during remediation.
                   If no error occurred it would be empty
                 type: string
+              nodeBootID:
+                description: |-
+                  NodeBootID is the boot ID the node reported (status.nodeInfo.bootID) when the reboot was prepared.
+                  A different boot ID later proves that the node rebooted.
+                type: string
               phase:
                 description: |-
                   Phase represents the current phase of remediation,

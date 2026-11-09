@@ -63,6 +63,12 @@ type SelfNodeRemediationStatus struct {
 	//+operator-sdk:csv:customresourcedefinitions:type=status
 	TimeAssumedRebooted *metav1.Time `json:"timeAssumedRebooted,omitempty"`
 
+	// NodeBootID is the boot ID the node reported (status.nodeInfo.bootID) when the reboot was prepared.
+	// A different boot ID later proves that the node rebooted.
+	// +optional
+	//+operator-sdk:csv:customresourcedefinitions:type=status
+	NodeBootID string `json:"nodeBootID,omitempty"`
+
 	// Phase represents the current phase of remediation,
 	// One of: TBD
 	// +optional

@@ -53,6 +53,11 @@ spec:
         displayName: Last Error
         path: lastError
       - description: |-
+          NodeBootID is the boot ID the node reported (status.nodeInfo.bootID) when the reboot was prepared.
+          A different boot ID later proves that the node rebooted.
+        displayName: Node Boot ID
+        path: nodeBootID
+      - description: |-
           Phase represents the current phase of remediation,
           One of: TBD
         displayName: Phase

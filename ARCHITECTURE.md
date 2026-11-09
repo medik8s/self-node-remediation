@@ -33,8 +33,8 @@ SNR ships as **one Go module** with **two runtime modes**:
 - Honors **`remediation.medik8s.io/exclude-from-remediation`** label on Node **`true`** → skip.
 - **Strategy selection** — see below.
 - **Phase machine** (`.status.phase`):
-  - **Fencing-Started**: ensure node **can reboot** (agent pod + **`is-reboot-capable`** annotation); add **finalizer**; apply **NoSchedule** taint **`remediation.medik8s.io/self-node-remediation`**; compute **`status.timeAssumedRebooted`** via **`RebootDurationCalculator`**; advance to **Pre-Reboot-Completed**.
-  - **Pre-Reboot-Completed**: wait until **`timeAssumedRebooted`** has passed (assumes agent rebooted the node).
+  - **Fencing-Started**: ensure node **can reboot** (agent pod + **`is-reboot-capable`** annotation); add **finalizer**; apply **NoSchedule** taint **`remediation.medik8s.io/self-node-remediation`**; compute **`status.timeAssumedRebooted`** via **`RebootDurationCalculator`**; record the node's **`status.nodeInfo.bootID`** as **`status.nodeBootID`**; advance to **Pre-Reboot-Completed**.
+  - **Pre-Reboot-Completed**: wait until **`timeAssumedRebooted`** has passed (assumes agent rebooted the node). With **`requireBootIDChange`** in the config, also wait until the node reports a boot ID different from **`status.nodeBootID`**, re-checked every **30s** (**`BootIDRecheckInterval`**); a node that never comes back keeps its resources.
   - **Reboot-Completed**: run strategy-specific resource cleanup (**delete pods, then wait for VolumeAttachments to clear** or **out-of-service taint** workflow).
   - **Fencing-Completed**: remove **NoSchedule** taint; remove **finalizer** on delete; set **Succeeded** conditions.
 
