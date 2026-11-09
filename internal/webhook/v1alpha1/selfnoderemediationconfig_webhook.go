@@ -93,6 +93,7 @@ func (v *SNRConfigValidator) ValidateCreate(_ context.Context, snrConfig *remedi
 		validateCustomTolerations(snrConfig),
 		validateCustomDsNodeSelectors(snrConfig),
 		validatePeerTopologyKey(snrConfig),
+		validateWatchdogArming(snrConfig),
 		validateSingleton(snrConfig),
 	})
 
@@ -109,6 +110,7 @@ func (v *SNRConfigValidator) ValidateUpdate(_ context.Context, _, snrConfig *rem
 		validateCustomTolerations(snrConfig),
 		validateCustomDsNodeSelectors(snrConfig),
 		validatePeerTopologyKey(snrConfig),
+		validateWatchdogArming(snrConfig),
 	})
 }
 
@@ -212,6 +214,20 @@ func validateToleration(toleration v1.Toleration) error {
 
 // validatePeerTopologyKey validates that PeerTopologyKey, when set, is a valid label key: it is rendered into the
 // agent DaemonSet and used to read node labels, so anything else than a qualified name is rejected
+// validateWatchdogArming refuses to arm the watchdog only for reboots unless the release of a node's workloads
+// waits for its boot ID to change: with the device closed, an agent that dies after the manager prepared a reboot
+// no longer fences its node, so the time-based release alone would be unsafe
+func validateWatchdogArming(snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) error {
+	if snrConfig.Spec.ArmWatchdogOnlyForReboot && !snrConfig.Spec.RequireBootIDChange {
+		err := fmt.Errorf("armWatchdogOnlyForReboot requires requireBootIDChange: with the watchdog closed, an agent that " +
+			"dies after a reboot was prepared no longer fences its node, so the manager must wait for the node's boot ID " +
+			"to change before releasing its workloads")
+		selfNodeRemediationConfigLog.Error(err, "invalid watchdog arming configuration")
+		return err
+	}
+	return nil
+}
+
 func validatePeerTopologyKey(snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) error {
 	key := snrConfig.Spec.PeerTopologyKey
 	if key == "" {

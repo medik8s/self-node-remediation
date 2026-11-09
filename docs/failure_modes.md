@@ -14,7 +14,7 @@ Behaviour references **`internal/controller/selfnoderemediation_controller.go`**
 
 **`MaxTimeForNoPeersResponse`** is **no longer a fixed constant**: it's now configurable via **`SelfNodeRemediationConfig.spec.maxTimeForNoPeersResponse`** (defaults to **30s** when unset) — floor for peer timing in reboot-duration calculation; also used in api-check staleness (`internal/reboot/calculator.go`, `internal/apicheck/check.go`).
 
-Config defaults (override via **`SelfNodeRemediationConfig`**): **`apiCheckInterval`** default **15s**, **`apiServerTimeout`** **5s**, **`maxApiErrorThreshold`** **3**, **`peerUpdateInterval`** default **15m**, **`hostPort`** default **30001**, **`minPeersForRemediation`** default **1**, **`maxTimeForNoPeersResponse`** default **30s**, **`peerTopologyKey`** default empty, **`requireBootIDChange`** default **false**.
+Config defaults (override via **`SelfNodeRemediationConfig`**): **`apiCheckInterval`** default **15s**, **`apiServerTimeout`** **5s**, **`maxApiErrorThreshold`** **3**, **`peerUpdateInterval`** default **15m**, **`hostPort`** default **30001**, **`minPeersForRemediation`** default **1**, **`maxTimeForNoPeersResponse`** default **30s**, **`peerTopologyKey`** default empty, **`requireBootIDChange`** default **false**, **`armWatchdogOnlyForReboot`** default **false**.
 
 ---
 
@@ -85,6 +85,7 @@ Config defaults (override via **`SelfNodeRemediationConfig`**): **`apiCheckInter
 
 - **Detection:** **`WatchdogRebooter.Reboot`** errors on unexpected watchdog **Status**; software reboot **`Run`** errors logged.
 - **Behaviour:** Software reboot path still returns **nil** after logging (**`softwareReboot`** swallows run error — ops should inspect logs).
+- **Agent killed or crashed:** by default the watchdog is armed and fed from agent start, so the node **resets after the watchdog timeout** (60s with softdog) whenever the agent process dies, including an operator killing the pod. With **`armWatchdogOnlyForReboot`** the device stays closed (**`Standby`**) and nothing happens; the option requires **`requireBootIDChange`**, which replaces that accidental fence with proof of the reboot. A failure to open the device at reboot time shows as **`Malfunction`** and falls back to software reboot.
 
 ### 4.4 Agent reboot skipped as duplicate
 

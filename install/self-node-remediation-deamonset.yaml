@@ -71,6 +71,8 @@ spec:
             value: "{{.MaxApiErrorThreshold}}"
           - name: IS_SOFTWARE_REBOOT_ENABLED
             value: {{.IsSoftwareRebootEnabled}}
+          - name: ARM_WATCHDOG_ONLY_FOR_REBOOT
+            value: {{.ArmWatchdogOnlyForReboot}}
           - name: END_POINT_HEALTH_CHECK_URL
             value: {{.EndpointHealthCheckUrl}}
           - name: PREFERRED_ADDRESS_TYPES

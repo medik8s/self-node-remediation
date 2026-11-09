@@ -72,9 +72,13 @@ func (r *watchdogRebooter) Reboot() error {
 	case watchdog.Disarmed:
 		r.log.Info("watchdog failed to start, trying software reboot")
 		return r.softwareRebootHook()
-	case watchdog.Armed:
-		// we stop feeding the watchdog for a reboot
+	case watchdog.Armed, watchdog.Standby:
+		// an armed watchdog is no longer fed, a watchdog on standby is armed and never fed
 		r.wd.Stop()
+		if r.wd.Status() == watchdog.Malfunction {
+			r.log.Info("watchdog could not be armed for the reboot, trying software reboot")
+			return r.softwareRebootHook()
+		}
 		r.log.Info("watchdog feeding has stopped, waiting for reboot to commence")
 		return nil
 	default:

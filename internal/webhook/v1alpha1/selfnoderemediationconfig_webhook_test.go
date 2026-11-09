@@ -279,6 +279,46 @@ func testSingleInvalidField(validator *SNRConfigValidator, validationType valida
 		})
 	})
 
+	Context(fmt.Sprintf("%s validation of armWatchdogOnlyForReboot", validationType.getName()), func() {
+		newConfig := func() *remediationv1alpha1.SelfNodeRemediationConfig {
+			snrc := createTestSelfNodeRemediationConfigCR()
+			snrc.Name = remediationv1alpha1.ConfigCRName
+			Expect(os.Setenv("DEPLOYMENT_NAMESPACE", snrc.Namespace)).To(Succeed())
+			return snrc
+		}
+		validate := func(snrc *remediationv1alpha1.SelfNodeRemediationConfig) error {
+			var err error
+			if validationType == update {
+				_, err = validator.ValidateUpdate(context.Background(), newConfig(), snrc)
+			} else {
+				_, err = validator.ValidateCreate(context.Background(), snrc)
+			}
+			return err
+		}
+
+		It("should be rejected without requireBootIDChange", func() {
+			snrc := newConfig()
+			snrc.Spec.ArmWatchdogOnlyForReboot = true
+			err := validate(snrc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("armWatchdogOnlyForReboot requires requireBootIDChange"))
+		})
+
+		It("should be accepted with requireBootIDChange", func() {
+			snrc := newConfig()
+			snrc.Spec.ArmWatchdogOnlyForReboot = true
+			snrc.Spec.RequireBootIDChange = true
+			Expect(validate(snrc)).To(Succeed())
+		})
+
+		It("should be accepted when disabled, whatever requireBootIDChange", func() {
+			snrc := newConfig()
+			Expect(validate(snrc)).To(Succeed())
+			snrc.Spec.RequireBootIDChange = true
+			Expect(validate(snrc)).To(Succeed())
+		})
+	})
+
 	Context(fmt.Sprintf("%s validation of customized nodeAffinity node selector", validationType.getName()), func() {
 		It("should be rejected - key must be non-empty", func() {
 			snrc := createTestSelfNodeRemediationConfigCR()

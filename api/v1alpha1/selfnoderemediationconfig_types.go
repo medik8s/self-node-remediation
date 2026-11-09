@@ -125,6 +125,15 @@ type SelfNodeRemediationConfigSpec struct {
 	// +optional
 	IsSoftwareRebootEnabled bool `json:"isSoftwareRebootEnabled,omitempty"`
 
+	// ArmWatchdogOnlyForReboot makes the agent keep the node's watchdog device closed until a reboot is decided or
+	// requested. At start the agent still looks for the device (loading softdog when there is none), publishes its
+	// timeout and marks the node as reboot capable; it opens the device, without feeding it, only when it has to
+	// reboot the node. A killed or crashed agent then never resets its node. Requires RequireBootIDChange: with the
+	// device closed, an agent that dies after the manager prepared a reboot no longer fences its node, so the manager
+	// must wait for the node's boot ID to change before releasing its workloads.
+	// +optional
+	ArmWatchdogOnlyForReboot bool `json:"armWatchdogOnlyForReboot,omitempty"`
+
 	// EndpointHealthCheckUrl is an url that self node remediation agents which run on control-plane node will try to access when they can't contact their peers.
 	// This is a part of self diagnostics which will decide whether the node should be remediated or not.
 	// It will be ignored when empty (which is the default).
