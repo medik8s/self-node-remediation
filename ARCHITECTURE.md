@@ -80,7 +80,7 @@ Implemented on **`SelfNodeRemediation.spec.remediationStrategy`**:
 
 ## Safe timing (`internal/reboot/calculator.go`)
 
-- **`GetRebootDuration`**: max of user **`safeTimeToAssumeNodeRebootedSeconds`** (if set and **not below** minimum) and a **calculated minimum** from **`(ApiCheckInterval + ApiServerTimeout) × MaxApiErrorThreshold`**, peer timeouts, **`MaxTimeForNoPeersResponse`** (**30s** default, now overridable via **`SelfNodeRemediationConfig.spec.maxTimeForNoPeersResponse`**) floor for peer interaction, and node **watchdog timeout** annotation **`self-node-remediation.medik8s.io/watchdog-timeout`**.
+- **`GetRebootDuration`**: max of user **`safeTimeToAssumeNodeRebootedSeconds`** (if set and **not below** minimum) and a **calculated minimum**, the agent's worst case: **`(ApiCheckInterval + ApiServerTimeout) × MaxApiErrorThreshold`** to detect the outage, a full peer sweep of **`utils.MaxNrOfBatches`** (14) batches of **`PeerDialTimeout + PeerRequestTimeout`** ending with an answer that restarts the window, **`MaxTimeForNoPeersResponse`** (**30s** default, overridable via **`SelfNodeRemediationConfig.spec.maxTimeForNoPeersResponse`**), one more check and one more sweep, then the node **watchdog timeout** annotation **`self-node-remediation.medik8s.io/watchdog-timeout`** (floored at **60s**) plus **30s**.
 
 ---
 

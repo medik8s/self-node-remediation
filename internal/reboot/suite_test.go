@@ -63,7 +63,7 @@ var _ = BeforeSuite(func() {
 	k8sClient = k8sManager.GetClient()
 	Expect(k8sClient).ToNot(BeNil())
 
-	calculator = reboot.NewCalculator(k8sClient, ctrl.Log.WithName("reboot-calculator"))
+	calculator = reboot.NewCalculator(ctrl.Log.WithName("reboot-calculator"))
 	_ = os.Setenv("SELF_NODE_REMEDIATION_IMAGE", shared.DsDummyImageName)
 
 	err = (&controller.SelfNodeRemediationConfigReconciler{

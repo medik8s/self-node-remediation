@@ -19,6 +19,19 @@ var _ = Describe("Utils/Peers tests", func() {
 		Entry("small cluster", 2, []int{2}),
 		Entry("medium cluster", 20, []int{3, 3, 3, 3, 3, 3, 2}),
 		Entry("big cluster", 53, []int{3, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5}),
+		Entry("cluster needing the most batches", 42, []int{3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3}),
 	)
+
+	It("never needs more than MaxNrOfBatches batches", func() {
+		maxNrOfBatches := 0
+		for nrOfNodes := 0; nrOfNodes <= 10000; nrOfNodes++ {
+			nrOfBatches := GetNrOfBatches(nrOfNodes)
+			Expect(nrOfBatches).To(BeNumerically("<=", MaxNrOfBatches), "%d nodes need %d batches", nrOfNodes, nrOfBatches)
+			if nrOfBatches > maxNrOfBatches {
+				maxNrOfBatches = nrOfBatches
+			}
+		}
+		Expect(maxNrOfBatches).To(Equal(MaxNrOfBatches))
+	})
 
 })

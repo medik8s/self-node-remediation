@@ -3,6 +3,12 @@ package utils
 const (
 	MinNrOfNodesInBatch      = 3
 	MaxNrOfBatchesAfterFirst = 10
+	// MaxNrOfBatches is the largest number of batches GetNrOfBatches returns for any number of nodes. The batches after
+	// the first one hold a tenth of the nodes, but never fewer than MinNrOfNodesInBatch, so the count is not monotonic
+	// in the number of nodes: 42 nodes take 14 batches while 43 take 11. Callers that need an upper bound, such as the
+	// reboot duration calculator, use this constant rather than the count for the current number of nodes, which can
+	// also change while the agent is asking.
+	MaxNrOfBatches = 14
 )
 
 // GetNextBatchSize returns the number of nodes to ask in the next batch
