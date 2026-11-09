@@ -129,7 +129,8 @@ func (swd *synchronizedWatchdog) init() error {
 }
 
 // standby publishes the device timeout without opening the device, see Standby. A device whose timeout cannot be
-// read is reported as malfunctioning, so that the node is never marked reboot capable with an unknown timeout.
+// read is reported as malfunctioning, like a device that fails to start: the node then relies on software reboot
+// when that is enabled, and the agent fails to start when it is not.
 func (swd *synchronizedWatchdog) standby() error {
 	swd.mutex.Lock()
 	defer swd.mutex.Unlock()

@@ -248,7 +248,7 @@ var _ = Describe("Watchdog armed only for a reboot", func() {
 				DeferCleanup(os.Unsetenv, watchdog.IsSoftwareRebootEnabledEnvVar)
 			})
 
-			It("reports a malfunction instead of a reboot capable node with an unknown timeout", func() {
+			It("reports a malfunction and leaves the reboot to software reboot", func() {
 
 				go func() {
 					defer GinkgoRecover()
