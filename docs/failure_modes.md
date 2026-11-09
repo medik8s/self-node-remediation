@@ -83,7 +83,7 @@ Config defaults (override via **`SelfNodeRemediationConfig`**): **`apiCheckInter
 ### 4.3 Watchdog / reboot failures
 
 - **Detection:** **`WatchdogRebooter.Reboot`** errors on unexpected watchdog **Status**; software reboot **`Run`** errors logged.
-- **Behaviour:** When every software reboot method fails, **`softwareReboot`** returns an error naming each failed method; the API check logs it and the remediation controller returns it, so the reconcile is retried.
+- **Behaviour:** When every software reboot method fails, **`softwareReboot`** returns an error naming each failed method; the API check logs it and the remediation controller returns it, so the agent reconcile is retried. The retry does not hold back the manager: once **`timeAssumedRebooted`** passes it moves the remediation to the reboot-completed phase, the agent stops attempting the reboot, and node resources are removed although the node may not have rebooted.
 
 ### 4.4 Agent reboot skipped as duplicate
 
