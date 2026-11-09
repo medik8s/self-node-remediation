@@ -93,7 +93,7 @@ Config defaults (override via **`SelfNodeRemediationConfig`**): **`apiCheckInter
 ### 4.5 Safe timing vs calculated minimum
 
 - **Symptom:** Workloads or **VolumeAttachments** still attached when cleanup runs, or fencing/cleanup feels **too early** or **too late** relative to an expected reboot.
-- **Behaviour:** **`status.timeAssumedRebooted`** comes from **`RebootDurationCalculator`**: effective wait is the **max** of **`safeTimeToAssumeNodeRebootedSeconds`** (only if **not below** the computed minimum) and a **minimum** derived from **`(apiCheckInterval + apiServerTimeout) × (maxApiErrorThreshold + 1)`**, **two** full peer sweeps of **14** batches (the worst case over all cluster sizes), **`MaxTimeForNoPeersResponse`**, and the node **watchdog-timeout** annotation floored at **60s** — see **`../ARCHITECTURE.md`** (Safe timing).
+- **Behaviour:** **`status.timeAssumedRebooted`** comes from **`RebootDurationCalculator`**: effective wait is the **max** of **`safeTimeToAssumeNodeRebootedSeconds`** (only if **not below** the computed minimum) and a **minimum** derived from **`(apiCheckInterval + apiServerTimeout) × (maxApiErrorThreshold + 1)`**, **two** full peer sweeps of the largest batch count for any cluster up to the current worker count (at most **14**), **`MaxTimeForNoPeersResponse`**, and the node **watchdog-timeout** annotation floored at **60s** — see **`../ARCHITECTURE.md`** (Safe timing).
 - **Ops:** Tune config intervals and **`safeTimeToAssumeNodeRebootedSeconds`**; confirm the node **`self-node-remediation.medik8s.io/watchdog-timeout`** annotation matches hardware expectations.
 
 ---

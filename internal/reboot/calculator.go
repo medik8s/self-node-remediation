@@ -6,9 +6,13 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	commonlabels "github.com/medik8s/common/pkg/labels"
 	"github.com/pkg/errors"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/medik8s/self-node-remediation/v5/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/v5/internal/utils"
@@ -42,15 +46,17 @@ type Calculator interface {
 var _ Calculator = &calculator{}
 
 type calculator struct {
-	log logr.Logger
+	k8sClient client.Client
+	log       logr.Logger
 	// storing the config here when reconciling it increases resilience in case of issues during remediation
 	snrConfig     *v1alpha1.SelfNodeRemediationConfig
 	snrConfigLock sync.RWMutex
 }
 
-func NewCalculator(log logr.Logger) Calculator {
+func NewCalculator(k8sClient client.Client, log logr.Logger) Calculator {
 	return &calculator{
-		log: log,
+		k8sClient: k8sClient,
+		log:       log,
 	}
 }
 
@@ -79,7 +85,7 @@ func (r *calculator) GetRebootDuration(ctx context.Context, node *v1.Node) (time
 		r.log.Info("watchdog timeout from node annotations is below the minimum the reboot duration relies on, using the minimum", "node", node.Name, "annotated timeout in seconds", watchdogTimeout.Seconds(), "minimum timeout in seconds", minWatchdogTimeout.Seconds())
 		watchdogTimeout = minWatchdogTimeout
 	}
-	minimumCalculatedRebootDuration := r.calculateMinimumRebootDuration(watchdogTimeout)
+	minimumCalculatedRebootDuration := r.calculateMinimumRebootDuration(watchdogTimeout, r.nrOfBatches(ctx))
 
 	specRebootDurationSeconds := r.snrConfig.Spec.SafeTimeToAssumeNodeRebootedSeconds
 	if specRebootDurationSeconds == nil {
@@ -106,14 +112,12 @@ func (r *calculator) GetRebootDuration(ctx context.Context, node *v1.Node) (time
 //
 //  1. detects the API connectivity issue: MaxApiErrorThreshold checks fail, each taking up to
 //     ApiCheckInterval + ApiServerTimeout;
-//  2. asks its peers, in at most utils.MaxNrOfBatches batches of PeerDialTimeout + PeerRequestTimeout each. The batch
-//     count depends on the number of nodes in a way that is not monotonic, and that number can change during the
-//     outage, so the bound over all cluster sizes is used. A peer answering "api error" at the very end of that sweep
-//     restarts the no-peers-response window;
+//  2. asks its peers, in at most nrOfBatches batches of PeerDialTimeout + PeerRequestTimeout each. A peer answering
+//     "api error" at the very end of that sweep restarts the no-peers-response window;
 //  3. waits MaxTimeForNoPeersResponse without any peer answer. The sweep that ends after the window elapsed may have
 //     started one check cycle before it elapsed, so one more check and one more full sweep follow;
 //  4. triggers the reboot: the watchdog fires after its timeout, then the node needs some time to actually go down.
-func (r *calculator) calculateMinimumRebootDuration(watchdogTimeout time.Duration) time.Duration {
+func (r *calculator) calculateMinimumRebootDuration(watchdogTimeout time.Duration, nrOfBatches int) time.Duration {
 
 	spec := r.snrConfig.Spec
 
@@ -124,8 +128,8 @@ func (r *calculator) calculateMinimumRebootDuration(watchdogTimeout time.Duratio
 	apiCheckDuration := checkDuration * time.Duration(spec.MaxApiErrorThreshold)
 
 	// 2. confirm issue with peers
-	// a) max nr of peer request batches times max peer request duration, the agent raises too low request timeouts
-	sweepDuration := time.Duration(utils.MaxNrOfBatches) * (spec.PeerDialTimeout.Duration + effectivePeerRequestTimeout(spec))
+	// a) nr of peer request batches times max peer request duration, the agent raises too low request timeouts
+	sweepDuration := time.Duration(nrOfBatches) * (spec.PeerDialTimeout.Duration + effectivePeerRequestTimeout(spec))
 	// b) in order to prevent false positives in case of temporary network issues, nodes are not considered unhealthy
 	//    before MaxTimeForNoPeersResponse elapsed since the last peer answer, which can come at the end of the sweep
 	maxTimeForNoPeersResponse := MaxTimeForNoPeersResponse
@@ -142,6 +146,23 @@ func (r *calculator) calculateMinimumRebootDuration(watchdogTimeout time.Duratio
 	rebootDuration += rebootBuffer
 
 	return apiCheckDuration + peerRequestsDuration + rebootDuration
+}
+
+// nrOfBatches returns the number of peer request batches the reboot duration must cover: the largest batch count of any
+// cluster up to the current number of worker nodes. GetNrOfBatches is not monotonic in the number of nodes (42 nodes
+// take 14 batches, 43 take 11) and nodes can join during a sweep, so the count for the exact current size would be
+// too small; the bound over every size up to it is not. When the nodes cannot be listed, the bound over all cluster
+// sizes is used, so that a remediation is never blocked by a failed List.
+func (r *calculator) nrOfBatches(ctx context.Context) int {
+	reqPeers, _ := labels.NewRequirement(commonlabels.WorkerRole, selection.Exists, []string{})
+	selector := labels.NewSelector().Add(*reqPeers)
+
+	nodes := &v1.NodeList{}
+	if err := r.k8sClient.List(ctx, nodes, client.MatchingLabelsSelector{Selector: selector}); err != nil {
+		r.log.Error(err, "failed to list worker nodes, using the largest possible number of peer batches", "batches", utils.MaxNrOfBatches)
+		return utils.MaxNrOfBatches
+	}
+	return utils.MaxNrOfBatchesUpTo(len(nodes.Items))
 }
 
 // effectivePeerRequestTimeout mirrors the agent: PeerRequestTimeout is raised to ApiServerTimeout plus a buffer when

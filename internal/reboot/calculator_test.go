@@ -80,12 +80,12 @@ var _ = Describe("Calculator tests", func() {
 			watchdogTimeoutSeconds = 10
 			nrOfPeers = 2
 			// 3 * (15 + 5) = 60 (API server)
-			// + 14 * (5 + 7) = 168 (peers sweep, worst case batch count, 5s request timeout raised to 5 + 2)
+			// + 1 * (5 + 7) = 12 (peers sweep: one batch for up to 3 nodes, 5s request timeout raised to 5 + 2)
 			// + 30 (MaxTimeForNoPeersResponse)
-			// + (15 + 5) + 14 * (5 + 7) = 188 (one more check and sweep)
+			// + (15 + 5) + 1 * (5 + 7) = 32 (one more check and sweep)
 			// + 60 (Watchdog, 10s raised to the 60s minimum)
 			// + 30
-			expectedRebootDurationSeconds = 536
+			expectedRebootDurationSeconds = 224
 		})
 		It("GetRebootTime should return correct value", func() {
 			Eventually(func() (time.Duration, error) {
@@ -102,12 +102,12 @@ var _ = Describe("Calculator tests", func() {
 			watchdogTimeoutSeconds = 10
 			nrOfPeers = 2
 			// 3 * (15 + 5) = 60 (API server)
-			// + 14 * (5 + 7) = 168 (peers sweep)
+			// + 1 * (5 + 7) = 12 (peers sweep)
 			// + 90 (configured MaxTimeForNoPeersResponse, replaces the 30s default)
-			// + (15 + 5) + 14 * (5 + 7) = 188 (one more check and sweep)
+			// + (15 + 5) + 1 * (5 + 7) = 32 (one more check and sweep)
 			// + 60 (Watchdog, 10s raised to the 60s minimum)
 			// + 30
-			expectedRebootDurationSeconds = 596
+			expectedRebootDurationSeconds = 284
 		})
 		It("GetRebootTime should use the configured value", func() {
 			Eventually(func() (time.Duration, error) {
@@ -127,15 +127,15 @@ var _ = Describe("Calculator tests", func() {
 			snrConfig.Spec.PeerRequestTimeout = &metav1.Duration{Duration: 13 * time.Second}
 
 			watchdogTimeoutSeconds = 25
-			nrOfPeers = 20 // 7 batches, but the worst case of 14 is used
+			nrOfPeers = 20 // 7 batches, the most for any cluster up to 20 nodes
 
 			// 4 * (25 + 7) = 128 (API server)
-			// + 14 * (11 + 13) = 336 (peers sweep)
+			// + 7 * (11 + 13) = 168 (peers sweep)
 			// + 30 (MaxTimeForNoPeersResponse)
-			// + (25 + 7) + 14 * (11 + 13) = 368 (one more check and sweep)
+			// + (25 + 7) + 7 * (11 + 13) = 200 (one more check and sweep)
 			// + 60 (Watchdog, 25s raised to the 60s minimum)
 			// + 30
-			expectedRebootDurationSeconds = 952
+			expectedRebootDurationSeconds = 616
 		})
 		It("GetRebootTime should return correct value", func() {
 			Eventually(func() (time.Duration, error) {

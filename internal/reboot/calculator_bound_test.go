@@ -7,9 +7,12 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	commonlabels "github.com/medik8s/common/pkg/labels"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/medik8s/self-node-remediation/v5/api/v1alpha1"
 	"github.com/medik8s/self-node-remediation/v5/internal/utils"
@@ -37,8 +40,17 @@ func worstCaseRebootDuration(spec v1alpha1.SelfNodeRemediationConfigSpec, nrOfNo
 	return time.Duration(spec.MaxApiErrorThreshold)*check + sweep + spec.MaxTimeForNoPeersResponse.Duration + check + sweep + watchdogTimeout + rebootBuffer
 }
 
-func newTestCalculator(spec v1alpha1.SelfNodeRemediationConfigSpec) *calculator {
+// newTestCalculator returns a calculator over a fake cluster of nrOfWorkers worker nodes
+func newTestCalculator(spec v1alpha1.SelfNodeRemediationConfigSpec, nrOfWorkers int) *calculator {
+	workers := make([]client.Object, 0, nrOfWorkers)
+	for i := 0; i < nrOfWorkers; i++ {
+		node := &v1.Node{}
+		node.Name = "worker-" + strconv.Itoa(i)
+		node.Labels = map[string]string{commonlabels.WorkerRole: ""}
+		workers = append(workers, node)
+	}
 	return &calculator{
+		k8sClient: fake.NewClientBuilder().WithObjects(workers...).Build(),
 		log:       logr.Discard(),
 		snrConfig: &v1alpha1.SelfNodeRemediationConfig{Spec: spec},
 	}
@@ -48,20 +60,30 @@ func newTestCalculator(spec v1alpha1.SelfNodeRemediationConfigSpec) *calculator 
 // for every cluster size from 3 to 300 nodes, and equal to it for the sizes that need the most batches.
 func TestMinimumRebootDurationCoversWorstCase(t *testing.T) {
 	spec := defaultSpec(3, 10*time.Minute)
-	got := newTestCalculator(spec).calculateMinimumRebootDuration(minWatchdogTimeout)
+	c := newTestCalculator(spec, 0)
 
-	tight := false
+	tight := 0
+	previous := time.Duration(0)
 	for nrOfNodes := 3; nrOfNodes <= 300; nrOfNodes++ {
+		got := c.calculateMinimumRebootDuration(minWatchdogTimeout, utils.MaxNrOfBatchesUpTo(nrOfNodes))
 		want := worstCaseRebootDuration(spec, nrOfNodes, minWatchdogTimeout)
 		if got < want {
 			t.Errorf("%d nodes: minimum reboot duration %s is below the worst case %s", nrOfNodes, got, want)
 		}
-		if got == want {
-			tight = true
+		if got < previous {
+			t.Errorf("%d nodes: minimum reboot duration %s is below the one for fewer nodes %s", nrOfNodes, got, previous)
 		}
+		if got == want {
+			tight++
+		}
+		previous = got
 	}
-	if !tight {
-		t.Errorf("minimum reboot duration %s is not reached by any cluster size, the bound is too loose", got)
+	if tight == 0 {
+		t.Errorf("the minimum reboot duration is not reached by any cluster size, the bound is too loose")
+	}
+	// the bound saturates at MaxNrOfBatches
+	if got, want := c.calculateMinimumRebootDuration(minWatchdogTimeout, utils.MaxNrOfBatchesUpTo(300)), c.calculateMinimumRebootDuration(minWatchdogTimeout, utils.MaxNrOfBatches); got != want {
+		t.Errorf("300 nodes: expected the largest bound %s, got %s", want, got)
 	}
 }
 
@@ -71,19 +93,22 @@ func TestMinimumRebootDurationValues(t *testing.T) {
 	testCases := []struct {
 		threshold int
 		window    time.Duration
+		workers   int
 		expected  time.Duration
 	}{
 		// 3 * 20 + 14 * 12 + 600 + 20 + 14 * 12 + 60 + 30
-		{threshold: 3, window: 10 * time.Minute, expected: 1106 * time.Second},
+		{threshold: 3, window: 10 * time.Minute, workers: 100, expected: 1106 * time.Second},
 		// 41 * 20 + 14 * 12 + 600 + 20 + 14 * 12 + 60 + 30
-		{threshold: 41, window: 10 * time.Minute, expected: 1866 * time.Second},
+		{threshold: 41, window: 10 * time.Minute, workers: 100, expected: 1866 * time.Second},
 		// 3 * 20 + 14 * 12 + 30 + 20 + 14 * 12 + 60 + 30
-		{threshold: 3, window: 30 * time.Second, expected: 536 * time.Second},
+		{threshold: 3, window: 30 * time.Second, workers: 42, expected: 536 * time.Second},
+		// 3 * 20 + 1 * 12 + 30 + 20 + 1 * 12 + 60 + 30: a small cluster needs one batch
+		{threshold: 3, window: 30 * time.Second, workers: 3, expected: 224 * time.Second},
 	}
 	for _, tc := range testCases {
-		got := newTestCalculator(defaultSpec(tc.threshold, tc.window)).calculateMinimumRebootDuration(minWatchdogTimeout)
+		got := newTestCalculator(defaultSpec(tc.threshold, tc.window), tc.workers).calculateMinimumRebootDuration(minWatchdogTimeout, utils.MaxNrOfBatchesUpTo(tc.workers))
 		if got != tc.expected {
-			t.Errorf("threshold %d, window %s: expected %s, got %s", tc.threshold, tc.window, tc.expected, got)
+			t.Errorf("threshold %d, window %s, %d workers: expected %s, got %s", tc.threshold, tc.window, tc.workers, tc.expected, got)
 		}
 	}
 }
@@ -92,8 +117,8 @@ func TestMinimumRebootDurationValues(t *testing.T) {
 // minimum watchdog timeout, and that a higher annotation is used as is.
 func TestRebootDurationWatchdogFloor(t *testing.T) {
 	spec := defaultSpec(3, 10*time.Minute)
-	c := newTestCalculator(spec)
-	expected := c.calculateMinimumRebootDuration(minWatchdogTimeout)
+	c := newTestCalculator(spec, 3)
+	expected := c.calculateMinimumRebootDuration(minWatchdogTimeout, utils.MaxNrOfBatchesUpTo(3))
 
 	testCases := []struct {
 		name        string
@@ -128,7 +153,7 @@ func TestRebootDurationWatchdogFloor(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if expected := c.calculateMinimumRebootDuration(90 * time.Second); got != expected {
+		if expected := c.calculateMinimumRebootDuration(90*time.Second, utils.MaxNrOfBatchesUpTo(3)); got != expected {
 			t.Errorf("expected %s, got %s", expected, got)
 		}
 	})
