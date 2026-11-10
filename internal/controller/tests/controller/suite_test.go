@@ -65,6 +65,9 @@ var (
 	snrConfig                  *selfnoderemediationv1alpha1.SelfNodeRemediationConfig
 	apiConnectivityCheckConfig *apicheck.ApiConnectivityCheckConfig
 	cfg                        *rest.Config
+	// agentUptime is what the agent under test takes for the node's uptime; longer than any test, so that the agent
+	// reboots the node, unless a test shortens it to simulate a node that already rebooted
+	agentUptime = 48 * time.Hour
 )
 
 var unhealthyNodeNamespacedName = client.ObjectKey{
@@ -188,6 +191,7 @@ var _ = BeforeSuite(func() {
 			MyNamespace:              shared.Namespace,
 			Recorder:                 fakeRecorder,
 			IsAgent:                  true,
+			GetUptime:                func() (time.Duration, error) { return agentUptime, nil },
 		})
 	Expect(err).ToNot(HaveOccurred())
 

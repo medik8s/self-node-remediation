@@ -36,7 +36,7 @@ kubectl get snr -A
 kubectl describe snr -n <ns> <name>
 ```
 
-Inspect **Conditions** (**Processing**, **Succeeded**, **Disabled**), **`status.phase`**, **`status.lastError`**, **`status.timeAssumedRebooted`**, **`status.nodeBootID`** (the node's boot ID before the reboot; with **`requireBootIDChange`** the remediation stays in **Pre-Reboot-Completed** until the node reports a different one). For stuck fencing, **`kubectl describe node <node>`** confirms **taints** and whether the SNR **finalizer** is still in play.
+Inspect **Conditions** (**Processing**, **Succeeded**, **Disabled**), **`status.phase`**, **`status.lastError`**, **`status.timeAssumedRebooted`**, **`status.nodeBootID`** (the node's boot ID before the reboot; with **`requireBootIDChange`** the remediation stays in **Pre-Reboot-Completed** until the node reports a different one or its agent sets **`status.nodeRebootConfirmedAt`**, which it does when it finds the node already rebooted since the remediation was created). For stuck fencing, **`kubectl describe node <node>`** confirms **taints** and whether the SNR **finalizer** is still in play.
 
 ---
 
@@ -51,7 +51,7 @@ Inspect **Conditions** (**Processing**, **Succeeded**, **Disabled**), **`status.
 | **`hostPort`** | gRPC peer health port (**must align** with firewall / other services). |
 | **`minPeersForRemediation`** | Minimum worker peers required before trusting peer-based isolation signals (**0** disables peer requirement — use with care). |
 | **`peerTopologyKey`** | Node label naming the failure domain (e.g. **`topology.kubernetes.io/zone`**); empty by default (unchanged evaluation). ApiError answers from peers of the node's own domain are ignored when a strict majority of the control plane and at least **`minPeersForRemediation`** peers are outside of it, so a partitioned domain self-reboots. The agent reads its own node's label at start. |
-| **`requireBootIDChange`** | **false** by default. When **true**, the manager releases the node's pods and volumes only once the node reports a **`status.nodeInfo.bootID`** different from the one recorded at **`status.nodeBootID`**, in addition to the safe time. A node that never comes back keeps its workloads until the remediation is deleted or NHC times it out. |
+| **`requireBootIDChange`** | **false** by default. When **true**, the manager releases the node's pods and volumes only once the node reports a **`status.nodeInfo.bootID`** different from the one recorded at **`status.nodeBootID`**, or its agent confirms in **`status.nodeRebootConfirmedAt`** that the node booted after the remediation was created, in addition to the safe time. A node that never comes back keeps its workloads until the remediation is deleted or NHC times it out. |
 | **`isSoftwareRebootEnabled`** | Allow **software reboot** when watchdog unusable. |
 | **`customDsTolerations`** | Schedule agents on tainted nodes (e.g. infra). |
 | **`endpointHealthCheckUrl`** | Control-plane diagnostic **ping** (ICMP, not HTTP) check when workers cannot be used as peers. |
