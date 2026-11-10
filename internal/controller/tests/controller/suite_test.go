@@ -20,6 +20,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -65,9 +66,10 @@ var (
 	snrConfig                  *selfnoderemediationv1alpha1.SelfNodeRemediationConfig
 	apiConnectivityCheckConfig *apicheck.ApiConnectivityCheckConfig
 	cfg                        *rest.Config
-	// agentUptime is what the agent under test takes for the node's uptime; longer than any test, so that the agent
-	// reboots the node, unless a test shortens it to simulate a node that already rebooted
-	agentUptime = 48 * time.Hour
+	// agentUptime is what the agent under test takes for the node's uptime, as a time.Duration. It is written by the
+	// tests and read by the agent reconciler's goroutine, so it is atomic. BeforeSuite sets it longer than any test, so
+	// that the agent reboots the node, unless a test shortens it to simulate a node that already rebooted
+	agentUptime atomic.Int64
 )
 
 var unhealthyNodeNamespacedName = client.ObjectKey{
@@ -86,6 +88,7 @@ func TestAPIs(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	logf.SetLogger(zap.New(zap.WriteTo(GinkgoWriter), zap.UseDevMode(true)))
+	agentUptime.Store(int64(48 * time.Hour))
 
 	testScheme := runtime.NewScheme()
 
@@ -191,7 +194,7 @@ var _ = BeforeSuite(func() {
 			MyNamespace:              shared.Namespace,
 			Recorder:                 fakeRecorder,
 			IsAgent:                  true,
-			GetUptime:                func() (time.Duration, error) { return agentUptime, nil },
+			GetUptime:                func() (time.Duration, error) { return time.Duration(agentUptime.Load()), nil },
 		})
 	Expect(err).ToNot(HaveOccurred())
 

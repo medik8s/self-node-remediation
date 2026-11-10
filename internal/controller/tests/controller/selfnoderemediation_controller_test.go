@@ -348,9 +348,9 @@ var _ = Describe("SNR Controller", func() {
 					eventuallyUpdateNode(func(node *corev1.Node) { node.Status.NodeInfo.BootID = bootIDBeforeReboot }, true)
 					// the agent finds a node whose uptime is shorter than the remediation's age: the recorded boot ID is
 					// already the one after the reboot, so it will never change
-					prevUptime := agentUptime
-					agentUptime = 0
-					DeferCleanup(func() { agentUptime = prevUptime })
+					prevUptime := agentUptime.Load()
+					agentUptime.Store(0)
+					DeferCleanup(func() { agentUptime.Store(prevUptime) })
 				})
 
 				JustBeforeEach(func() {
