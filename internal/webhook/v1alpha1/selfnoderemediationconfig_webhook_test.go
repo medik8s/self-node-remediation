@@ -359,7 +359,40 @@ func testSingleInvalidField(validator *SNRConfigValidator, validationType valida
 			}
 			err := validate(snrc)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("invalid maxUnavailable for customDsUpdateStrategy"))
+			Expect(err.Error()).To(ContainSubstring("invalid maxUnavailable for customDsUpdateStrategy: must be greater than 0"))
+		})
+		It("should be rejected - negative maxUnavailable", func() {
+			snrc := newConfig()
+			maxUnavailable := intstr.FromInt32(-1)
+			snrc.Spec.CustomDsUpdateStrategy = &appsv1.DaemonSetUpdateStrategy{
+				Type:          appsv1.RollingUpdateDaemonSetStrategyType,
+				RollingUpdate: &appsv1.RollingUpdateDaemonSet{MaxUnavailable: &maxUnavailable},
+			}
+			err := validate(snrc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid maxUnavailable for customDsUpdateStrategy: must be greater than 0"))
+		})
+		It("should be rejected - negative percentage maxUnavailable", func() {
+			snrc := newConfig()
+			maxUnavailable := intstr.FromString("-5%")
+			snrc.Spec.CustomDsUpdateStrategy = &appsv1.DaemonSetUpdateStrategy{
+				Type:          appsv1.RollingUpdateDaemonSetStrategyType,
+				RollingUpdate: &appsv1.RollingUpdateDaemonSet{MaxUnavailable: &maxUnavailable},
+			}
+			err := validate(snrc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid maxUnavailable for customDsUpdateStrategy: must be greater than 0"))
+		})
+		It("should be rejected - percentage maxUnavailable above 100", func() {
+			snrc := newConfig()
+			maxUnavailable := intstr.FromString("150%")
+			snrc.Spec.CustomDsUpdateStrategy = &appsv1.DaemonSetUpdateStrategy{
+				Type:          appsv1.RollingUpdateDaemonSetStrategyType,
+				RollingUpdate: &appsv1.RollingUpdateDaemonSet{MaxUnavailable: &maxUnavailable},
+			}
+			err := validate(snrc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("a percentage must not exceed 100%"))
 		})
 		It("should be rejected - maxUnavailable is not an integer or a percentage", func() {
 			snrc := newConfig()

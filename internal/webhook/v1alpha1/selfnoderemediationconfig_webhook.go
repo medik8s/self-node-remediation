@@ -265,9 +265,15 @@ func validateCustomDsUpdateStrategy(snrConfig *remediationv1alpha1.SelfNodeRemed
 			selfNodeRemediationConfigLog.Error(err, "invalid maxUnavailable for customDsUpdateStrategy")
 			return err
 		}
-		if unavailable == 0 {
-			err := fmt.Errorf("invalid maxUnavailable for customDsUpdateStrategy: must not be 0, maxSurge is always 0 for the agents so a zero maxUnavailable would freeze every rollout")
-			selfNodeRemediationConfigLog.Error(err, "invalid maxUnavailable for customDsUpdateStrategy: must not be 0", "received value", maxUnavailable)
+		if unavailable <= 0 {
+			err := fmt.Errorf("invalid maxUnavailable for customDsUpdateStrategy: must be greater than 0, maxSurge is always 0 for the agents so a non-positive maxUnavailable would freeze every rollout")
+			selfNodeRemediationConfigLog.Error(err, "invalid maxUnavailable for customDsUpdateStrategy: must be greater than 0", "received value", maxUnavailable)
+			return err
+		}
+		// the scale is 100, so for a percentage the scaled value is the percentage itself
+		if maxUnavailable.Type == intstr.String && unavailable > 100 {
+			err := fmt.Errorf("invalid maxUnavailable for customDsUpdateStrategy: a percentage must not exceed 100%%")
+			selfNodeRemediationConfigLog.Error(err, "invalid maxUnavailable for customDsUpdateStrategy: a percentage must not exceed 100%", "received value", maxUnavailable)
 			return err
 		}
 	}
