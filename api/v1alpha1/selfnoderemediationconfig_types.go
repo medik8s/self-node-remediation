@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -154,6 +155,19 @@ type SelfNodeRemediationConfigSpec struct {
 	// that are running on the ds in order to support remediation for different types of nodes selected based on custom labels.
 	// +optional
 	CustomDsNodeSelectorRequirements []v1.NodeSelectorRequirement `json:"customDsNodeSelectorRequirements,omitempty"`
+
+	// CustomDsUpdateStrategy replaces the update strategy of the snr agents DaemonSet.
+	// When unset, the DaemonSet keeps the Kubernetes defaults: RollingUpdate with maxUnavailable 1 and
+	// maxSurge 0. That default freezes the whole rollout as soon as a single agent pod cannot be replaced,
+	// for example a pod stuck terminating on an unreachable node, whose deletion the kubelet can never
+	// confirm: it permanently consumes the only disruption slot while the DaemonSet status still looks
+	// healthy. Setting maxUnavailable to a percentage lets a rollout make progress past a bounded number
+	// of such pods and scales with the cluster size; setting type to OnDelete hands the replacement pace
+	// entirely to the cluster administrator.
+	// maxSurge must remain 0 (or unset): the agents bind a host port for peer communication and own the
+	// node's watchdog device, so two agents must never run on the same node.
+	// +optional
+	CustomDsUpdateStrategy *appsv1.DaemonSetUpdateStrategy `json:"customDsUpdateStrategy,omitempty"`
 
 	// Minimum number of peer workers/control nodes to attempt to contact before deciding if node is unhealthy or not
 	//	if set to zero, no other peers will be required to be present for remediation action to occur when this

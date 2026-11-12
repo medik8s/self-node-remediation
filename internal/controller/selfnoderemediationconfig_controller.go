@@ -223,6 +223,11 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 		return err
 	}
 
+	if err := r.updateDsUpdateStrategy(objs, snrConfig.Spec.CustomDsUpdateStrategy); err != nil {
+		logger.Error(err, "Failed to update daemonset update strategy")
+		return err
+	}
+
 	// Sync the DaemonSet and its accompanying NetworkPolicy
 	for _, obj := range objs {
 		if obj.GetKind() == "DaemonSet" {
@@ -356,6 +361,34 @@ func (r *SelfNodeRemediationConfigReconciler) updateDsTolerations(objs []*unstru
 	updatedTolerations := append(existingTolerations, convertedTolerations...)
 	if err := unstructured.SetNestedSlice(ds.Object, updatedTolerations, "spec", "template", "spec", "tolerations"); err != nil {
 		r.Log.Error(err, "failed to set tolerations")
+		return err
+	}
+
+	return nil
+}
+
+// updateDsUpdateStrategy replaces the rendered DaemonSet's update strategy with the one
+// configured in the SelfNodeRemediationConfig. When no strategy is configured the template
+// is left untouched, which keeps the Kubernetes defaults (RollingUpdate with maxUnavailable
+// 1 and maxSurge 0).
+func (r *SelfNodeRemediationConfigReconciler) updateDsUpdateStrategy(objs []*unstructured.Unstructured, strategy *v1.DaemonSetUpdateStrategy) error {
+	if strategy == nil {
+		return nil
+	}
+	r.Log.Info("Updating DS update strategy")
+
+	ds, err := r.findDaemonSetObject(objs)
+	if err != nil {
+		return err
+	}
+
+	convertedStrategy, err := runtime.DefaultUnstructuredConverter.ToUnstructured(strategy)
+	if err != nil {
+		r.Log.Error(err, "couldn't convert update strategy to unstructured")
+		return err
+	}
+	if err := unstructured.SetNestedMap(ds.Object, convertedStrategy, "spec", "updateStrategy"); err != nil {
+		r.Log.Error(err, "failed to set update strategy")
 		return err
 	}
 
