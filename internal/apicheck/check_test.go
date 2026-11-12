@@ -2,18 +2,22 @@ package apicheck
 
 import (
 	"context"
+	"net"
 	"testing"
 	"time"
 
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"google.golang.org/grpc"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	selfNodeRemediation "github.com/medik8s/self-node-remediation/v5/api"
+	"github.com/medik8s/self-node-remediation/v5/internal/certificates"
+	"github.com/medik8s/self-node-remediation/v5/internal/peerhealth"
 	"github.com/medik8s/self-node-remediation/v5/internal/peers"
 	snrwebhook "github.com/medik8s/self-node-remediation/v5/internal/webhook/v1alpha1"
 )
@@ -47,6 +51,42 @@ var _ = Describe("ApiConnectivityCheck", func() {
 			config: config,
 		}
 	})
+
+	DescribeTable("getHealthStatusFromPeer connects to IP literals",
+		func(network, ip string) {
+			listener, err := net.Listen(network, net.JoinHostPort(ip, "0"))
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = listener.Close() })
+
+			caPem, certPem, keyPem, err := certificates.CreateCerts()
+			Expect(err).NotTo(HaveOccurred())
+			config.CertReader = &certificates.MemoryCertStorage{
+				CaPem:   caPem,
+				CertPem: certPem,
+				KeyPem:  keyPem,
+			}
+			config.PeerHealthPort = listener.Addr().(*net.TCPAddr).Port
+			config.PeerDialTimeout = 5 * time.Second
+
+			serverCreds, err := certificates.GetServerCredentialsFromCerts(config.CertReader)
+			Expect(err).NotTo(HaveOccurred())
+			server := grpc.NewServer(grpc.Creds(serverCreds))
+			peerhealth.RegisterPeerHealthServer(server, &healthyPeerServer{})
+			DeferCleanup(server.Stop)
+			go func() {
+				defer GinkgoRecover()
+				Expect(server.Serve(listener)).To(Succeed())
+			}()
+
+			results := make(chan peerResponse, 1)
+			apiCheck.getHealthStatusFromPeer(corev1.PodIP{IP: ip}, results)
+
+			Expect((<-results).code).To(Equal(selfNodeRemediation.Healthy))
+		},
+		Entry("IPv4", "tcp4", "127.0.0.1"),
+		Entry("compressed IPv6", "tcp6", "::1"),
+		Entry("expanded IPv6", "tcp6", "0:0:0:0:0:0:0:1"),
+	)
 
 	Describe("getEffectivePeerRequestTimeout", func() {
 		Context("when PeerRequestTimeout is safe", func() {
@@ -399,4 +439,12 @@ func TestControlPlaneMajorityOutside(t *testing.T) {
 			}
 		})
 	}
+}
+
+type healthyPeerServer struct {
+	peerhealth.UnimplementedPeerHealthServer
+}
+
+func (*healthyPeerServer) IsHealthy(context.Context, *peerhealth.HealthRequest) (*peerhealth.HealthResponse, error) {
+	return &peerhealth.HealthResponse{Status: int32(selfNodeRemediation.Healthy)}, nil
 }
