@@ -52,6 +52,7 @@ Inspect **Conditions** (**Processing**, **Succeeded**, **Disabled**), **`status.
 | **`minPeersForRemediation`** | Minimum worker peers required before trusting peer-based isolation signals (**0** disables peer requirement — use with care). |
 | **`peerTopologyKey`** | Node label naming the failure domain (e.g. **`topology.kubernetes.io/zone`**); empty by default (unchanged evaluation). ApiError answers from peers of the node's own domain are ignored when a strict majority of the control plane and at least **`minPeersForRemediation`** peers are outside of it, so a partitioned domain self-reboots. The agent reads its own node's label at start. |
 | **`isSoftwareRebootEnabled`** | Allow **software reboot** when watchdog unusable. |
+| **`armWatchdogOnlyForReboot`** | **false** by default: the agent arms and feeds the watchdog at start, so a killed or crashed agent resets its node after the watchdog timeout. **true**: the device stays closed until a reboot is decided or requested (the agent still publishes the timeout from sysfs and **`is-reboot-capable=true`**). The dead-agent reset is also the fence for an agent that died after a reboot was prepared, so pair the option with a release that waits for proof of the reboot. |
 | **`customDsTolerations`** | Schedule agents on tainted nodes (e.g. infra). |
 | **`endpointHealthCheckUrl`** | Control-plane diagnostic **ping** (ICMP, not HTTP) check when workers cannot be used as peers. |
 

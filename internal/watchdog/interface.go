@@ -15,7 +15,8 @@ type Watchdog interface {
 	Started() <-chan struct{}
 	// Status shows current watchdog status
 	Status() watchdogStatus
-	// Stop stops feeding the watchdog, which results in a reboot of the node
+	// Stop makes the watchdog reboot the node: an armed watchdog is no longer fed, a watchdog on standby is armed
+	// and never fed
 	Stop()
 	// GetTimeout returns the watchdog timeout when it reboots the node without feeding
 	GetTimeout() time.Duration
@@ -25,7 +26,10 @@ type Watchdog interface {
 
 // watchdogImpl is the internal interface providing the implementation specific methods of a watchdog
 type watchdogImpl interface {
+	// start opens (arms) the device and returns its timeout
 	start() (*time.Duration, error)
 	feed() error
 	disarm() error
+	// timeout returns the device timeout without opening the device
+	timeout() (*time.Duration, error)
 }

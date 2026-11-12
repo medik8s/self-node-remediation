@@ -60,6 +60,34 @@ var _ = Describe("Annotation updater", func() {
 		})
 	})
 
+	Context("watchdog on standby, armed only for a reboot", func() {
+		BeforeEach(func() {
+			Expect(os.Setenv(watchdog.IsSoftwareRebootEnabledEnvVar, "false")).To(Succeed())
+			DeferCleanup(os.Unsetenv, watchdog.IsSoftwareRebootEnabledEnvVar)
+		})
+
+		It("should mark the node as reboot capable with the device timeout, although the device is closed", func(ctx SpecContext) {
+			wd := watchdog.NewStandbyFake(true)
+			updater := utils.NewAnnotationUpdater(wd, nodeName, k8sClient, k8sClient)
+
+			go func() {
+				defer GinkgoRecover()
+				Expect(wd.Start(ctx)).To(Succeed())
+			}()
+			go func() {
+				defer GinkgoRecover()
+				Expect(updater.Start(ctx)).To(Succeed())
+			}()
+
+			Eventually(func(g Gomega) {
+				annotations := getAnnotations(g)
+				g.Expect(annotations).To(HaveKeyWithValue(utils.IsRebootCapableAnnotation, "true"))
+				g.Expect(annotations).To(HaveKeyWithValue(utils.WatchdogTimeoutSecondsAnnotation, "1"))
+			}, 1*time.Second, 100*time.Millisecond).Should(Succeed())
+			Expect(wd.StartCount()).To(BeZero())
+		})
+	})
+
 	Context("watchdog start fails with software reboot disabled", func() {
 		BeforeEach(func() {
 			Expect(os.Setenv(watchdog.IsSoftwareRebootEnabledEnvVar, "false")).To(Succeed())

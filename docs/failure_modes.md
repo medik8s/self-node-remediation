@@ -14,7 +14,7 @@ Behaviour references **`internal/controller/selfnoderemediation_controller.go`**
 
 **`MaxTimeForNoPeersResponse`** is **no longer a fixed constant**: it's now configurable via **`SelfNodeRemediationConfig.spec.maxTimeForNoPeersResponse`** (defaults to **30s** when unset) — floor for peer timing in reboot-duration calculation; also used in api-check staleness (`internal/reboot/calculator.go`, `internal/apicheck/check.go`).
 
-Config defaults (override via **`SelfNodeRemediationConfig`**): **`apiCheckInterval`** default **15s**, **`apiServerTimeout`** **5s**, **`maxApiErrorThreshold`** **3**, **`peerUpdateInterval`** default **15m**, **`hostPort`** default **30001**, **`minPeersForRemediation`** default **1**, **`maxTimeForNoPeersResponse`** default **30s**, **`peerTopologyKey`** default empty.
+Config defaults (override via **`SelfNodeRemediationConfig`**): **`apiCheckInterval`** default **15s**, **`apiServerTimeout`** **5s**, **`maxApiErrorThreshold`** **3**, **`peerUpdateInterval`** default **15m**, **`hostPort`** default **30001**, **`minPeersForRemediation`** default **1**, **`maxTimeForNoPeersResponse`** default **30s**, **`peerTopologyKey`** default empty, **`armWatchdogOnlyForReboot`** default **false**.
 
 ---
 
@@ -85,6 +85,7 @@ Config defaults (override via **`SelfNodeRemediationConfig`**): **`apiCheckInter
 
 - **Detection:** **`WatchdogRebooter.Reboot`** errors on unexpected watchdog **Status**; software reboot **`Run`** errors logged.
 - **Behaviour:** When every software reboot method fails, **`softwareReboot`** returns an error naming each failed method; the API check logs it and the remediation controller returns it, so the agent reconcile is retried. The retry does not hold back the manager: once **`timeAssumedRebooted`** passes it moves the remediation to the reboot-completed phase, the agent stops attempting the reboot, and node resources are removed although the node may not have rebooted.
+- **Agent killed or crashed:** by default the watchdog is armed and fed from agent start, so the node **resets after the watchdog timeout** (60s with softdog) whenever the agent process dies, including an operator killing the pod. With **`armWatchdogOnlyForReboot`** the device stays closed (**`Standby`**) and nothing happens. Note that this accidental reset is also the only fence for a node whose agent died after the manager prepared its reboot: with the option, such a node is still running when the safe time releases its workloads, so pair it with a release that waits for proof of the reboot. A failure to open the device at reboot time shows as **`Malfunction`** and falls back to software reboot.
 
 ### 4.4 Agent reboot skipped as duplicate
 

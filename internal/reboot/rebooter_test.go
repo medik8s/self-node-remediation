@@ -3,6 +3,7 @@ package reboot
 import (
 	"context"
 	"os"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -87,6 +88,52 @@ var _ = Describe("Rebooter tests", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("all software reboot methods failed"))
 			Expect(err.Error()).To(ContainSubstring("/nonexistent/reboot -f"))
+		})
+	})
+})
+
+var _ = Describe("Rebooter with a watchdog armed only for a reboot", func() {
+	var rebooter *watchdogRebooter
+	var wd watchdog.FakeWatchdog
+
+	startStandby := func(isStartSuccessful bool) {
+		wd = watchdog.NewStandbyFake(isStartSuccessful)
+		rebooter = &watchdogRebooter{wd, ctrl.Log.WithName("fake rebooter"), fakeSoftwareReboot}
+		go func() {
+			defer GinkgoRecover()
+			Expect(wd.Start(context.Background())).To(Succeed())
+		}()
+		Eventually(wd.Started(), 1*time.Second).Should(BeClosed())
+		Expect(wd.Status()).To(Equal(watchdog.Standby))
+	}
+
+	AfterEach(func() {
+		isSoftwareRebootCalled = false
+	})
+
+	Context("the device can be opened", func() {
+		BeforeEach(func() { startStandby(true) })
+
+		It("arms the watchdog and does not reboot by software", func() {
+			Expect(rebooter.Reboot()).To(Succeed())
+			Expect(wd.Status()).To(Equal(watchdog.Triggered))
+			Expect(wd.StartCount()).To(Equal(1))
+			Expect(isSoftwareRebootCalled).To(BeFalse())
+
+			By("a repeated request right after keeps waiting for the watchdog")
+			Expect(rebooter.Reboot()).To(Succeed())
+			Expect(wd.StartCount()).To(Equal(1))
+			Expect(isSoftwareRebootCalled).To(BeFalse())
+		})
+	})
+
+	Context("the device cannot be opened", func() {
+		BeforeEach(func() { startStandby(false) })
+
+		It("falls back to a software reboot", func() {
+			Expect(rebooter.Reboot()).To(Succeed())
+			Expect(wd.Status()).To(Equal(watchdog.Malfunction))
+			Expect(isSoftwareRebootCalled).To(BeTrue())
 		})
 	})
 })
