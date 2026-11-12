@@ -318,10 +318,7 @@ func initSelfNodeRemediationManager(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
-	calculator := reboot.NewCalculator(
-		mgr.GetClient(),
-		ctrl.Log.WithName("rebootDurationCalculator"),
-	)
+	calculator := reboot.NewCalculator(mgr.GetClient(), ctrl.Log.WithName("rebootDurationCalculator"))
 
 	if err := (&controller.SelfNodeRemediationConfigReconciler{
 		Client:                   mgr.GetClient(),

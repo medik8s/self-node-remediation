@@ -79,11 +79,13 @@ var _ = Describe("Calculator tests", func() {
 		BeforeEach(func() {
 			watchdogTimeoutSeconds = 10
 			nrOfPeers = 2
-			// 3 * (15 + 5) (API server)
+			// 3 * (15 + 5) = 60 (API server)
+			// + 1 * (5 + 7) = 12 (peers sweep: one batch for up to 3 nodes, 5s request timeout raised to 5 + 2)
 			// + 30 (MaxTimeForNoPeersResponse)
-			// + 10 (Watchdog)
+			// + (15 + 5) + 1 * (5 + 7) = 32 (one more check and sweep)
+			// + 60 (Watchdog, 10s raised to the 60s minimum)
 			// + 30
-			expectedRebootDurationSeconds = 130
+			expectedRebootDurationSeconds = 224
 		})
 		It("GetRebootTime should return correct value", func() {
 			Eventually(func() (time.Duration, error) {
@@ -100,10 +102,12 @@ var _ = Describe("Calculator tests", func() {
 			watchdogTimeoutSeconds = 10
 			nrOfPeers = 2
 			// 3 * (15 + 5) = 60 (API server)
+			// + 1 * (5 + 7) = 12 (peers sweep)
 			// + 90 (configured MaxTimeForNoPeersResponse, replaces the 30s default)
-			// + 10 (Watchdog)
+			// + (15 + 5) + 1 * (5 + 7) = 32 (one more check and sweep)
+			// + 60 (Watchdog, 10s raised to the 60s minimum)
 			// + 30
-			expectedRebootDurationSeconds = 190
+			expectedRebootDurationSeconds = 284
 		})
 		It("GetRebootTime should use the configured value", func() {
 			Eventually(func() (time.Duration, error) {
@@ -123,13 +127,15 @@ var _ = Describe("Calculator tests", func() {
 			snrConfig.Spec.PeerRequestTimeout = &metav1.Duration{Duration: 13 * time.Second}
 
 			watchdogTimeoutSeconds = 25
-			nrOfPeers = 20 // 7 batches
+			nrOfPeers = 20 // 7 batches, the most for any cluster up to 20 nodes
 
 			// 4 * (25 + 7) = 128 (API server)
-			// + 7 * (11 + 13) = 168 (Peers)
-			// + 25 (Watchdog)
+			// + 7 * (11 + 13) = 168 (peers sweep)
+			// + 30 (MaxTimeForNoPeersResponse)
+			// + (25 + 7) + 7 * (11 + 13) = 200 (one more check and sweep)
+			// + 60 (Watchdog, 25s raised to the 60s minimum)
 			// + 30
-			expectedRebootDurationSeconds = 351
+			expectedRebootDurationSeconds = 616
 		})
 		It("GetRebootTime should return correct value", func() {
 			Eventually(func() (time.Duration, error) {

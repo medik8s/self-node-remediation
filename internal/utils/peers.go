@@ -3,7 +3,28 @@ package utils
 const (
 	MinNrOfNodesInBatch      = 3
 	MaxNrOfBatchesAfterFirst = 10
+	// MaxNrOfBatches is the largest number of batches GetNrOfBatches returns for any number of nodes. The batches after
+	// the first one hold a tenth of the nodes, but never fewer than MinNrOfNodesInBatch, so the count is not monotonic
+	// in the number of nodes: 42 nodes take 14 batches while 43 take 11. Callers that need an upper bound, such as the
+	// reboot duration calculator, use MaxNrOfBatchesUpTo, or this constant when the number of nodes is unknown.
+	MaxNrOfBatches = 14
 )
+
+// MaxNrOfBatchesUpTo returns the largest number of batches GetNrOfBatches returns for any number of nodes up to
+// nrOfNodes. Unlike GetNrOfBatches it never decreases when nodes are added, so a bound computed for the current
+// cluster size still holds when a few nodes join during a peer sweep, and it never exceeds MaxNrOfBatches.
+func MaxNrOfBatchesUpTo(nrOfNodes int) int {
+	maxNrOfBatches := 0
+	for n := 1; n <= nrOfNodes; n++ {
+		if nrOfBatches := GetNrOfBatches(n); nrOfBatches > maxNrOfBatches {
+			maxNrOfBatches = nrOfBatches
+		}
+		if maxNrOfBatches >= MaxNrOfBatches {
+			return MaxNrOfBatches
+		}
+	}
+	return maxNrOfBatches
+}
 
 // GetNextBatchSize returns the number of nodes to ask in the next batch
 func GetNextBatchSize(totalNrOfNodes, remainingNrOfNodes int) int {
