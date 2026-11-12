@@ -63,6 +63,20 @@ type SelfNodeRemediationStatus struct {
 	//+operator-sdk:csv:customresourcedefinitions:type=status
 	TimeAssumedRebooted *metav1.Time `json:"timeAssumedRebooted,omitempty"`
 
+	// NodeBootID is the boot ID the node reported (status.nodeInfo.bootID) when the reboot was prepared.
+	// A different boot ID later proves that the node rebooted.
+	// +optional
+	//+operator-sdk:csv:customresourcedefinitions:type=status
+	NodeBootID string `json:"nodeBootID,omitempty"`
+
+	// NodeRebootConfirmedAt is set by the node's own agent when it finds that the node booted after this remediation
+	// was created (the node's uptime is shorter than the remediation's age), so no further reboot is needed.
+	// With requireBootIDChange it proves the reboot when a boot ID change cannot, for example when the node rebooted
+	// before its boot ID was recorded.
+	// +optional
+	//+operator-sdk:csv:customresourcedefinitions:type=status
+	NodeRebootConfirmedAt *metav1.Time `json:"nodeRebootConfirmedAt,omitempty"`
+
 	// Phase represents the current phase of remediation,
 	// One of: TBD
 	// +optional

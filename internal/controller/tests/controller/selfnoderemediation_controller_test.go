@@ -289,6 +289,117 @@ var _ = Describe("SNR Controller", func() {
 			})
 		})
 
+		Context("Release gated on a new boot ID (requireBootIDChange)", func() {
+			const bootIDBeforeReboot = "boot-id-before-reboot"
+
+			BeforeEach(func() {
+				snrConfig.Spec.RequireBootIDChange = true
+				prevVal := utils.IsOutOfServiceTaintGA
+				utils.IsOutOfServiceTaintGA = false
+				DeferCleanup(func() { utils.IsOutOfServiceTaintGA = prevVal })
+				prevInterval := controller.BootIDRecheckInterval
+				controller.BootIDRecheckInterval = time.Second
+				DeferCleanup(func() { controller.BootIDRecheckInterval = prevInterval })
+			})
+
+			AfterEach(func() {
+				// the shared cleanup resets the node's main resource only, the status needs its own reset
+				eventuallyUpdateNode(func(node *corev1.Node) { node.Status.NodeInfo.BootID = "" }, true)
+			})
+
+			Context("the node reports a boot ID", func() {
+				BeforeEach(func() {
+					eventuallyUpdateNode(func(node *corev1.Node) { node.Status.NodeInfo.BootID = bootIDBeforeReboot }, true)
+				})
+
+				JustBeforeEach(func() {
+					createSNR(snr, v1alpha1.AutomaticRemediationStrategy)
+				})
+
+				It("records the boot ID, and releases the node's resources only once the boot ID changes", func() {
+					verifyTimeHasBeenRebootedExists(snr)
+					Expect(snr.Status.NodeBootID).To(Equal(bootIDBeforeReboot))
+
+					verifyWatchdogTriggered()
+
+					By("Verify that the node's resources are kept after the safe time while its boot ID is unchanged")
+					Consistently(func(g Gomega) {
+						g.Expect(k8sClient.Client.Get(context.Background(), client.ObjectKeyFromObject(snr), snr)).To(Succeed())
+						g.Expect(snr.Status.Phase).To(HaveValue(Equal("Pre-Reboot-Completed")))
+					}, shared.CalculatedRebootDuration+4*time.Second, 500*time.Millisecond).Should(Succeed())
+					verifySelfNodeRemediationPodExist()
+					verifyNoEvent("Normal", "DeleteResources", "Remediation process - finished deleting unhealthy node resources")
+
+					By("Simulate the node coming back with a new boot ID")
+					eventuallyUpdateNode(func(node *corev1.Node) { node.Status.NodeInfo.BootID = "boot-id-after-reboot" }, true)
+
+					verifySelfNodeRemediationPodDoesntExist()
+					verifyEvent("Normal", "DeleteResources", "Remediation process - finished deleting unhealthy node resources")
+					verifyTypeConditions(snr, metav1.ConditionFalse, metav1.ConditionTrue, "RemediationFinishedSuccessfully")
+
+					deleteSNR(snr)
+					verifyNoScheduleTaintRemoved()
+					verifySNRDoesNotExists(snr)
+				})
+			})
+
+			Context("the node rebooted before its boot ID was recorded", func() {
+				BeforeEach(func() {
+					eventuallyUpdateNode(func(node *corev1.Node) { node.Status.NodeInfo.BootID = bootIDBeforeReboot }, true)
+					// the agent finds a node whose uptime is shorter than the remediation's age: the recorded boot ID is
+					// already the one after the reboot, so it will never change
+					prevUptime := agentUptime.Load()
+					agentUptime.Store(0)
+					DeferCleanup(func() { agentUptime.Store(prevUptime) })
+				})
+
+				JustBeforeEach(func() {
+					createSNR(snr, v1alpha1.AutomaticRemediationStrategy)
+				})
+
+				It("takes the agent's confirmation as proof of the reboot and releases the node's resources", func() {
+					verifyTimeHasBeenRebootedExists(snr)
+					Expect(snr.Status.NodeBootID).To(Equal(bootIDBeforeReboot))
+
+					By("Verify that the agent did not reboot the node again, and recorded that it already rebooted")
+					verifyWatchdogNotTriggered()
+					Eventually(func(g Gomega) {
+						g.Expect(k8sClient.Client.Get(context.Background(), client.ObjectKeyFromObject(snr), snr)).To(Succeed())
+						g.Expect(snr.Status.NodeRebootConfirmedAt).ToNot(BeNil())
+					}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+
+					By("Verify that the node's resources are released although its boot ID did not change")
+					verifySelfNodeRemediationPodDoesntExist()
+					verifyEvent("Normal", "DeleteResources", "Remediation process - finished deleting unhealthy node resources")
+					verifyTypeConditions(snr, metav1.ConditionFalse, metav1.ConditionTrue, "RemediationFinishedSuccessfully")
+
+					deleteSNR(snr)
+					verifyNoScheduleTaintRemoved()
+					verifySNRDoesNotExists(snr)
+				})
+			})
+
+			Context("the node reports no boot ID", func() {
+				JustBeforeEach(func() {
+					createSNR(snr, v1alpha1.AutomaticRemediationStrategy)
+				})
+
+				It("releases the node's resources on the safe time alone, as without the setting", func() {
+					verifyTimeHasBeenRebootedExists(snr)
+					Expect(snr.Status.NodeBootID).To(BeEmpty())
+
+					verifyWatchdogTriggered()
+
+					verifySelfNodeRemediationPodDoesntExist()
+					verifyTypeConditions(snr, metav1.ConditionFalse, metav1.ConditionTrue, "RemediationFinishedSuccessfully")
+
+					deleteSNR(snr)
+					verifyNoScheduleTaintRemoved()
+					verifySNRDoesNotExists(snr)
+				})
+			})
+		})
+
 		Context("Automatic strategy - OutOfServiceTaint selected", func() {
 			BeforeEach(func() {
 				remediationStrategy = v1alpha1.AutomaticRemediationStrategy

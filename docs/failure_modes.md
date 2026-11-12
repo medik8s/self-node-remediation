@@ -14,7 +14,7 @@ Behaviour references **`internal/controller/selfnoderemediation_controller.go`**
 
 **`MaxTimeForNoPeersResponse`** is **no longer a fixed constant**: it's now configurable via **`SelfNodeRemediationConfig.spec.maxTimeForNoPeersResponse`** (defaults to **30s** when unset) — floor for peer timing in reboot-duration calculation; also used in api-check staleness (`internal/reboot/calculator.go`, `internal/apicheck/check.go`).
 
-Config defaults (override via **`SelfNodeRemediationConfig`**): **`apiCheckInterval`** default **15s**, **`apiServerTimeout`** **5s**, **`maxApiErrorThreshold`** **3**, **`peerUpdateInterval`** default **15m**, **`hostPort`** default **30001**, **`minPeersForRemediation`** default **1**, **`maxTimeForNoPeersResponse`** default **30s**, **`peerTopologyKey`** default empty.
+Config defaults (override via **`SelfNodeRemediationConfig`**): **`apiCheckInterval`** default **15s**, **`apiServerTimeout`** **5s**, **`maxApiErrorThreshold`** **3**, **`peerUpdateInterval`** default **15m**, **`hostPort`** default **30001**, **`minPeersForRemediation`** default **1**, **`maxTimeForNoPeersResponse`** default **30s**, **`peerTopologyKey`** default empty, **`requireBootIDChange`** default **false**.
 
 ---
 
@@ -95,6 +95,7 @@ Config defaults (override via **`SelfNodeRemediationConfig`**): **`apiCheckInter
 - **Symptom:** Workloads or **VolumeAttachments** still attached when cleanup runs, or fencing/cleanup feels **too early** or **too late** relative to an expected reboot.
 - **Behaviour:** **`status.timeAssumedRebooted`** comes from **`RebootDurationCalculator`**: effective wait is the **max** of **`safeTimeToAssumeNodeRebootedSeconds`** (only if **not below** the computed minimum) and a **minimum** derived from **`(apiCheckInterval + apiServerTimeout) × maxApiErrorThreshold`**, peer intervals, **`MaxTimeForNoPeersResponse`**, and the node **watchdog-timeout** annotation — see **`../ARCHITECTURE.md`** (Safe timing).
 - **Ops:** Tune config intervals and **`safeTimeToAssumeNodeRebootedSeconds`**; confirm the node **`self-node-remediation.medik8s.io/watchdog-timeout`** annotation matches hardware expectations.
+- **`requireBootIDChange`:** when set, the safe time is a floor, not the release trigger: the manager also needs proof that the node rebooted: a **`status.nodeInfo.bootID`** different from **`status.nodeBootID`**, or **`status.nodeRebootConfirmedAt`** set by the node's agent when it finds the node's uptime shorter than the remediation's age (the case of a node that rebooted before its boot ID was recorded, whose boot ID will never change); re-checked every **30s**. A remediation that stays in **Pre-Reboot-Completed** long after **`timeAssumedRebooted`** means the node did not reboot or did not come back (reboot failed, agent died after preparation, node powered off): act on the node, or delete the remediation. Without a recorded **`status.nodeBootID`** (node reporting none, or a remediation created before the CRD carried the field) the time alone decides, as before.
 
 ---
 
