@@ -255,6 +255,10 @@ func (in *SelfNodeRemediationStatus) DeepCopyInto(out *SelfNodeRemediationStatus
 		in, out := &in.TimeAssumedRebooted, &out.TimeAssumedRebooted
 		*out = (*in).DeepCopy()
 	}
+	if in.NodeRebootConfirmedAt != nil {
+		in, out := &in.NodeRebootConfirmedAt, &out.NodeRebootConfirmedAt
+		*out = (*in).DeepCopy()
+	}
 	if in.Phase != nil {
 		in, out := &in.Phase, &out.Phase
 		*out = new(string)

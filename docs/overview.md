@@ -29,7 +29,7 @@ Many remediation flows assume **out-of-band** power control (BMC/IPMI). Clusters
 | **Manager vs agent** | Same binary; **`--is-manager`** selects operator + DS install + webhooks; default is **per-node agent**. |
 | **Phases** | Fencing progresses through **Fencing-Started → Pre-Reboot-Completed → Reboot-Completed → Fencing-Completed** (string values on `.status.phase`). |
 | **Peer health** | When API access flaps, agents ask **peers** over **gRPC** whether a **`SelfNodeRemediation` CR** exists for “this” node before treating local API loss as fatal. |
-| **Safe reboot window** | **`status.timeAssumedRebooted`** — after this instant, other nodes assume the unhealthy one has rebooted so workload cleanup can proceed safely; derived from config + watchdog + timing calculator. |
+| **Safe reboot window** | **`status.timeAssumedRebooted`** — after this instant, other nodes assume the unhealthy one has rebooted so workload cleanup can proceed safely; derived from config + watchdog + timing calculator. With **`requireBootIDChange`**, cleanup additionally waits for the node to report a new **`status.nodeInfo.bootID`** (the one before the reboot is kept in **`status.nodeBootID`**). |
 | **NoSchedule taint** | **`remediation.medik8s.io/self-node-remediation:NoSchedule`** — applied before reboot window to steer scheduling away from the failing node. |
 | **NHC timeout** | Annotation **`remediation.medik8s.io/nhc-timed-out`** stops remediation when NHC gives up. |
 | **Exclude from remediation** | Node label **`remediation.medik8s.io/exclude-from-remediation=true`** — SNR skips that node (no phase progression). |
