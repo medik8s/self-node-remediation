@@ -93,6 +93,7 @@ func (v *SNRConfigValidator) ValidateCreate(_ context.Context, snrConfig *remedi
 		validateCustomTolerations(snrConfig),
 		validateCustomDsNodeSelectors(snrConfig),
 		validatePeerTopologyKey(snrConfig),
+		validateWatchdogArming(snrConfig),
 		validateSingleton(snrConfig),
 	})
 
@@ -109,6 +110,7 @@ func (v *SNRConfigValidator) ValidateUpdate(_ context.Context, _, snrConfig *rem
 		validateCustomTolerations(snrConfig),
 		validateCustomDsNodeSelectors(snrConfig),
 		validatePeerTopologyKey(snrConfig),
+		validateWatchdogArming(snrConfig),
 	})
 }
 
@@ -220,6 +222,21 @@ func validatePeerTopologyKey(snrConfig *remediationv1alpha1.SelfNodeRemediationC
 	if errs := validation.IsQualifiedName(key); len(errs) > 0 {
 		err := fmt.Errorf("invalid peerTopologyKey %q: must be a valid label key: %v", key, errs)
 		selfNodeRemediationConfigLog.Error(err, "invalid peerTopologyKey")
+		return err
+	}
+	return nil
+}
+
+// validateWatchdogArming refuses armWatchdogOnlyForReboot without requireBootIDChange. With the watchdog device kept
+// closed until a reboot is decided, a node whose agent died after the manager prepared its reboot is not reset by the
+// watchdog, so the release of its workloads must wait for proof of the reboot instead of the safe time alone
+func validateWatchdogArming(snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) error {
+	spec := snrConfig.Spec
+	if spec.ArmWatchdogOnlyForReboot && !spec.RequireBootIDChange {
+		err := fmt.Errorf("armWatchdogOnlyForReboot requires requireBootIDChange: with the watchdog armed only for the reboot, " +
+			"a node whose agent died after its reboot was prepared is not reset, so its workloads may only be released " +
+			"once the node proves that it rebooted")
+		selfNodeRemediationConfigLog.Error(err, "invalid armWatchdogOnlyForReboot")
 		return err
 	}
 	return nil

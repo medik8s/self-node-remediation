@@ -131,7 +131,9 @@ type SelfNodeRemediationConfigSpec struct {
 	// reboot the node. A killed or crashed agent then never resets its node.
 	// Mind that this accidental reset is also what fences a node whose agent died after the manager prepared its
 	// reboot: with the device closed, such a node may still be running when the safe time to assume it rebooted
-	// has passed and its workloads are released. Enable this only together with a release that waits for proof of
+	// has passed. This is why the option requires RequireBootIDChange, which releases the node's workloads only
+	// once the node proves that it rebooted; the webhook refuses armWatchdogOnlyForReboot without it. Together they
+	// are one option: the watchdog is armed only for the reboot, and the workloads are released only on proof of
 	// the reboot.
 	// +optional
 	ArmWatchdogOnlyForReboot bool `json:"armWatchdogOnlyForReboot,omitempty"`
@@ -198,6 +200,9 @@ type SelfNodeRemediationConfigSpec struct {
 	// time alone, so a node that is still running at that time (a reboot that failed, an agent that died after the
 	// reboot was prepared) can end up running the same workload twice. With it, a node that never comes back keeps
 	// its workloads until the remediation is deleted or NodeHealthCheck times it out, so someone has to act on it.
+	// ArmWatchdogOnlyForReboot requires this setting: with the watchdog device closed until a reboot is decided, this
+	// gate is what holds the workloads of a node whose agent died after its reboot was prepared and that never
+	// rebooted.
 	// +optional
 	RequireBootIDChange bool `json:"requireBootIDChange,omitempty"`
 }
