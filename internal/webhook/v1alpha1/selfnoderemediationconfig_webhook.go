@@ -100,7 +100,7 @@ func (v *SNRConfigValidator) ValidateCreate(_ context.Context, snrConfig *remedi
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
-func (v *SNRConfigValidator) ValidateUpdate(_ context.Context, _, snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) (admission.Warnings, error) {
+func (v *SNRConfigValidator) ValidateUpdate(_ context.Context, oldSnrConfig, snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) (admission.Warnings, error) {
 	selfNodeRemediationConfigLog.Info("validate update", "name", snrConfig.Name)
 
 	warnings := validatePeerTimeoutSafety(snrConfig)
@@ -111,6 +111,7 @@ func (v *SNRConfigValidator) ValidateUpdate(_ context.Context, _, snrConfig *rem
 		validateCustomDsNodeSelectors(snrConfig),
 		validatePeerTopologyKey(snrConfig),
 		validateWatchdogArming(snrConfig),
+		validateWatchdogArmingTransition(oldSnrConfig, snrConfig),
 	})
 }
 
@@ -237,6 +238,25 @@ func validateWatchdogArming(snrConfig *remediationv1alpha1.SelfNodeRemediationCo
 			"a node whose agent died after its reboot was prepared is not reset, so its workloads may only be released " +
 			"once the node proves that it rebooted")
 		selfNodeRemediationConfigLog.Error(err, "invalid armWatchdogOnlyForReboot")
+		return err
+	}
+	return nil
+}
+
+// validateWatchdogArmingTransition refuses turning armWatchdogOnlyForReboot and requireBootIDChange off in the same
+// update. The agent DaemonSet rolls on the change, and until the rollout is done the agents still running with the old
+// template keep the watchdog closed, while the manager reads requireBootIDChange on every pass, for the remediations
+// in progress too, and would release their workloads on the safe time alone. The arming option has to go first; once
+// the DaemonSet has rolled and every agent arms the watchdog again, the gate can be dropped
+func validateWatchdogArmingTransition(oldSnrConfig, snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) error {
+	if oldSnrConfig == nil || !oldSnrConfig.Spec.ArmWatchdogOnlyForReboot {
+		return nil
+	}
+	if !snrConfig.Spec.ArmWatchdogOnlyForReboot && !snrConfig.Spec.RequireBootIDChange {
+		err := fmt.Errorf("requireBootIDChange cannot be turned off in the same update as armWatchdogOnlyForReboot: " +
+			"turn armWatchdogOnlyForReboot off first, wait for the agent DaemonSet to roll out so that every agent " +
+			"arms the watchdog again, then turn requireBootIDChange off")
+		selfNodeRemediationConfigLog.Error(err, "invalid armWatchdogOnlyForReboot transition")
 		return err
 	}
 	return nil
