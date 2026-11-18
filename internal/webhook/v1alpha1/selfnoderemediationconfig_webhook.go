@@ -245,9 +245,10 @@ func validateWatchdogArming(snrConfig *remediationv1alpha1.SelfNodeRemediationCo
 
 // validateWatchdogArmingTransition refuses turning armWatchdogOnlyForReboot and requireBootIDChange off in the same
 // update. The agent DaemonSet rolls on the change, and until the rollout is done the agents still running with the old
-// template keep the watchdog closed, while the manager reads requireBootIDChange on every pass, for the remediations
-// in progress too, and would release their workloads on the safe time alone. The arming option has to go first; once
-// the DaemonSet has rolled and every agent arms the watchdog again, the gate can be dropped
+// template keep the watchdog closed. The remediations prepared under the arming option record that they need proof of
+// the reboot (status.rebootProofRequired) and keep waiting for it whatever the configuration says; the remediations
+// prepared after the option is turned off do not, so the gate must stay until every agent arms the watchdog again.
+// The arming option has to go first; once the DaemonSet has rolled, the gate can be dropped
 func validateWatchdogArmingTransition(oldSnrConfig, snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) error {
 	if oldSnrConfig == nil || !oldSnrConfig.Spec.ArmWatchdogOnlyForReboot {
 		return nil

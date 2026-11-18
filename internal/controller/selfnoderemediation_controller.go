@@ -465,7 +465,7 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceRemoval(ctx context
 	var err error
 	switch phase {
 	case fencingStartedPhase:
-		result, err = r.handleFencingStartedPhase(ctx, node, snr)
+		result, err = r.handleFencingStartedPhase(ctx, node, snr, snrConfig)
 	case preRebootCompletedPhase:
 		result, err = r.handlePreRebootCompletedPhase(node, snr, snrConfig)
 	case rebootCompletedPhase:
@@ -480,11 +480,13 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceRemoval(ctx context
 	return result, err
 }
 
-func (r *SelfNodeRemediationReconciler) handleFencingStartedPhase(ctx context.Context, node *corev1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
-	return r.prepareReboot(ctx, node, snr)
+func (r *SelfNodeRemediationReconciler) handleFencingStartedPhase(ctx context.Context, node *corev1.Node, snr *v1alpha1.SelfNodeRemediation, snrConfig *v1alpha1.SelfNodeRemediationConfig) (ctrl.Result, error) {
+	return r.prepareReboot(ctx, node, snr, snrConfig)
 }
 
-func (r *SelfNodeRemediationReconciler) prepareReboot(ctx context.Context, node *corev1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+// prepareReboot taints the node, sets the safe time to assume it rebooted and records what the release of its
+// workloads will need: the node's boot ID, and whether proof of the reboot is required (see pinRebootProofRequirement)
+func (r *SelfNodeRemediationReconciler) prepareReboot(ctx context.Context, node *corev1.Node, snr *v1alpha1.SelfNodeRemediation, snrConfig *v1alpha1.SelfNodeRemediationConfig) (ctrl.Result, error) {
 	r.logger.Info("pre-reboot not completed yet, prepare for rebooting")
 	if !r.isNodeRebootCapable(node) {
 		// use err to trigger exponential backoff
@@ -504,6 +506,7 @@ func (r *SelfNodeRemediationReconciler) prepareReboot(ctx context.Context, node 
 	}
 
 	r.recordNodeBootID(node, snr)
+	r.pinRebootProofRequirement(node, snr, snrConfig)
 
 	preRebootCompleted := string(preRebootCompletedPhase)
 	snr.Status.Phase = &preRebootCompleted
@@ -522,17 +525,20 @@ func (r *SelfNodeRemediationReconciler) waitForNodeRebooted(node *corev1.Node, s
 		return ctrl.Result{RequeueAfter: timeLeft}, nil
 	}
 
-	if snrConfig.Spec.RequireBootIDChange {
+	// a remediation prepared with the watchdog armed only for the reboot waits for proof of the reboot whatever the
+	// configuration says now: its node's agent kept the watchdog closed, so a node whose agent died was not reset
+	proofRequired := isRebootProofRequired(snr.Status, snrConfig)
+	if snrConfig.Spec.RequireBootIDChange || proofRequired {
 		currentBootID := node.Status.NodeInfo.BootID
-		// with the watchdog armed only for the reboot, a node whose agent died was not reset, so a remediation without
-		// a recorded boot ID may not assume the reboot on time alone: the agent's confirmation is its only proof
-		if !isNodeRebootConfirmed(snr.Status, currentBootID, snrConfig.Spec.ArmWatchdogOnlyForReboot) {
+		// without a recorded boot ID a remediation that requires proof may not assume the reboot on time alone: the
+		// agent's confirmation is its only proof
+		if !isNodeRebootConfirmed(snr.Status, currentBootID, proofRequired) {
 			// the node did not report a new boot ID and its agent did not confirm a reboot: either the node is still
 			// running, or it has not come back yet. Nodes are not watched, so look again later; a node that never
 			// comes back keeps its resources.
 			r.logger.Info("TimeAssumedRebooted is old, but the node did not report a new boot ID and its agent did not confirm a reboot yet, waiting for it to reboot",
 				"node name", node.Name, "boot ID before reboot", snr.Status.NodeBootID, "current boot ID", currentBootID,
-				"recheck interval", BootIDRecheckInterval)
+				"proof required", proofRequired, "recheck interval", BootIDRecheckInterval)
 			return ctrl.Result{RequeueAfter: BootIDRecheckInterval}, nil
 		}
 		if snr.Status.NodeRebootConfirmedAt != nil {
@@ -638,6 +644,33 @@ func isNodeRebootConfirmed(status v1alpha1.SelfNodeRemediationStatus, currentBoo
 		return !proofRequired
 	}
 	return currentBootID != "" && currentBootID != status.NodeBootID
+}
+
+// isRebootProofRequired tells whether the remediation may only be released on proof of the reboot: what
+// status.rebootProofRequired recorded when the reboot was prepared, or, for a remediation prepared without it (by an
+// older manager), whether the watchdog is armed only for the reboot now. The recorded value wins over the
+// configuration: the agent DaemonSet rolls on a configuration change, and until the rollout is done the agents still
+// running with the old template keep the watchdog closed, so a remediation prepared under the option must not be
+// released on the safe time alone because the option was turned off meanwhile.
+func isRebootProofRequired(status v1alpha1.SelfNodeRemediationStatus, snrConfig *v1alpha1.SelfNodeRemediationConfig) bool {
+	if status.RebootProofRequired != nil {
+		return *status.RebootProofRequired
+	}
+	return snrConfig.Spec.ArmWatchdogOnlyForReboot
+}
+
+// pinRebootProofRequirement records on the remediation, once, whether the watchdog is armed only for the reboot at
+// the time the reboot is prepared, so that the release of the node's workloads keeps requiring proof of the reboot
+// after the option is turned off (see isRebootProofRequired)
+func (r *SelfNodeRemediationReconciler) pinRebootProofRequirement(node *corev1.Node, snr *v1alpha1.SelfNodeRemediation, snrConfig *v1alpha1.SelfNodeRemediationConfig) {
+	if snr.Status.RebootProofRequired != nil {
+		return
+	}
+	proofRequired := snrConfig.Spec.ArmWatchdogOnlyForReboot
+	snr.Status.RebootProofRequired = &proofRequired
+	if proofRequired {
+		r.logger.Info("the watchdog is armed only for the reboot, the node's workloads will be released only on proof of the reboot", "node name", node.Name)
+	}
 }
 
 // confirmNodeRebooted records on the remediation that the node booted after the remediation was created. The agent

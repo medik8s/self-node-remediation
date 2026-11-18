@@ -40,3 +40,30 @@ func TestIsNodeRebootConfirmed(t *testing.T) {
 		})
 	}
 }
+
+func TestIsRebootProofRequired(t *testing.T) {
+	boolPtr := func(b bool) *bool { return &b }
+	testCases := []struct {
+		name     string
+		pinned   *bool
+		armedNow bool
+		expected bool
+	}{
+		{name: "not recorded, the option is off", pinned: nil, armedNow: false, expected: false},
+		{name: "not recorded, the option is on", pinned: nil, armedNow: true, expected: true},
+		{name: "prepared with the option on, turned off since", pinned: boolPtr(true), armedNow: false, expected: true},
+		{name: "prepared with the option on, still on", pinned: boolPtr(true), armedNow: true, expected: true},
+		{name: "prepared with the option off, turned on since", pinned: boolPtr(false), armedNow: true, expected: false},
+		{name: "prepared with the option off, still off", pinned: boolPtr(false), armedNow: false, expected: false},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			status := v1alpha1.SelfNodeRemediationStatus{RebootProofRequired: tc.pinned}
+			snrConfig := &v1alpha1.SelfNodeRemediationConfig{}
+			snrConfig.Spec.ArmWatchdogOnlyForReboot = tc.armedNow
+			if got := isRebootProofRequired(status, snrConfig); got != tc.expected {
+				t.Errorf("pinned %v, armed now %v: expected %v, got %v", tc.pinned, tc.armedNow, tc.expected, got)
+			}
+		})
+	}
+}

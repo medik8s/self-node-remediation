@@ -136,8 +136,10 @@ type SelfNodeRemediationConfigSpec struct {
 	// are one option: the watchdog is armed only for the reboot, and the workloads are released only on proof of
 	// the reboot. To turn the option off, turn this field off first and let the agent DaemonSet roll out, so that
 	// every agent arms the watchdog again, before turning RequireBootIDChange off; the webhook refuses both in one
-	// update, since the manager would release the workloads of the remediations in progress on the safe time alone
-	// while agents still hold the watchdog closed.
+	// update. A remediation prepared while this field is on records that (status.rebootProofRequired) and keeps
+	// waiting for proof of the reboot whatever this field says later; the rollout wait is for the remediations
+	// prepared after this field is turned off on nodes whose agent still runs the old template, which keeps the
+	// watchdog closed.
 	// +optional
 	ArmWatchdogOnlyForReboot bool `json:"armWatchdogOnlyForReboot,omitempty"`
 

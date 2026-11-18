@@ -69,6 +69,15 @@ spec:
           One of: TBD
         displayName: Phase
         path: phase
+      - description: |-
+          RebootProofRequired records whether armWatchdogOnlyForReboot was on when the reboot was prepared. The agent
+          DaemonSet is rendered from the configuration, so it tells whether the node's agent kept the watchdog closed,
+          which means that a node whose agent died was not reset: this remediation then waits for proof of the reboot
+          (a boot ID different from nodeBootID, or nodeRebootConfirmedAt when none was recorded) whatever the
+          configuration says later, so that turning the option off does not release a node that may still be running.
+          Unset on a remediation prepared by an older manager, which follows the current configuration.
+        displayName: Reboot Proof Required
+        path: rebootProofRequired
       - description: TimeAssumedRebooted is the time by then the unhealthy node assumed
           to be rebooted
         displayName: Time Assumed Rebooted
