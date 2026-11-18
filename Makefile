@@ -57,6 +57,9 @@ VERSION ?= $(DEFAULT_VERSION)
 export PREVIOUS_VERSION ?= $(DEFAULT_PREVIOUS_VERSION)
 # Lower bound for the skipRange field in the CSV, should be set to the oldest supported version
 SKIP_RANGE_LOWER ?= $(DEFAULT_SKIP_RANGE_LOWER)
+# NO_REPLACES omits the CSV / catalog "replaces" field for a clean-root release that has no
+# in-package predecessor.
+NO_REPLACES ?= false
 export VERSION
 
 CHANNELS ?= stable
@@ -370,8 +373,17 @@ add-community-edition-to-display-name: ##Add Community Edition suffix to operato
 add-replaces-field: verify-previous-version ## Add replaces field to the CSV
 	# delete any pre-existing replaces field, then re-add it
 	sed -r -i "/  replaces:.*/d" ${CSV}
-	# preferring sed here, in order to have "replaces" near "version"
-	@if [ -n "$(PREVIOUS_VERSION)" ]; then \
+	# NO_REPLACES=true creates a clean-root release after the package rename.
+	@if [ "$(NO_REPLACES)" = "true" ]; then \
+		echo "NO_REPLACES=true: omitting replaces field (clean-root release)"; \
+	elif [ -z "$(PREVIOUS_VERSION)" ]; then \
+		echo "Error: PREVIOUS_VERSION must be set for versioned builds (or set NO_REPLACES=true for a clean-root release)"; \
+		exit 1; \
+	elif [ "$(PREVIOUS_VERSION)" = "$(VERSION)" ]; then \
+		echo "Error: PREVIOUS_VERSION must differ from VERSION"; \
+		exit 1; \
+	else \
+		# preferring sed here, in order to have "replaces" near "version" \
 		sed -r -i "/  version: $(VERSION)/ a\  replaces: $(PACKAGE_NAME).v$(PREVIOUS_VERSION)" ${CSV}; \
 	fi
 
@@ -499,7 +511,7 @@ add_channel_entry_for_the_bundle: verify-previous-version verify-skip-range
 		echo "name: $$channel" >> ${CATALOG_INDEX}; \
 		echo "entries:" >> ${CATALOG_INDEX}; \
 		echo "  - name: ${PACKAGE_NAME}.v${VERSION}" >> ${CATALOG_INDEX}; \
-		if [ -n "${PREVIOUS_VERSION}" ]; then \
+		if [ "${NO_REPLACES}" != "true" ] && [ -n "${PREVIOUS_VERSION}" ]; then \
 			echo "    replaces: ${PACKAGE_NAME}.v${PREVIOUS_VERSION}" >> ${CATALOG_INDEX}; \
 		fi; \
 		if [ -n "${SKIP_RANGE_LOWER}" ]; then \
@@ -575,7 +587,7 @@ verify-bundle: manifests bundle bundle-reset verify-no-changes ##Verifies bundle
 .PHONY: bundle-reset
 bundle-reset:
 	$(MAKE) bundle VERSION=$(DEFAULT_VERSION) IMAGE_TAG=v$(DEFAULT_VERSION) IMG=$(IMAGE_TAG_BASE)-operator:v$(DEFAULT_VERSION) PREVIOUS_VERSION=$(DEFAULT_PREVIOUS_VERSION) SKIP_RANGE_LOWER=$(DEFAULT_SKIP_RANGE_LOWER)
-	$(MAKE) add-replaces-field VERSION=$(DEFAULT_VERSION) IMAGE_TAG=v$(DEFAULT_VERSION) PREVIOUS_VERSION=$(DEFAULT_PREVIOUS_VERSION) SKIP_RANGE_LOWER=$(DEFAULT_SKIP_RANGE_LOWER)
+	NO_REPLACES=true $(MAKE) add-replaces-field VERSION=$(DEFAULT_VERSION) IMAGE_TAG=v$(DEFAULT_VERSION) PREVIOUS_VERSION=$(DEFAULT_PREVIOUS_VERSION) SKIP_RANGE_LOWER=$(DEFAULT_SKIP_RANGE_LOWER)
 	# empty creation date
 	sed -r -i "s|createdAt: .*|createdAt: \"\"|;" ${CSV}
 	sed -r -i "s|olm.skipRange: .*|olm.skipRange: '>=$(DEFAULT_SKIP_RANGE_LOWER) <$(DEFAULT_VERSION)'|;" ${CSV}

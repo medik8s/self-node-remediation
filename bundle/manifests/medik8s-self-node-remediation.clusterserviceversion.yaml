@@ -446,7 +446,6 @@ spec:
     name: Medik8s
     url: https://www.medik8s.io/
   version: 5.8.0
-  replaces: medik8s-self-node-remediation.v0.13.1
   webhookdefinitions:
   - admissionReviewVersions:
     - v1
