@@ -39,6 +39,9 @@ YQ_VERSION = v4.53.2
 OPERATOR_NAME ?= self-node-remediation
 OPERATOR_NAMESPACE ?= openshift-workload-availability
 
+# PACKAGE_NAME is the OLM package name
+PACKAGE_NAME ?= medik8s-$(OPERATOR_NAME)
+
 BLUE_ICON_PATH = "./config/assets/snr_icon_blue.png"
 
 # VERSION defines the project version for the bundle.
@@ -54,6 +57,9 @@ VERSION ?= $(DEFAULT_VERSION)
 export PREVIOUS_VERSION ?= $(DEFAULT_PREVIOUS_VERSION)
 # Lower bound for the skipRange field in the CSV, should be set to the oldest supported version
 SKIP_RANGE_LOWER ?= $(DEFAULT_SKIP_RANGE_LOWER)
+# NO_REPLACES omits the CSV / catalog "replaces" field for a clean-root release that has no
+# in-package predecessor.
+NO_REPLACES ?= false
 export VERSION
 
 CHANNELS ?= stable
@@ -209,7 +215,7 @@ bundle-run-update: operator-sdk ## Update bundle image.
 
 .PHONY: bundle-cleanup
 bundle-cleanup: operator-sdk ## Remove bundle installed via bundle-run
-	$(OPERATOR_SDK) -n $(OPERATOR_NAMESPACE) cleanup $(OPERATOR_NAME)
+	$(OPERATOR_SDK) -n $(OPERATOR_NAMESPACE) cleanup $(PACKAGE_NAME)
 
 .PHONY: create-ns
 create-ns: ## Create namespace
@@ -321,14 +327,14 @@ endef
 
 DEFAULT_ICON_BASE64 := $(shell base64 --wrap=0 ${BLUE_ICON_PATH})
 export ICON_BASE64 ?= ${DEFAULT_ICON_BASE64}
-export CSV ?= "./bundle/manifests/$(OPERATOR_NAME).clusterserviceversion.yaml"
+export CSV ?= "./bundle/manifests/$(PACKAGE_NAME).clusterserviceversion.yaml"
 .PHONY: bundle
 bundle: verify-previous-version verify-skip-range ## Generate bundle manifests and metadata, then validate generated files.
 	# Validate before starting generation, including under parallel Make.
 	$(MAKE) manifests operator-sdk kustomize envsubst
-	$(OPERATOR_SDK) generate kustomize manifests -q
+	$(OPERATOR_SDK) generate kustomize manifests -q --package $(PACKAGE_NAME)
 	cd config/manager && $(KUSTOMIZE) edit set image controller=$(IMG)
-	$(KUSTOMIZE) build config/manifests | $(ENVSUBST) | $(OPERATOR_SDK) generate bundle -q --overwrite --version $(VERSION) $(BUNDLE_METADATA_OPTS)
+	$(KUSTOMIZE) build config/manifests | $(ENVSUBST) | $(OPERATOR_SDK) generate bundle -q --overwrite --version $(VERSION) --package $(PACKAGE_NAME) $(BUNDLE_METADATA_OPTS)
 	$(MAKE) add-replaces-field
 	$(MAKE) bundle-validate
 
@@ -367,9 +373,18 @@ add-community-edition-to-display-name: ##Add Community Edition suffix to operato
 add-replaces-field: verify-previous-version ## Add replaces field to the CSV
 	# delete any pre-existing replaces field, then re-add it
 	sed -r -i "/  replaces:.*/d" ${CSV}
-	# preferring sed here, in order to have "replaces" near "version"
-	@if [ -n "$(PREVIOUS_VERSION)" ]; then \
-		sed -r -i "/  version: $(VERSION)/ a\  replaces: $(OPERATOR_NAME).v$(PREVIOUS_VERSION)" ${CSV}; \
+	# NO_REPLACES=true creates a clean-root release after the package rename.
+	@if [ "$(NO_REPLACES)" = "true" ]; then \
+		echo "NO_REPLACES=true: omitting replaces field (clean-root release)"; \
+	elif [ -z "$(PREVIOUS_VERSION)" ]; then \
+		echo "Error: PREVIOUS_VERSION must be set for versioned builds (or set NO_REPLACES=true for a clean-root release)"; \
+		exit 1; \
+	elif [ "$(PREVIOUS_VERSION)" = "$(VERSION)" ]; then \
+		echo "Error: PREVIOUS_VERSION must differ from VERSION"; \
+		exit 1; \
+	else \
+		# preferring sed here, in order to have "replaces" near "version" \
+		sed -r -i "/  version: $(VERSION)/ a\  replaces: $(PACKAGE_NAME).v$(PREVIOUS_VERSION)" ${CSV}; \
 	fi
 
 .PHONY: bundle-update
@@ -492,12 +507,12 @@ add_channel_entry_for_the_bundle: verify-previous-version verify-skip-range
 	@for channel in $(shell echo ${CHANNELS} | tr ',' ' '); do \
 		echo "---" >> ${CATALOG_INDEX}; \
 		echo "schema: olm.channel" >> ${CATALOG_INDEX}; \
-		echo "package: ${OPERATOR_NAME}" >> ${CATALOG_INDEX}; \
+		echo "package: ${PACKAGE_NAME}" >> ${CATALOG_INDEX}; \
 		echo "name: $$channel" >> ${CATALOG_INDEX}; \
 		echo "entries:" >> ${CATALOG_INDEX}; \
-		echo "  - name: ${OPERATOR_NAME}.v${VERSION}" >> ${CATALOG_INDEX}; \
-		if [ -n "${PREVIOUS_VERSION}" ]; then \
-			echo "    replaces: ${OPERATOR_NAME}.v${PREVIOUS_VERSION}" >> ${CATALOG_INDEX}; \
+		echo "  - name: ${PACKAGE_NAME}.v${VERSION}" >> ${CATALOG_INDEX}; \
+		if [ "${NO_REPLACES}" != "true" ] && [ -n "${PREVIOUS_VERSION}" ]; then \
+			echo "    replaces: ${PACKAGE_NAME}.v${PREVIOUS_VERSION}" >> ${CATALOG_INDEX}; \
 		fi; \
 		if [ -n "${SKIP_RANGE_LOWER}" ]; then \
 			echo "    skipRange: '>=${SKIP_RANGE_LOWER} <${VERSION}'" >> ${CATALOG_INDEX}; \
@@ -514,7 +529,7 @@ catalog-build: verify-previous-version verify-skip-range ## Build a file-based c
 	-rm -r ${CATALOG_DIR} ${CATALOG_DOCKERFILE}
 	@mkdir -p ${CATALOG_DIR}
 	$(OPM) generate dockerfile ${CATALOG_DIR}
-	$(OPM) init ${OPERATOR_NAME} \
+	$(OPM) init ${PACKAGE_NAME} \
 		--default-channel=${DEFAULT_CHANNEL} \
 		--description=./README.md \
 		--icon=${BLUE_ICON_PATH} \
@@ -572,7 +587,7 @@ verify-bundle: manifests bundle bundle-reset verify-no-changes ##Verifies bundle
 .PHONY: bundle-reset
 bundle-reset:
 	$(MAKE) bundle VERSION=$(DEFAULT_VERSION) IMAGE_TAG=v$(DEFAULT_VERSION) IMG=$(IMAGE_TAG_BASE)-operator:v$(DEFAULT_VERSION) PREVIOUS_VERSION=$(DEFAULT_PREVIOUS_VERSION) SKIP_RANGE_LOWER=$(DEFAULT_SKIP_RANGE_LOWER)
-	$(MAKE) add-replaces-field VERSION=$(DEFAULT_VERSION) IMAGE_TAG=v$(DEFAULT_VERSION) PREVIOUS_VERSION=$(DEFAULT_PREVIOUS_VERSION) SKIP_RANGE_LOWER=$(DEFAULT_SKIP_RANGE_LOWER)
+	NO_REPLACES=true $(MAKE) add-replaces-field VERSION=$(DEFAULT_VERSION) IMAGE_TAG=v$(DEFAULT_VERSION) PREVIOUS_VERSION=$(DEFAULT_PREVIOUS_VERSION) SKIP_RANGE_LOWER=$(DEFAULT_SKIP_RANGE_LOWER)
 	# empty creation date
 	sed -r -i "s|createdAt: .*|createdAt: \"\"|;" ${CSV}
 	sed -r -i "s|olm.skipRange: .*|olm.skipRange: '>=$(DEFAULT_SKIP_RANGE_LOWER) <$(DEFAULT_VERSION)'|;" ${CSV}
