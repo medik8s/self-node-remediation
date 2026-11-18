@@ -141,6 +141,12 @@ spec:
                   before its boot ID was recorded.
                 format: date-time
                 type: string
+              nodeUID:
+                description: |-
+                  NodeUID is the UID of the Node object (metadata.uid) when the reboot was prepared. A Node object with the same
+                  name but a different UID is another node: its boot ID and its agent's uptime say nothing about the reboot of
+                  the node this remediation was prepared for, so neither releases its workloads.
+                type: string
               phase:
                 description: |-
                   Phase represents the current phase of remediation,

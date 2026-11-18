@@ -341,6 +341,70 @@ var _ = Describe("SNR Controller", func() {
 					verifyNoScheduleTaintRemoved()
 					verifySNRDoesNotExists(snr)
 				})
+
+				It("records the node's UID, and keeps the node's resources when another node comes up under the same name", func() {
+					verifyTimeHasBeenRebootedExists(snr)
+					Expect(snr.Status.NodeBootID).To(Equal(bootIDBeforeReboot))
+					Expect(snr.Status.NodeUID).ToNot(BeEmpty())
+					remediatedNodeUID := snr.Status.NodeUID
+
+					verifyWatchdogTriggered()
+
+					// the remediated node's Node object is deleted and another node registers under the same name: it
+					// reports a boot ID of its own, which says nothing about the remediated node, which may still run
+					By("Simulate another node coming up under the same name with a boot ID of its own")
+					replacementUID := replaceUnhealthyNode("boot-id-of-another-node")
+					Expect(replacementUID).ToNot(Equal(remediatedNodeUID))
+
+					By("Verify that the node's resources are kept after the safe time although the node with this name reports a new boot ID")
+					Consistently(func(g Gomega) {
+						g.Expect(k8sClient.Client.Get(context.Background(), client.ObjectKeyFromObject(snr), snr)).To(Succeed())
+						g.Expect(snr.Status.Phase).To(HaveValue(Equal("Pre-Reboot-Completed")))
+						g.Expect(snr.Status.NodeUID).To(Equal(remediatedNodeUID))
+					}, shared.CalculatedRebootDuration+4*time.Second, 500*time.Millisecond).Should(Succeed())
+					verifySelfNodeRemediationPodExist()
+					verifyNoEvent("Normal", "DeleteResources", "Remediation process - finished deleting unhealthy node resources")
+
+					stopRemediationAsNHCTimeout(snr)
+					verifyNoScheduleTaintRemoved()
+					verifySNRDoesNotExists(snr)
+				})
+
+				It("does not take the confirmation of another node that came up under the same name as proof of the reboot", func() {
+					verifyTimeHasBeenRebootedExists(snr)
+					Expect(snr.Status.NodeUID).ToNot(BeEmpty())
+
+					verifyWatchdogTriggered()
+
+					// the other node has a short uptime of its own: its agent finds the node booted after the remediation
+					// was created, but it is not the node the reboot was prepared for
+					By("Simulate another node coming up under the same name, with a short uptime, and its agent looking at the remediation")
+					replaceUnhealthyNode(bootIDBeforeReboot)
+					prevUptime := agentUptime.Load()
+					agentUptime.Store(0)
+					DeferCleanup(func() { agentUptime.Store(prevUptime) })
+					Eventually(func(g Gomega) {
+						g.Expect(k8sClient.Client.Get(context.Background(), client.ObjectKeyFromObject(snr), snr)).To(Succeed())
+						if snr.Annotations == nil {
+							snr.Annotations = map[string]string{}
+						}
+						snr.Annotations["test.medik8s.io/touched"] = "another node looked at the remediation"
+						g.Expect(k8sClient.Client.Update(context.Background(), snr)).To(Succeed())
+					}, 5*time.Second, 250*time.Millisecond).Should(Succeed())
+
+					By("Verify that the reboot is not confirmed and the node's resources are kept")
+					Consistently(func(g Gomega) {
+						g.Expect(k8sClient.Client.Get(context.Background(), client.ObjectKeyFromObject(snr), snr)).To(Succeed())
+						g.Expect(snr.Status.NodeRebootConfirmedAt).To(BeNil())
+						g.Expect(snr.Status.Phase).To(HaveValue(Equal("Pre-Reboot-Completed")))
+					}, shared.CalculatedRebootDuration+4*time.Second, 500*time.Millisecond).Should(Succeed())
+					verifySelfNodeRemediationPodExist()
+					verifyNoEvent("Normal", "DeleteResources", "Remediation process - finished deleting unhealthy node resources")
+
+					stopRemediationAsNHCTimeout(snr)
+					verifyNoScheduleTaintRemoved()
+					verifySNRDoesNotExists(snr)
+				})
 			})
 
 			Context("the node rebooted before its boot ID was recorded", func() {
@@ -1506,6 +1570,36 @@ func testNoFinalizer(snr *v1alpha1.SelfNodeRemediation) {
 		//if no finalizer was set, it means we didn't start remediation process
 		return snr.Finalizers, err
 	}, 10*time.Second, 250*time.Millisecond).Should(BeEmpty())
+}
+
+// replaceUnhealthyNode deletes the unhealthy node's Node object and creates a new one under the same name, reporting
+// the given boot ID, as when another node registers under the name of a deleted one. It returns the new node's UID.
+func replaceUnhealthyNode(bootID string) string {
+	By("Replace the unhealthy node's Node object under the same name")
+	node := &corev1.Node{}
+	ExpectWithOffset(1, k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)).To(Succeed())
+	ExpectWithOffset(1, k8sClient.Client.Delete(context.TODO(), node)).To(Succeed())
+	EventuallyWithOffset(1, func() error {
+		return k8sClient.Client.Create(context.TODO(), getNode(shared.UnhealthyNodeName))
+	}, 5*time.Second, 250*time.Millisecond).Should(Succeed())
+	eventuallyUpdateNode(func(node *corev1.Node) { node.Status.NodeInfo.BootID = bootID }, true)
+	ExpectWithOffset(1, k8sClient.Client.Get(context.TODO(), unhealthyNodeNamespacedName, node)).To(Succeed())
+	return string(node.UID)
+}
+
+// stopRemediationAsNHCTimeout ends a remediation the way NHC does when it times out: the timed-out annotation, then
+// the deletion, after which the manager cleans the node up and removes the finalizer
+func stopRemediationAsNHCTimeout(snr *v1alpha1.SelfNodeRemediation) {
+	By("Stop the remediation as NHC does on a timeout")
+	EventuallyWithOffset(1, func(g Gomega) {
+		g.Expect(k8sClient.Client.Get(context.Background(), client.ObjectKeyFromObject(snr), snr)).To(Succeed())
+		if snr.Annotations == nil {
+			snr.Annotations = map[string]string{}
+		}
+		snr.Annotations["remediation.medik8s.io/nhc-timed-out"] = "now"
+		g.Expect(k8sClient.Client.Update(context.Background(), snr)).To(Succeed())
+	}, 5*time.Second, 250*time.Millisecond).Should(Succeed())
+	deleteSNR(snr)
 }
 
 func eventuallyUpdateNode(updateFunc func(*corev1.Node), isStatusUpdate bool) {

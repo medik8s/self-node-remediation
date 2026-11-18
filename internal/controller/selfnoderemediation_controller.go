@@ -485,7 +485,8 @@ func (r *SelfNodeRemediationReconciler) handleFencingStartedPhase(ctx context.Co
 }
 
 // prepareReboot taints the node, sets the safe time to assume it rebooted and records what the release of its
-// workloads will need: the node's boot ID, and whether proof of the reboot is required (see pinRebootProofRequirement)
+// workloads will need: the node's identity (its UID and boot ID), and whether proof of the reboot is required (see
+// pinRebootProofRequirement)
 func (r *SelfNodeRemediationReconciler) prepareReboot(ctx context.Context, node *corev1.Node, snr *v1alpha1.SelfNodeRemediation, snrConfig *v1alpha1.SelfNodeRemediationConfig) (ctrl.Result, error) {
 	r.logger.Info("pre-reboot not completed yet, prepare for rebooting")
 	if !r.isNodeRebootCapable(node) {
@@ -505,7 +506,7 @@ func (r *SelfNodeRemediationReconciler) prepareReboot(ctx context.Context, node 
 		return ctrl.Result{}, err
 	}
 
-	r.recordNodeBootID(node, snr)
+	r.recordNodeIdentity(node, snr)
 	r.pinRebootProofRequirement(node, snr, snrConfig)
 
 	preRebootCompleted := string(preRebootCompletedPhase)
@@ -529,6 +530,13 @@ func (r *SelfNodeRemediationReconciler) waitForNodeRebooted(node *corev1.Node, s
 	// configuration says now: its node's agent kept the watchdog closed, so a node whose agent died was not reset
 	proofRequired := isRebootProofRequired(snr.Status, snrConfig)
 	if snrConfig.Spec.RequireBootIDChange || proofRequired {
+		// a Node object with the same name but another UID is another node, which may have replaced the remediated
+		// one while the latter still runs: nothing it reports proves the reboot
+		if !isRemediatedNode(snr.Status, node) {
+			r.logger.Info("TimeAssumedRebooted is old, but the node with this name is not the node the reboot was prepared for, waiting for that node to reboot",
+				"node name", node.Name, "UID before reboot", snr.Status.NodeUID, "current UID", node.UID, "recheck interval", BootIDRecheckInterval)
+			return ctrl.Result{RequeueAfter: BootIDRecheckInterval}, nil
+		}
 		currentBootID := node.Status.NodeInfo.BootID
 		// without a recorded boot ID a remediation that requires proof may not assume the reboot on time alone: the
 		// agent's confirmation is its only proof
@@ -622,7 +630,17 @@ func (r *SelfNodeRemediationReconciler) rebootIfNeeded(ctx context.Context, snr 
 
 	if shouldAvoidReboot {
 		// node already rebooted once during this SNR lifecycle, no need for additional reboot; tell the manager, which
-		// cannot see a reboot that happened before it recorded the node's boot ID
+		// cannot see a reboot that happened before it recorded the node's boot ID. Only the node the reboot was
+		// prepared for may say so: a node that replaced it under the same name has a short uptime of its own
+		if node == nil {
+			r.logger.Info("the node booted after the remediation was created, but its Node object could not be read to confirm that it is the remediated node, retrying", "node name", r.MyNodeName)
+			return ctrl.Result{RequeueAfter: BootIDRecheckInterval}, nil
+		}
+		if !isRemediatedNode(snr.Status, node) {
+			r.logger.Info("the node booted after the remediation was created, but it is not the node the reboot was prepared for, not confirming the reboot",
+				"node name", node.Name, "UID before reboot", snr.Status.NodeUID, "current UID", node.UID)
+			return ctrl.Result{}, nil
+		}
 		return ctrl.Result{}, r.confirmNodeRebooted(ctx, snr)
 	}
 	events.NormalEvent(r.Recorder, node, eventReasonNodeReboot, "Remediation process - about to attempt fencing the unhealthy node by rebooting it")
@@ -692,9 +710,22 @@ func (r *SelfNodeRemediationReconciler) confirmNodeRebooted(ctx context.Context,
 	return nil
 }
 
-// recordNodeBootID stores the node's current boot ID on the remediation, once, so that a different one later proves
-// that the node rebooted
-func (r *SelfNodeRemediationReconciler) recordNodeBootID(node *corev1.Node, snr *v1alpha1.SelfNodeRemediation) {
+// isRemediatedNode tells whether the given Node object is the one the reboot was prepared for: the one whose UID was
+// recorded then. A Node object with the same name but another UID replaced it, and the replaced node may still run, so
+// nothing the new one reports (its boot ID, its agent's uptime) proves the reboot. Without a recorded UID (a remediation
+// prepared by an older manager) there is nothing to compare and the node is taken as the remediated one, as before.
+func isRemediatedNode(status v1alpha1.SelfNodeRemediationStatus, node *corev1.Node) bool {
+	return status.NodeUID == "" || string(node.UID) == status.NodeUID
+}
+
+// recordNodeIdentity stores the node's identity on the remediation, once: its UID, so that a node that replaces it
+// under the same name is not taken for it, and its current boot ID, so that a different one later proves that the node
+// rebooted
+func (r *SelfNodeRemediationReconciler) recordNodeIdentity(node *corev1.Node, snr *v1alpha1.SelfNodeRemediation) {
+	if snr.Status.NodeUID == "" && node.UID != "" {
+		snr.Status.NodeUID = string(node.UID)
+		r.logger.Info("recorded the node's UID before the reboot", "node name", node.Name, "UID", node.UID)
+	}
 	if snr.Status.NodeBootID != "" {
 		return
 	}

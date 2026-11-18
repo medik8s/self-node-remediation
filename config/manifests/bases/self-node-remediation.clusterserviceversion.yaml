@@ -65,6 +65,12 @@ spec:
         displayName: Node Reboot Confirmed At
         path: nodeRebootConfirmedAt
       - description: |-
+          NodeUID is the UID of the Node object (metadata.uid) when the reboot was prepared. A Node object with the same
+          name but a different UID is another node: its boot ID and its agent's uptime say nothing about the reboot of
+          the node this remediation was prepared for, so neither releases its workloads.
+        displayName: Node UID
+        path: nodeUID
+      - description: |-
           Phase represents the current phase of remediation,
           One of: TBD
         displayName: Phase

@@ -69,6 +69,13 @@ type SelfNodeRemediationStatus struct {
 	//+operator-sdk:csv:customresourcedefinitions:type=status
 	NodeBootID string `json:"nodeBootID,omitempty"`
 
+	// NodeUID is the UID of the Node object (metadata.uid) when the reboot was prepared. A Node object with the same
+	// name but a different UID is another node: its boot ID and its agent's uptime say nothing about the reboot of
+	// the node this remediation was prepared for, so neither releases its workloads.
+	// +optional
+	//+operator-sdk:csv:customresourcedefinitions:type=status
+	NodeUID string `json:"nodeUID,omitempty"`
+
 	// NodeRebootConfirmedAt is set by the node's own agent when it finds that the node booted after this remediation
 	// was created (the node's uptime is shorter than the remediation's age), so no further reboot is needed.
 	// With requireBootIDChange it proves the reboot when a boot ID change cannot, for example when the node rebooted

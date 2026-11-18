@@ -3,7 +3,9 @@ package controller
 import (
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/medik8s/self-node-remediation/v5/api/v1alpha1"
 )
@@ -36,6 +38,29 @@ func TestIsNodeRebootConfirmed(t *testing.T) {
 			status := v1alpha1.SelfNodeRemediationStatus{NodeBootID: tc.recorded, NodeRebootConfirmedAt: tc.confirmed}
 			if got := isNodeRebootConfirmed(status, tc.current, tc.proofRequired); got != tc.expected {
 				t.Errorf("recorded %q, confirmed %v, current %q, proof required %v: expected %v, got %v", tc.recorded, tc.confirmed != nil, tc.current, tc.proofRequired, tc.expected, got)
+			}
+		})
+	}
+}
+
+func TestIsRemediatedNode(t *testing.T) {
+	testCases := []struct {
+		name     string
+		recorded string
+		current  string
+		expected bool
+	}{
+		{name: "same UID, the node the reboot was prepared for", recorded: "uid-1", current: "uid-1", expected: true},
+		{name: "another UID, a node that replaced it under the same name", recorded: "uid-1", current: "uid-2", expected: false},
+		{name: "nothing recorded, prepared by an older manager", recorded: "", current: "uid-1", expected: true},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			status := v1alpha1.SelfNodeRemediationStatus{NodeUID: tc.recorded}
+			node := &corev1.Node{}
+			node.UID = types.UID(tc.current)
+			if got := isRemediatedNode(status, node); got != tc.expected {
+				t.Errorf("recorded %q, current %q: expected %v, got %v", tc.recorded, tc.current, tc.expected, got)
 			}
 		})
 	}
