@@ -204,11 +204,11 @@ type SelfNodeRemediationConfigSpec struct {
 	// to the safe time to assume the node rebooted having passed. Without it, the workloads are released on the safe
 	// time alone, so a node that is still running at that time (a reboot that failed, an agent that died after the
 	// reboot was prepared) can end up running the same workload twice. With it, a node that never comes back keeps
-	// its workloads until the remediation is deleted or NodeHealthCheck times it out, so someone has to act on it.
+	// its workloads until NodeHealthCheck times the remediation out, so someone has to act on it.
 	// ArmWatchdogOnlyForReboot requires this setting: with the watchdog device closed until a reboot is decided, this
 	// gate is what holds the workloads of a node whose agent died after its reboot was prepared and that never
-	// rebooted. A node that reports no boot ID is released on the safe time alone, unless ArmWatchdogOnlyForReboot
-	// is on: then only its agent's confirmation (status.nodeRebootConfirmedAt) releases it.
+	// rebooted. A node that reports no boot ID is released only by its agent's confirmation
+	// (status.nodeRebootConfirmedAt), never by the safe time alone.
 	// +optional
 	RequireBootIDChange bool `json:"requireBootIDChange,omitempty"`
 }

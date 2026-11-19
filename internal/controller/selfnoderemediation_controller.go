@@ -528,8 +528,7 @@ func (r *SelfNodeRemediationReconciler) waitForNodeRebooted(node *corev1.Node, s
 
 	// a remediation prepared with the watchdog armed only for the reboot waits for proof of the reboot whatever the
 	// configuration says now: its node's agent kept the watchdog closed, so a node whose agent died was not reset
-	proofRequired := isRebootProofRequired(snr.Status, snrConfig)
-	if snrConfig.Spec.RequireBootIDChange || proofRequired {
+	if snrConfig.Spec.RequireBootIDChange || isRebootProofRequired(snr.Status, snrConfig) {
 		// a Node object with the same name but another UID is another node, which may have replaced the remediated
 		// one while the latter still runs: nothing it reports proves the reboot
 		if !isRemediatedNode(snr.Status, node) {
@@ -538,22 +537,20 @@ func (r *SelfNodeRemediationReconciler) waitForNodeRebooted(node *corev1.Node, s
 			return ctrl.Result{RequeueAfter: BootIDRecheckInterval}, nil
 		}
 		currentBootID := node.Status.NodeInfo.BootID
-		// without a recorded boot ID a remediation that requires proof may not assume the reboot on time alone: the
-		// agent's confirmation is its only proof
-		if !isNodeRebootConfirmed(snr.Status, currentBootID, proofRequired) {
+		// only a new boot ID or the agent's confirmation proves the reboot; without a recorded boot ID the agent's
+		// confirmation is the only proof, the safe time alone is none (see isNodeRebootConfirmed)
+		if !isNodeRebootConfirmed(snr.Status, currentBootID) {
 			// the node did not report a new boot ID and its agent did not confirm a reboot: either the node is still
 			// running, or it has not come back yet. Nodes are not watched, so look again later; a node that never
 			// comes back keeps its resources.
 			r.logger.Info("TimeAssumedRebooted is old, but the node did not report a new boot ID and its agent did not confirm a reboot yet, waiting for it to reboot",
 				"node name", node.Name, "boot ID before reboot", snr.Status.NodeBootID, "current boot ID", currentBootID,
-				"proof required", proofRequired, "recheck interval", BootIDRecheckInterval)
+				"recheck interval", BootIDRecheckInterval)
 			return ctrl.Result{RequeueAfter: BootIDRecheckInterval}, nil
 		}
 		if snr.Status.NodeRebootConfirmedAt != nil {
 			r.logger.Info("The node's agent confirmed that the node rebooted after the remediation was created", "node name", node.Name,
 				"confirmed at", snr.Status.NodeRebootConfirmedAt)
-		} else if snr.Status.NodeBootID == "" {
-			r.logger.Info("No boot ID was recorded before the reboot, the node is assumed to have rebooted on time alone", "node name", node.Name)
 		} else {
 			r.logger.Info("The node reports a new boot ID, it has rebooted", "node name", node.Name,
 				"boot ID before reboot", snr.Status.NodeBootID, "current boot ID", currentBootID)
@@ -650,18 +647,17 @@ func (r *SelfNodeRemediationReconciler) rebootIfNeeded(ctx context.Context, snr 
 
 // isNodeRebootConfirmed tells whether the node is proven to have rebooted since the remediation was created: either
 // its agent confirmed it (the node booted after the remediation was created, see confirmNodeRebooted), or the node's
-// current boot ID differs from the one recorded before the reboot. Without a recorded boot ID there is nothing to
-// compare, and the reboot is taken for granted, as before, unless proofRequired says that it may not be: with the
-// watchdog armed only for the reboot, a node whose agent died was not reset, and only its agent's confirmation
-// proves the reboot.
-func isNodeRebootConfirmed(status v1alpha1.SelfNodeRemediationStatus, currentBootID string, proofRequired bool) bool {
+// current boot ID differs from the one recorded before the reboot. Without a recorded boot ID only the agent's
+// confirmation counts: the safe time alone proves nothing once the release is gated, since the watchdog may be armed
+// only for the reboot on the node, whatever the configuration said when the reboot was prepared (the option may have
+// been turned on since, and the agent that held the device may have been replaced, or may still run the old
+// template after the option was turned off), and a node whose agent kept the device closed was not reset when the
+// agent died.
+func isNodeRebootConfirmed(status v1alpha1.SelfNodeRemediationStatus, currentBootID string) bool {
 	if status.NodeRebootConfirmedAt != nil {
 		return true
 	}
-	if status.NodeBootID == "" {
-		return !proofRequired
-	}
-	return currentBootID != "" && currentBootID != status.NodeBootID
+	return status.NodeBootID != "" && currentBootID != "" && currentBootID != status.NodeBootID
 }
 
 // isRebootProofRequired tells whether the remediation may only be released on proof of the reboot: what

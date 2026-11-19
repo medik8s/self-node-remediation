@@ -342,6 +342,48 @@ var _ = Describe("SNR Controller", func() {
 					verifySNRDoesNotExists(snr)
 				})
 
+				Context("the release was not gated when the reboot was prepared", func() {
+					BeforeEach(func() {
+						snrConfig.Spec.RequireBootIDChange = false
+					})
+
+					It("waits for the boot ID change once both watchdog options are turned on after the preparation", func() {
+						verifyTimeHasBeenRebootedExists(snr)
+						Expect(snr.Status.NodeBootID).To(Equal(bootIDBeforeReboot))
+						Expect(snr.Status.RebootProofRequired).To(HaveValue(BeFalse()))
+
+						// the agent DaemonSet rolls on the update and the replacement agent keeps the watchdog closed, so
+						// from now on the release needs proof of the reboot, although none was required at preparation.
+						// The update lands within the safe time, which the mock makes short
+						By("Turn both watchdog options on while the remediation is in progress")
+						eventuallyUpdateConfig(func(snrConfig *v1alpha1.SelfNodeRemediationConfig) {
+							snrConfig.Spec.ArmWatchdogOnlyForReboot = true
+							snrConfig.Spec.RequireBootIDChange = true
+						})
+
+						verifyWatchdogTriggered()
+
+						By("Verify that the node's resources are kept after the safe time while its boot ID is unchanged")
+						Consistently(func(g Gomega) {
+							g.Expect(k8sClient.Client.Get(context.Background(), client.ObjectKeyFromObject(snr), snr)).To(Succeed())
+							g.Expect(snr.Status.Phase).To(HaveValue(Equal("Pre-Reboot-Completed")))
+						}, shared.CalculatedRebootDuration+4*time.Second, 500*time.Millisecond).Should(Succeed())
+						verifySelfNodeRemediationPodExist()
+						verifyNoEvent("Normal", "DeleteResources", "Remediation process - finished deleting unhealthy node resources")
+
+						By("Simulate the node coming back with a new boot ID")
+						eventuallyUpdateNode(func(node *corev1.Node) { node.Status.NodeInfo.BootID = "boot-id-after-reboot" }, true)
+
+						verifySelfNodeRemediationPodDoesntExist()
+						verifyEvent("Normal", "DeleteResources", "Remediation process - finished deleting unhealthy node resources")
+						verifyTypeConditions(snr, metav1.ConditionFalse, metav1.ConditionTrue, "RemediationFinishedSuccessfully")
+
+						deleteSNR(snr)
+						verifyNoScheduleTaintRemoved()
+						verifySNRDoesNotExists(snr)
+					})
+				})
+
 				It("records the node's UID, and keeps the node's resources when another node comes up under the same name", func() {
 					verifyTimeHasBeenRebootedExists(snr)
 					Expect(snr.Status.NodeBootID).To(Equal(bootIDBeforeReboot))
@@ -448,14 +490,35 @@ var _ = Describe("SNR Controller", func() {
 					createSNR(snr, v1alpha1.AutomaticRemediationStrategy)
 				})
 
-				It("releases the node's resources on the safe time alone, as without the setting", func() {
+				// without a recorded boot ID nothing but the agent's confirmation proves the reboot: the safe time alone
+				// is no proof, since the watchdog may be armed only for the reboot on the node whatever the configuration
+				// said at preparation, and a node whose agent kept the device closed was not reset when the agent died
+				It("keeps the node's resources after the safe time until the agent confirms the reboot", func() {
 					verifyTimeHasBeenRebootedExists(snr)
 					Expect(snr.Status.NodeBootID).To(BeEmpty())
 					Expect(snr.Status.RebootProofRequired).To(HaveValue(BeFalse()))
 
 					verifyWatchdogTriggered()
 
+					By("Verify that the node's resources are kept after the safe time while nothing proves the reboot")
+					Consistently(func(g Gomega) {
+						g.Expect(k8sClient.Client.Get(context.Background(), client.ObjectKeyFromObject(snr), snr)).To(Succeed())
+						g.Expect(snr.Status.Phase).To(HaveValue(Equal("Pre-Reboot-Completed")))
+						g.Expect(snr.Status.NodeRebootConfirmedAt).To(BeNil())
+					}, shared.CalculatedRebootDuration+4*time.Second, 500*time.Millisecond).Should(Succeed())
+					verifySelfNodeRemediationPodExist()
+					verifyNoEvent("Normal", "DeleteResources", "Remediation process - finished deleting unhealthy node resources")
+
+					By("Simulate the node's agent confirming the reboot once the node is back")
+					Eventually(func(g Gomega) {
+						g.Expect(k8sClient.Client.Get(context.Background(), client.ObjectKeyFromObject(snr), snr)).To(Succeed())
+						now := metav1.Now()
+						snr.Status.NodeRebootConfirmedAt = &now
+						g.Expect(k8sClient.Client.Status().Update(context.Background(), snr)).To(Succeed())
+					}, 5*time.Second, 250*time.Millisecond).Should(Succeed())
+
 					verifySelfNodeRemediationPodDoesntExist()
+					verifyEvent("Normal", "DeleteResources", "Remediation process - finished deleting unhealthy node resources")
 					verifyTypeConditions(snr, metav1.ConditionFalse, metav1.ConditionTrue, "RemediationFinishedSuccessfully")
 
 					deleteSNR(snr)
@@ -463,13 +526,14 @@ var _ = Describe("SNR Controller", func() {
 					verifySNRDoesNotExists(snr)
 				})
 
-				It("releases the node's resources on the safe time alone although the watchdog arming option is turned on after the preparation", func() {
+				It("keeps waiting for the agent's confirmation when the watchdog arming option is turned on after the preparation", func() {
 					verifyTimeHasBeenRebootedExists(snr)
 					Expect(snr.Status.NodeBootID).To(BeEmpty())
 					Expect(snr.Status.RebootProofRequired).To(HaveValue(BeFalse()))
 
-					// the node's agent armed the watchdog at start, so the proof requirement recorded at preparation, not
-					// the option turned on now, decides; the update lands within the safe time, which the mock makes short
+					// the agent DaemonSet rolls on the update, and the replacement agent keeps the watchdog closed: the
+					// release may not assume the reboot on the safe time, whatever was recorded at preparation. The update
+					// lands within the safe time, which the mock makes short
 					By("Turn the watchdog arming option on while the remediation is in progress")
 					eventuallyUpdateConfig(func(snrConfig *v1alpha1.SelfNodeRemediationConfig) {
 						snrConfig.Spec.ArmWatchdogOnlyForReboot = true
@@ -477,7 +541,25 @@ var _ = Describe("SNR Controller", func() {
 
 					verifyWatchdogTriggered()
 
+					By("Verify that the node's resources are kept after the safe time while nothing proves the reboot")
+					Consistently(func(g Gomega) {
+						g.Expect(k8sClient.Client.Get(context.Background(), client.ObjectKeyFromObject(snr), snr)).To(Succeed())
+						g.Expect(snr.Status.Phase).To(HaveValue(Equal("Pre-Reboot-Completed")))
+						g.Expect(snr.Status.NodeRebootConfirmedAt).To(BeNil())
+					}, shared.CalculatedRebootDuration+4*time.Second, 500*time.Millisecond).Should(Succeed())
+					verifySelfNodeRemediationPodExist()
+					verifyNoEvent("Normal", "DeleteResources", "Remediation process - finished deleting unhealthy node resources")
+
+					By("Simulate the node's agent confirming the reboot once the node is back")
+					Eventually(func(g Gomega) {
+						g.Expect(k8sClient.Client.Get(context.Background(), client.ObjectKeyFromObject(snr), snr)).To(Succeed())
+						now := metav1.Now()
+						snr.Status.NodeRebootConfirmedAt = &now
+						g.Expect(k8sClient.Client.Status().Update(context.Background(), snr)).To(Succeed())
+					}, 5*time.Second, 250*time.Millisecond).Should(Succeed())
+
 					verifySelfNodeRemediationPodDoesntExist()
+					verifyEvent("Normal", "DeleteResources", "Remediation process - finished deleting unhealthy node resources")
 					verifyTypeConditions(snr, metav1.ConditionFalse, metav1.ConditionTrue, "RemediationFinishedSuccessfully")
 
 					deleteSNR(snr)
@@ -487,42 +569,7 @@ var _ = Describe("SNR Controller", func() {
 
 				Context("with the watchdog armed only for the reboot (armWatchdogOnlyForReboot)", func() {
 					BeforeEach(func() {
-						// a node whose agent died is not reset by the watchdog, so without a recorded boot ID nothing but
-						// the agent's confirmation proves the reboot
 						snrConfig.Spec.ArmWatchdogOnlyForReboot = true
-					})
-
-					It("keeps the node's resources after the safe time until the agent confirms the reboot", func() {
-						verifyTimeHasBeenRebootedExists(snr)
-						Expect(snr.Status.NodeBootID).To(BeEmpty())
-						Expect(snr.Status.RebootProofRequired).To(HaveValue(BeTrue()))
-
-						verifyWatchdogTriggered()
-
-						By("Verify that the node's resources are kept after the safe time while nothing proves the reboot")
-						Consistently(func(g Gomega) {
-							g.Expect(k8sClient.Client.Get(context.Background(), client.ObjectKeyFromObject(snr), snr)).To(Succeed())
-							g.Expect(snr.Status.Phase).To(HaveValue(Equal("Pre-Reboot-Completed")))
-							g.Expect(snr.Status.NodeRebootConfirmedAt).To(BeNil())
-						}, shared.CalculatedRebootDuration+4*time.Second, 500*time.Millisecond).Should(Succeed())
-						verifySelfNodeRemediationPodExist()
-						verifyNoEvent("Normal", "DeleteResources", "Remediation process - finished deleting unhealthy node resources")
-
-						By("Simulate the node's agent confirming the reboot once the node is back")
-						Eventually(func(g Gomega) {
-							g.Expect(k8sClient.Client.Get(context.Background(), client.ObjectKeyFromObject(snr), snr)).To(Succeed())
-							now := metav1.Now()
-							snr.Status.NodeRebootConfirmedAt = &now
-							g.Expect(k8sClient.Client.Status().Update(context.Background(), snr)).To(Succeed())
-						}, 5*time.Second, 250*time.Millisecond).Should(Succeed())
-
-						verifySelfNodeRemediationPodDoesntExist()
-						verifyEvent("Normal", "DeleteResources", "Remediation process - finished deleting unhealthy node resources")
-						verifyTypeConditions(snr, metav1.ConditionFalse, metav1.ConditionTrue, "RemediationFinishedSuccessfully")
-
-						deleteSNR(snr)
-						verifyNoScheduleTaintRemoved()
-						verifySNRDoesNotExists(snr)
 					})
 
 					It("keeps waiting for the agent's confirmation after both watchdog options are turned off", func() {
