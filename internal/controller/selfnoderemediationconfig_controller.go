@@ -200,6 +200,7 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 	data.Data["PeerTopologyKey"] = snrConfig.Spec.PeerTopologyKey
 	data.Data["HostPort"] = snrConfig.Spec.HostPort
 	data.Data["IsSoftwareRebootEnabled"] = fmt.Sprintf("\"%t\"", snrConfig.Spec.IsSoftwareRebootEnabled)
+	data.Data["ArmWatchdogOnlyForReboot"] = fmt.Sprintf("\"%t\"", snrConfig.Spec.ArmWatchdogOnlyForReboot)
 
 	data.Funcs["join"] = join
 

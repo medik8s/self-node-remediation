@@ -77,6 +77,9 @@ var (
 
 	// OutOfServiceTimeoutDuration - time after which out-of-service taint is automatically removed
 	OutOfServiceTimeoutDuration = 1 * time.Minute
+	// BootIDRecheckInterval - how often the manager looks for a new boot ID on a node whose safe time has passed,
+	// when the configuration requires a boot ID change before releasing the node's workloads
+	BootIDRecheckInterval = 30 * time.Second
 )
 
 type conditionReason string
@@ -123,6 +126,9 @@ type SelfNodeRemediationReconciler struct {
 	MyNodeName               string
 	MyNamespace              string
 	IsAgent                  bool
+	// GetUptime returns the node's uptime; the agent uses it to tell whether the node already rebooted since the
+	// remediation was created. Nil means the Linux uptime.
+	GetUptime func() (time.Duration, error)
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -184,7 +190,7 @@ func (r *SelfNodeRemediationReconciler) ReconcileAgent(ctx context.Context, req 
 		if err != nil {
 			r.logger.Info("didn't find node, eventing might be incomplete", "node name", targetNodeName)
 		}
-		return r.rebootIfNeeded(snr, node)
+		return r.rebootIfNeeded(ctx, snr, node)
 	default:
 		r.logger.Info("not ready for reboot", "phase", phase)
 	}
@@ -222,9 +228,10 @@ func (r *SelfNodeRemediationReconciler) ReconcileManager(ctx context.Context, re
 		}
 	}()
 
-	if isConfigurationExist, err := r.isConfigurationExist(ctx); err != nil {
-		return ctrl.Result{}, err
-	} else if !isConfigurationExist {
+	snrConfig, configErr := r.getConfiguration(ctx)
+	if configErr != nil {
+		return ctrl.Result{}, configErr
+	} else if snrConfig == nil {
 		r.logger.Info("SNR is disabled because configuration does not exist, waiting for configuration creation ")
 		meta.SetStatusCondition(&snr.Status.Conditions, metav1.Condition{
 			Type:    string(v1alpha1.DisabledConditionType),
@@ -301,9 +308,9 @@ func (r *SelfNodeRemediationReconciler) ReconcileManager(ctx context.Context, re
 	strategy := r.getRuntimeStrategy(snr)
 	switch strategy {
 	case v1alpha1.ResourceDeletionRemediationStrategy:
-		result, err = r.remediateWithResourceDeletion(ctx, snr, node)
+		result, err = r.remediateWithResourceDeletion(ctx, snr, node, snrConfig)
 	case v1alpha1.OutOfServiceTaintRemediationStrategy:
-		result, err = r.remediateWithOutOfServiceTaint(ctx, snr, node)
+		result, err = r.remediateWithOutOfServiceTaint(ctx, snr, node, snrConfig)
 	default:
 		// this should never happen since we enforce valid values with kubebuilder
 		err := errors.New("unsupported remediation strategy")
@@ -313,26 +320,27 @@ func (r *SelfNodeRemediationReconciler) ReconcileManager(ctx context.Context, re
 	return result, r.updateSnrStatusLastError(snr, err)
 }
 
-func (r *SelfNodeRemediationReconciler) isConfigurationExist(ctx context.Context) (bool, error) {
-	if ns, err := utils.GetDeploymentNamespace(); err != nil {
+// getConfiguration returns the SelfNodeRemediationConfig, or nil when it does not exist or is being deleted
+func (r *SelfNodeRemediationReconciler) getConfiguration(ctx context.Context) (*v1alpha1.SelfNodeRemediationConfig, error) {
+	ns, err := utils.GetDeploymentNamespace()
+	if err != nil {
 		r.logger.Error(err, "Failed getting snr namespace")
-		return false, err
-	} else {
-		snrConfig := &v1alpha1.SelfNodeRemediationConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      v1alpha1.ConfigCRName,
-				Namespace: ns,
-			},
-		}
-		err := r.Get(ctx, client.ObjectKeyFromObject(snrConfig), snrConfig)
-		if apiErrors.IsNotFound(err) || err == nil && snrConfig.DeletionTimestamp != nil {
-			return false, nil
-		} else if err != nil {
-			r.logger.Error(err, "failed to get SNR configuration")
-			return false, err
-		}
+		return nil, err
 	}
-	return true, nil
+	snrConfig := &v1alpha1.SelfNodeRemediationConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      v1alpha1.ConfigCRName,
+			Namespace: ns,
+		},
+	}
+	err = r.Get(ctx, client.ObjectKeyFromObject(snrConfig), snrConfig)
+	if apiErrors.IsNotFound(err) || err == nil && snrConfig.DeletionTimestamp != nil {
+		return nil, nil
+	} else if err != nil {
+		r.logger.Error(err, "failed to get SNR configuration")
+		return nil, err
+	}
+	return snrConfig, nil
 }
 
 func (r *SelfNodeRemediationReconciler) updateConditions(processingTypeReason conditionReason, snr *v1alpha1.SelfNodeRemediation) error {
@@ -400,8 +408,8 @@ func (r *SelfNodeRemediationReconciler) getPhase(snr *v1alpha1.SelfNodeRemediati
 	}
 }
 
-func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(ctx context.Context, snr *v1alpha1.SelfNodeRemediation, node *corev1.Node) (ctrl.Result, error) {
-	return r.remediateWithResourceRemoval(ctx, snr, node, r.deleteResourcesWrapper)
+func (r *SelfNodeRemediationReconciler) remediateWithResourceDeletion(ctx context.Context, snr *v1alpha1.SelfNodeRemediation, node *corev1.Node, snrConfig *v1alpha1.SelfNodeRemediationConfig) (ctrl.Result, error) {
+	return r.remediateWithResourceRemoval(ctx, snr, node, r.deleteResourcesWrapper, snrConfig)
 }
 
 // deleteResourcesWrapper returns a 'zero' time and nil if it completes to delete node resources successfully
@@ -411,8 +419,8 @@ func (r *SelfNodeRemediationReconciler) deleteResourcesWrapper(node *corev1.Node
 	return 0, resources.DeletePods(context.Background(), r.Client, node.Name)
 }
 
-func (r *SelfNodeRemediationReconciler) remediateWithOutOfServiceTaint(ctx context.Context, snr *v1alpha1.SelfNodeRemediation, node *corev1.Node) (ctrl.Result, error) {
-	return r.remediateWithResourceRemoval(ctx, snr, node, r.useOutOfServiceTaint)
+func (r *SelfNodeRemediationReconciler) remediateWithOutOfServiceTaint(ctx context.Context, snr *v1alpha1.SelfNodeRemediation, node *corev1.Node, snrConfig *v1alpha1.SelfNodeRemediationConfig) (ctrl.Result, error) {
+	return r.remediateWithResourceRemoval(ctx, snr, node, r.useOutOfServiceTaint, snrConfig)
 }
 
 func (r *SelfNodeRemediationReconciler) useOutOfServiceTaint(node *corev1.Node, snr *v1alpha1.SelfNodeRemediation) (time.Duration, error) {
@@ -449,15 +457,17 @@ func (r *SelfNodeRemediationReconciler) useOutOfServiceTaint(node *corev1.Node, 
 
 type removeNodeResources func(*corev1.Node, *v1alpha1.SelfNodeRemediation) (time.Duration, error)
 
-func (r *SelfNodeRemediationReconciler) remediateWithResourceRemoval(ctx context.Context, snr *v1alpha1.SelfNodeRemediation, node *corev1.Node, rmNodeResources removeNodeResources) (ctrl.Result, error) {
+// remediateWithResourceRemoval drives the remediation phases; snrConfig tells whether the node must prove that it
+// rebooted (requireBootIDChange), besides the safe time having passed, before its resources are removed
+func (r *SelfNodeRemediationReconciler) remediateWithResourceRemoval(ctx context.Context, snr *v1alpha1.SelfNodeRemediation, node *corev1.Node, rmNodeResources removeNodeResources, snrConfig *v1alpha1.SelfNodeRemediationConfig) (ctrl.Result, error) {
 	result := ctrl.Result{}
 	phase := r.getPhase(snr)
 	var err error
 	switch phase {
 	case fencingStartedPhase:
-		result, err = r.handleFencingStartedPhase(ctx, node, snr)
+		result, err = r.handleFencingStartedPhase(ctx, node, snr, snrConfig)
 	case preRebootCompletedPhase:
-		result, err = r.handlePreRebootCompletedPhase(node, snr)
+		result, err = r.handlePreRebootCompletedPhase(node, snr, snrConfig)
 	case rebootCompletedPhase:
 		result, err = r.handleRebootCompletedPhase(node, snr, rmNodeResources)
 	case fencingCompletedPhase:
@@ -470,11 +480,14 @@ func (r *SelfNodeRemediationReconciler) remediateWithResourceRemoval(ctx context
 	return result, err
 }
 
-func (r *SelfNodeRemediationReconciler) handleFencingStartedPhase(ctx context.Context, node *corev1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
-	return r.prepareReboot(ctx, node, snr)
+func (r *SelfNodeRemediationReconciler) handleFencingStartedPhase(ctx context.Context, node *corev1.Node, snr *v1alpha1.SelfNodeRemediation, snrConfig *v1alpha1.SelfNodeRemediationConfig) (ctrl.Result, error) {
+	return r.prepareReboot(ctx, node, snr, snrConfig)
 }
 
-func (r *SelfNodeRemediationReconciler) prepareReboot(ctx context.Context, node *corev1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+// prepareReboot taints the node, sets the safe time to assume it rebooted and records what the release of its
+// workloads will need: the node's identity (its UID and boot ID), and whether proof of the reboot is required (see
+// pinRebootProofRequirement)
+func (r *SelfNodeRemediationReconciler) prepareReboot(ctx context.Context, node *corev1.Node, snr *v1alpha1.SelfNodeRemediation, snrConfig *v1alpha1.SelfNodeRemediationConfig) (ctrl.Result, error) {
 	r.logger.Info("pre-reboot not completed yet, prepare for rebooting")
 	if !r.isNodeRebootCapable(node) {
 		// use err to trigger exponential backoff
@@ -493,21 +506,55 @@ func (r *SelfNodeRemediationReconciler) prepareReboot(ctx context.Context, node 
 		return ctrl.Result{}, err
 	}
 
+	r.recordNodeIdentity(node, snr)
+	r.pinRebootProofRequirement(node, snr, snrConfig)
+
 	preRebootCompleted := string(preRebootCompletedPhase)
 	snr.Status.Phase = &preRebootCompleted
 
 	return ctrl.Result{}, nil
 }
 
-func (r *SelfNodeRemediationReconciler) handlePreRebootCompletedPhase(node *corev1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
-	return r.waitForNodeRebooted(node, snr)
+func (r *SelfNodeRemediationReconciler) handlePreRebootCompletedPhase(node *corev1.Node, snr *v1alpha1.SelfNodeRemediation, snrConfig *v1alpha1.SelfNodeRemediationConfig) (ctrl.Result, error) {
+	return r.waitForNodeRebooted(node, snr, snrConfig)
 }
 
-func (r *SelfNodeRemediationReconciler) waitForNodeRebooted(node *corev1.Node, snr *v1alpha1.SelfNodeRemediation) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) waitForNodeRebooted(node *corev1.Node, snr *v1alpha1.SelfNodeRemediation, snrConfig *v1alpha1.SelfNodeRemediationConfig) (ctrl.Result, error) {
 	wasRebooted, timeLeft := r.wasNodeRebooted(snr)
 	if !wasRebooted {
 		r.logger.Info("Node didn't reboot yet, waiting for it to reboot", "node name", node.Name, "time left", timeLeft)
 		return ctrl.Result{RequeueAfter: timeLeft}, nil
+	}
+
+	// a remediation prepared with the watchdog armed only for the reboot waits for proof of the reboot whatever the
+	// configuration says now: its node's agent kept the watchdog closed, so a node whose agent died was not reset
+	if snrConfig.Spec.RequireBootIDChange || isRebootProofRequired(snr.Status, snrConfig) {
+		// a Node object with the same name but another UID is another node, which may have replaced the remediated
+		// one while the latter still runs: nothing it reports proves the reboot
+		if !isRemediatedNode(snr.Status, node) {
+			r.logger.Info("TimeAssumedRebooted is old, but the node with this name is not the node the reboot was prepared for, waiting for that node to reboot",
+				"node name", node.Name, "UID before reboot", snr.Status.NodeUID, "current UID", node.UID, "recheck interval", BootIDRecheckInterval)
+			return ctrl.Result{RequeueAfter: BootIDRecheckInterval}, nil
+		}
+		currentBootID := node.Status.NodeInfo.BootID
+		// only a new boot ID or the agent's confirmation proves the reboot; without a recorded boot ID the agent's
+		// confirmation is the only proof, the safe time alone is none (see isNodeRebootConfirmed)
+		if !isNodeRebootConfirmed(snr.Status, currentBootID) {
+			// the node did not report a new boot ID and its agent did not confirm a reboot: either the node is still
+			// running, or it has not come back yet. Nodes are not watched, so look again later; a node that never
+			// comes back keeps its resources.
+			r.logger.Info("TimeAssumedRebooted is old, but the node did not report a new boot ID and its agent did not confirm a reboot yet, waiting for it to reboot",
+				"node name", node.Name, "boot ID before reboot", snr.Status.NodeBootID, "current boot ID", currentBootID,
+				"recheck interval", BootIDRecheckInterval)
+			return ctrl.Result{RequeueAfter: BootIDRecheckInterval}, nil
+		}
+		if snr.Status.NodeRebootConfirmedAt != nil {
+			r.logger.Info("The node's agent confirmed that the node rebooted after the remediation was created", "node name", node.Name,
+				"confirmed at", snr.Status.NodeRebootConfirmedAt)
+		} else {
+			r.logger.Info("The node reports a new boot ID, it has rebooted", "node name", node.Name,
+				"boot ID before reboot", snr.Status.NodeBootID, "current boot ID", currentBootID)
+		}
 	}
 
 	r.logger.Info("TimeAssumedRebooted is old. The unhealthy node assumed to been rebooted", "node name", node.Name)
@@ -572,19 +619,119 @@ func (r *SelfNodeRemediationReconciler) recoverNode(node *corev1.Node, snr *v1al
 }
 
 // rebootIfNeeded reboots the node if no reboot was performed so far
-func (r *SelfNodeRemediationReconciler) rebootIfNeeded(snr *v1alpha1.SelfNodeRemediation, node *corev1.Node) (ctrl.Result, error) {
+func (r *SelfNodeRemediationReconciler) rebootIfNeeded(ctx context.Context, snr *v1alpha1.SelfNodeRemediation, node *corev1.Node) (ctrl.Result, error) {
 	shouldAvoidReboot, err := r.didIRebootMyself(snr)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
 	if shouldAvoidReboot {
-		//node already rebooted once during this SNR lifecycle, no need for additional reboot
-		return ctrl.Result{}, nil
+		// node already rebooted once during this SNR lifecycle, no need for additional reboot; tell the manager, which
+		// cannot see a reboot that happened before it recorded the node's boot ID. Only the node the reboot was
+		// prepared for may say so: a node that replaced it under the same name has a short uptime of its own
+		if node == nil {
+			r.logger.Info("the node booted after the remediation was created, but its Node object could not be read to confirm that it is the remediated node, retrying", "node name", r.MyNodeName)
+			return ctrl.Result{RequeueAfter: BootIDRecheckInterval}, nil
+		}
+		if !isRemediatedNode(snr.Status, node) {
+			r.logger.Info("the node booted after the remediation was created, but it is not the node the reboot was prepared for, not confirming the reboot",
+				"node name", node.Name, "UID before reboot", snr.Status.NodeUID, "current UID", node.UID)
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{}, r.confirmNodeRebooted(ctx, snr)
 	}
 	events.NormalEvent(r.Recorder, node, eventReasonNodeReboot, "Remediation process - about to attempt fencing the unhealthy node by rebooting it")
 
 	return ctrl.Result{RequeueAfter: reboot.TimeToAssumeRebootHasStarted}, r.Rebooter.Reboot()
+}
+
+// isNodeRebootConfirmed tells whether the node is proven to have rebooted since the remediation was created: either
+// its agent confirmed it (the node booted after the remediation was created, see confirmNodeRebooted), or the node's
+// current boot ID differs from the one recorded before the reboot. Without a recorded boot ID only the agent's
+// confirmation counts: the safe time alone proves nothing once the release is gated, since the watchdog may be armed
+// only for the reboot on the node, whatever the configuration said when the reboot was prepared (the option may have
+// been turned on since, and the agent that held the device may have been replaced, or may still run the old
+// template after the option was turned off), and a node whose agent kept the device closed was not reset when the
+// agent died.
+func isNodeRebootConfirmed(status v1alpha1.SelfNodeRemediationStatus, currentBootID string) bool {
+	if status.NodeRebootConfirmedAt != nil {
+		return true
+	}
+	return status.NodeBootID != "" && currentBootID != "" && currentBootID != status.NodeBootID
+}
+
+// isRebootProofRequired tells whether the remediation may only be released on proof of the reboot: what
+// status.rebootProofRequired recorded when the reboot was prepared, or, for a remediation prepared without it (by an
+// older manager), whether the watchdog is armed only for the reboot now. The recorded value wins over the
+// configuration: the agent DaemonSet rolls on a configuration change, and until the rollout is done the agents still
+// running with the old template keep the watchdog closed, so a remediation prepared under the option must not be
+// released on the safe time alone because the option was turned off meanwhile.
+func isRebootProofRequired(status v1alpha1.SelfNodeRemediationStatus, snrConfig *v1alpha1.SelfNodeRemediationConfig) bool {
+	if status.RebootProofRequired != nil {
+		return *status.RebootProofRequired
+	}
+	return snrConfig.Spec.ArmWatchdogOnlyForReboot
+}
+
+// pinRebootProofRequirement records on the remediation, once, whether the watchdog is armed only for the reboot at
+// the time the reboot is prepared, so that the release of the node's workloads keeps requiring proof of the reboot
+// after the option is turned off (see isRebootProofRequired)
+func (r *SelfNodeRemediationReconciler) pinRebootProofRequirement(node *corev1.Node, snr *v1alpha1.SelfNodeRemediation, snrConfig *v1alpha1.SelfNodeRemediationConfig) {
+	if snr.Status.RebootProofRequired != nil {
+		return
+	}
+	proofRequired := snrConfig.Spec.ArmWatchdogOnlyForReboot
+	snr.Status.RebootProofRequired = &proofRequired
+	if proofRequired {
+		r.logger.Info("the watchdog is armed only for the reboot, the node's workloads will be released only on proof of the reboot", "node name", node.Name)
+	}
+}
+
+// confirmNodeRebooted records on the remediation that the node booted after the remediation was created. The agent
+// knows this from the node's uptime; the manager cannot, when the node rebooted before the manager recorded its boot
+// ID, and would otherwise wait for a boot ID change that never comes. Recorded once; an error is retried by the next
+// reconcile.
+func (r *SelfNodeRemediationReconciler) confirmNodeRebooted(ctx context.Context, snr *v1alpha1.SelfNodeRemediation) error {
+	if snr.Status.NodeRebootConfirmedAt != nil {
+		return nil
+	}
+	patch := client.MergeFrom(snr.DeepCopy())
+	now := metav1.Now()
+	snr.Status.NodeRebootConfirmedAt = &now
+	if err := r.Client.Status().Patch(ctx, snr, patch); err != nil {
+		r.logger.Error(err, "failed to record that the node already rebooted")
+		return err
+	}
+	r.logger.Info("the node booted after the remediation was created, recorded it as rebooted", "node name", r.MyNodeName)
+	return nil
+}
+
+// isRemediatedNode tells whether the given Node object is the one the reboot was prepared for: the one whose UID was
+// recorded then. A Node object with the same name but another UID replaced it, and the replaced node may still run, so
+// nothing the new one reports (its boot ID, its agent's uptime) proves the reboot. Without a recorded UID (a remediation
+// prepared by an older manager) there is nothing to compare and the node is taken as the remediated one, as before.
+func isRemediatedNode(status v1alpha1.SelfNodeRemediationStatus, node *corev1.Node) bool {
+	return status.NodeUID == "" || string(node.UID) == status.NodeUID
+}
+
+// recordNodeIdentity stores the node's identity on the remediation, once: its UID, so that a node that replaces it
+// under the same name is not taken for it, and its current boot ID, so that a different one later proves that the node
+// rebooted
+func (r *SelfNodeRemediationReconciler) recordNodeIdentity(node *corev1.Node, snr *v1alpha1.SelfNodeRemediation) {
+	if snr.Status.NodeUID == "" && node.UID != "" {
+		snr.Status.NodeUID = string(node.UID)
+		r.logger.Info("recorded the node's UID before the reboot", "node name", node.Name, "UID", node.UID)
+	}
+	if snr.Status.NodeBootID != "" {
+		return
+	}
+	bootID := node.Status.NodeInfo.BootID
+	if bootID == "" {
+		r.logger.Info("the node reports no boot ID, its reboot cannot be confirmed by a boot ID change", "node name", node.Name)
+		return
+	}
+	snr.Status.NodeBootID = bootID
+	r.logger.Info("recorded the node's boot ID before the reboot", "node name", node.Name, "boot ID", bootID)
 }
 
 // wasNodeRebooted returns true if the node assumed to been rebooted.
@@ -602,13 +749,21 @@ func (r *SelfNodeRemediationReconciler) wasNodeRebooted(snr *v1alpha1.SelfNodeRe
 // didIRebootMyself returns true if system uptime is less than the time from SNR creation timestamp
 // which means that the host was already rebooted (at least) once during this SNR lifecycle
 func (r *SelfNodeRemediationReconciler) didIRebootMyself(snr *v1alpha1.SelfNodeRemediation) (bool, error) {
-	uptime, err := utils.GetLinuxUptime()
+	uptime, err := r.uptime()
 	if err != nil {
 		r.logger.Error(err, "failed to get node's uptime")
 		return false, err
 	}
 
 	return uptime < time.Since(snr.CreationTimestamp.Time), nil
+}
+
+// uptime returns the node's uptime from GetUptime when set, otherwise the Linux uptime
+func (r *SelfNodeRemediationReconciler) uptime() (time.Duration, error) {
+	if r.GetUptime != nil {
+		return r.GetUptime()
+	}
+	return utils.GetLinuxUptime()
 }
 
 // isNodeRebootCapable checks if the node is capable to reboot itself when it becomes unhealthy
