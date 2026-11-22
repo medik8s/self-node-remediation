@@ -2,6 +2,7 @@ package apicheck
 
 import (
 	"context"
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -10,6 +11,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
@@ -177,7 +180,8 @@ var _ = Describe("getWorkerPeersResponse with failure domain awareness", func() 
 		responses map[string]selfNodeRemediation.HealthCheckResponseCode
 	)
 
-	// answer returns a static per-peer answer, and tags same-domain api errors like sumPeersResponses does
+	// answer returns a static per-peer answer, and tags same-domain api errors and silences like sumPeersResponses
+	// does; a peer without an answer cannot be dialled, which is how a partition looks
 	answer := func(addresses []corev1.PodIP, inMyDomain map[string]bool) peersResponses {
 		r := peersResponses{}
 		for _, a := range addresses {
@@ -191,8 +195,13 @@ var _ = Describe("getWorkerPeersResponse with failure domain awareness", func() 
 				if inMyDomain[a.IP] {
 					r.sameDomainApiErrors++
 				}
-			default:
+			case selfNodeRemediation.RequestFailed:
 				r.noResponse++
+				if inMyDomain[a.IP] {
+					r.sameDomainNoResponse++
+				}
+			default:
+				r.unreachable++
 			}
 		}
 		return r
@@ -295,6 +304,13 @@ var _ = Describe("getWorkerPeersResponse with failure domain awareness", func() 
 			before := apiCheck.timeOfLastPeerResponse
 			apiCheck.getWorkerPeersResponse()
 			Expect(apiCheck.timeOfLastPeerResponse).To(Equal(before))
+		})
+
+		It("ignores a silent peer of our own domain, like an api error from it", func() {
+			responses[sameDomainPeer] = selfNodeRemediation.RequestFailed // peers of other domains cannot be dialled
+			r := apiCheck.getWorkerPeersResponse()
+			Expect(r.IsHealthy).To(BeFalse())
+			Expect(r.Reason).To(Equal(peers.UnHealthyBecauseNodeIsIsolated))
 		})
 	})
 
@@ -448,3 +464,185 @@ type healthyPeerServer struct {
 func (*healthyPeerServer) IsHealthy(context.Context, *peerhealth.HealthRequest) (*peerhealth.HealthResponse, error) {
 	return &peerhealth.HealthResponse{Status: int32(selfNodeRemediation.Healthy)}, nil
 }
+
+var _ = Describe("getWorkerPeersResponse with silent and unreachable peers", func() {
+	const (
+		peer1 = "10.0.0.1"
+		peer2 = "10.0.0.2"
+		peer3 = "10.0.0.3"
+		peer4 = "10.0.0.4"
+		peer5 = "10.0.0.5"
+	)
+
+	var (
+		apiCheck  *ApiConnectivityCheck
+		fake      *fakePeers
+		responses map[string]selfNodeRemediation.HealthCheckResponseCode
+		asked     [][]string
+	)
+
+	// answer returns a static per-peer answer and records the batches; a peer without an answer cannot be dialled
+	answer := func(addresses []corev1.PodIP, _ map[string]bool) peersResponses {
+		batch := []string{}
+		r := peersResponses{}
+		for _, a := range addresses {
+			batch = append(batch, a.IP)
+			switch responses[a.IP] {
+			case selfNodeRemediation.Healthy:
+				r.healthy++
+			case selfNodeRemediation.Unhealthy:
+				r.unhealthy++
+			case selfNodeRemediation.ApiError:
+				r.apiErrors++
+			case selfNodeRemediation.RequestFailed:
+				r.noResponse++
+			default:
+				r.unreachable++
+			}
+		}
+		asked = append(asked, batch)
+		return r
+	}
+
+	BeforeEach(func() {
+		fake = &fakePeers{addresses: []corev1.PodIP{{IP: peer1}, {IP: peer2}, {IP: peer3}}}
+		responses = map[string]selfNodeRemediation.HealthCheckResponseCode{}
+		asked = nil
+		apiCheck = &ApiConnectivityCheck{
+			config: &ApiConnectivityCheckConfig{
+				Log:                       ctrl.Log.WithName("test"),
+				MyNodeName:                "test-node",
+				MaxErrorsThreshold:        1, // ask peers on first error
+				MinPeersForRemediation:    1,
+				MaxTimeForNoPeersResponse: 30 * time.Second,
+				Peers:                     fake,
+				Recorder:                  record.NewFakeRecorder(10),
+			},
+			// long enough ago for the "no peers response" timeout to be exceeded
+			timeOfLastPeerResponse: time.Now().Add(-time.Hour),
+		}
+		apiCheck.healthStatusGetter = answer
+	})
+
+	It("treats peers that cannot be dialled as a sign of isolation", func() {
+		r := apiCheck.getWorkerPeersResponse()
+		Expect(r.IsHealthy).To(BeFalse())
+		Expect(r.Reason).To(Equal(peers.UnHealthyBecauseNodeIsIsolated))
+	})
+
+	It("counts a majority of reachable but silent peers as a control plane failure", func() {
+		responses[peer1] = selfNodeRemediation.RequestFailed
+		responses[peer2] = selfNodeRemediation.RequestFailed // peer3 cannot be dialled
+		r := apiCheck.getWorkerPeersResponse()
+		Expect(r.IsHealthy).To(BeTrue())
+		Expect(r.Reason).To(Equal(peers.HealthyBecauseMostPeersCantAccessAPIServer))
+	})
+
+	It("adds silent peers to the peers reporting an api error", func() {
+		responses[peer1] = selfNodeRemediation.ApiError
+		responses[peer2] = selfNodeRemediation.RequestFailed // peer3 cannot be dialled
+		r := apiCheck.getWorkerPeersResponse()
+		Expect(r.IsHealthy).To(BeTrue())
+		Expect(r.Reason).To(Equal(peers.HealthyBecauseMostPeersCantAccessAPIServer))
+	})
+
+	It("does not let a silent minority decide", func() {
+		responses[peer1] = selfNodeRemediation.RequestFailed // peer2 and peer3 cannot be dialled
+		r := apiCheck.getWorkerPeersResponse()
+		Expect(r.IsHealthy).To(BeFalse())
+		Expect(r.Reason).To(Equal(peers.UnHealthyBecauseNodeIsIsolated))
+	})
+
+	It("does not reset the no-peers-response timer on silence", func() {
+		responses[peer1] = selfNodeRemediation.RequestFailed
+		before := apiCheck.timeOfLastPeerResponse
+		apiCheck.getWorkerPeersResponse()
+		Expect(apiCheck.timeOfLastPeerResponse).To(Equal(before))
+	})
+
+	Context("when connections to the first batch break before the peers answer", func() {
+		// the regression raised in review: a remediation exists for this node, two of five peers can read it,
+		// and the connections to the first three break after the dial
+		BeforeEach(func() {
+			fake.addresses = []corev1.PodIP{{IP: peer1}, {IP: peer2}, {IP: peer3}, {IP: peer4}, {IP: peer5}}
+			responses[peer1] = selfNodeRemediation.PeerUnreachable
+			responses[peer2] = selfNodeRemediation.PeerUnreachable
+			responses[peer3] = selfNodeRemediation.PeerUnreachable
+			responses[peer4] = selfNodeRemediation.Unhealthy
+			responses[peer5] = selfNodeRemediation.Unhealthy
+		})
+
+		It("keeps asking the remaining peers and follows their verdict", func() {
+			r := apiCheck.getWorkerPeersResponse()
+			Expect(r.IsHealthy).To(BeFalse())
+			Expect(r.Reason).To(Equal(peers.UnHealthyBecausePeersResponse))
+			Expect(asked).To(HaveLen(2), "the first batch must not end the round")
+			Expect(asked[0]).To(ConsistOf(peer1, peer2, peer3))
+			Expect(asked[1]).To(ConsistOf(peer4, peer5))
+		})
+	})
+})
+
+var _ = Describe("peerFailureCode", func() {
+	It("treats a deadline exceeded as a reachable peer that stayed silent", func() {
+		Expect(peerFailureCode(status.Error(codes.DeadlineExceeded, "context deadline exceeded"))).To(Equal(selfNodeRemediation.RequestFailed))
+		Expect(peerFailureCode(context.DeadlineExceeded)).To(Equal(selfNodeRemediation.RequestFailed))
+	})
+
+	It("treats any other failure as an unreachable peer", func() {
+		Expect(peerFailureCode(status.Error(codes.Unavailable, "transport is closing"))).To(Equal(selfNodeRemediation.PeerUnreachable))
+		Expect(peerFailureCode(status.Error(codes.Canceled, "canceled"))).To(Equal(selfNodeRemediation.PeerUnreachable))
+		Expect(peerFailureCode(errors.New("connection reset by peer"))).To(Equal(selfNodeRemediation.PeerUnreachable))
+	})
+})
+
+var _ = Describe("sumPeersResponses", func() {
+	var apiCheck *ApiConnectivityCheck
+
+	BeforeEach(func() {
+		apiCheck = &ApiConnectivityCheck{
+			config: &ApiConnectivityCheckConfig{
+				Log: ctrl.Log.WithName("test"),
+			},
+		}
+	})
+
+	sum := func(inMyDomain map[string]bool, answers ...peerResponse) peersResponses {
+		ch := make(chan peerResponse, len(answers))
+		for _, a := range answers {
+			ch <- a
+		}
+		return apiCheck.sumPeersResponses(len(answers), ch, inMyDomain)
+	}
+
+	It("counts a peer that was dialled but stayed silent separately from one that could not be dialled", func() {
+		r := sum(nil,
+			peerResponse{peer: corev1.PodIP{IP: "10.0.0.1"}, code: selfNodeRemediation.RequestFailed},
+			peerResponse{peer: corev1.PodIP{IP: "10.0.0.2"}, code: selfNodeRemediation.PeerUnreachable},
+			peerResponse{peer: corev1.PodIP{IP: "10.0.0.3"}, code: selfNodeRemediation.PeerUnreachable},
+		)
+		Expect(r.noResponse).To(Equal(1), "RequestFailed means the dial succeeded and the peer stayed silent")
+		Expect(r.unreachable).To(Equal(2), "PeerUnreachable means the dial failed or the connection broke")
+	})
+
+	It("tags silent peers of our own domain", func() {
+		r := sum(map[string]bool{"10.0.0.1": true},
+			peerResponse{peer: corev1.PodIP{IP: "10.0.0.1"}, code: selfNodeRemediation.RequestFailed},
+			peerResponse{peer: corev1.PodIP{IP: "10.0.0.2"}, code: selfNodeRemediation.RequestFailed},
+		)
+		Expect(r.noResponse).To(Equal(2))
+		Expect(r.sameDomainNoResponse).To(Equal(1))
+	})
+})
+
+var _ = Describe("HealthCheckResponseCode wire values", func() {
+	It("keeps the codes the peer sends over gRPC unchanged", func() {
+		// PeerUnreachable is synthesised client side. If it were added to the iota block it would renumber these
+		// and silently change the gRPC contract.
+		Expect(int(selfNodeRemediation.Healthy)).To(Equal(1))
+		Expect(int(selfNodeRemediation.Unhealthy)).To(Equal(2))
+		Expect(int(selfNodeRemediation.ApiError)).To(Equal(3))
+		Expect(int(selfNodeRemediation.RequestFailed)).To(Equal(-1))
+		Expect(int(selfNodeRemediation.PeerUnreachable)).To(Equal(-2))
+	})
+})
