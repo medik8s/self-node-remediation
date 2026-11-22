@@ -13,4 +13,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: quay.io/medik8s/self-node-remediation-operator
-  newTag: v5.8.0
+  newTag: v99.9.9
