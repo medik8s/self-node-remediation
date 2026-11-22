@@ -217,7 +217,10 @@ var _ = Describe("getWorkerPeersResponse with failure domain awareness", func() 
 				Peers:                     fake,
 				Recorder:                  record.NewFakeRecorder(10),
 			},
-			// long enough ago for the "no peers response" timeout to be exceeded
+			// the outage started long ago, this is not its first failed check, and no peer answered since:
+			// the "no peers response" timeout is exceeded
+			errorCount:             1,
+			outageStart:            time.Now().Add(-time.Hour),
 			timeOfLastPeerResponse: time.Now().Add(-time.Hour),
 		}
 		apiCheck.healthStatusGetter = answer

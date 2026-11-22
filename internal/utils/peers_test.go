@@ -19,6 +19,34 @@ var _ = Describe("Utils/Peers tests", func() {
 		Entry("small cluster", 2, []int{2}),
 		Entry("medium cluster", 20, []int{3, 3, 3, 3, 3, 3, 2}),
 		Entry("big cluster", 53, []int{3, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5}),
+		Entry("cluster needing the most batches", 42, []int{3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3}),
 	)
+
+	It("bounds the batch count for any cluster up to a given size", func() {
+		previous := 0
+		for nrOfNodes := 0; nrOfNodes <= 500; nrOfNodes++ {
+			bound := MaxNrOfBatchesUpTo(nrOfNodes)
+			Expect(bound).To(BeNumerically(">=", GetNrOfBatches(nrOfNodes)), "%d nodes", nrOfNodes)
+			Expect(bound).To(BeNumerically(">=", previous), "the bound must not decrease at %d nodes", nrOfNodes)
+			Expect(bound).To(BeNumerically("<=", MaxNrOfBatches))
+			previous = bound
+		}
+		Expect(MaxNrOfBatchesUpTo(3)).To(Equal(1))
+		Expect(MaxNrOfBatchesUpTo(20)).To(Equal(7))
+		Expect(MaxNrOfBatchesUpTo(42)).To(Equal(MaxNrOfBatches))
+		Expect(MaxNrOfBatchesUpTo(43)).To(Equal(MaxNrOfBatches), "a drop in GetNrOfBatches must not lower the bound")
+	})
+
+	It("never needs more than MaxNrOfBatches batches", func() {
+		maxNrOfBatches := 0
+		for nrOfNodes := 0; nrOfNodes <= 10000; nrOfNodes++ {
+			nrOfBatches := GetNrOfBatches(nrOfNodes)
+			Expect(nrOfBatches).To(BeNumerically("<=", MaxNrOfBatches), "%d nodes need %d batches", nrOfNodes, nrOfBatches)
+			if nrOfBatches > maxNrOfBatches {
+				maxNrOfBatches = nrOfBatches
+			}
+		}
+		Expect(maxNrOfBatches).To(Equal(MaxNrOfBatches))
+	})
 
 })

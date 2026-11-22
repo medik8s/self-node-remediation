@@ -101,7 +101,11 @@ type SelfNodeRemediationConfigSpec struct {
 	PeerRequestTimeout *metav1.Duration `json:"peerRequestTimeout,omitempty"`
 
 	// How long to keep waiting for peer responses before concluding the node is isolated
-	// and self-fencing. Peers are contacted in batches, so on large clusters the time to
+	// and self-fencing. The wait is counted from the later of the start of the current API
+	// server outage (the first failed API check) and the last answer received from a peer,
+	// so every outage waits the full duration, and a node whose peers keep answering that
+	// they cannot access the API server either keeps waiting as long as they answer.
+	// Peers are contacted in batches, so on large clusters the time to
 	// finish all batches can exceed the default, and a node may fence itself before its
 	// peers have had a chance to answer. Raising this trades isolation-fencing latency for
 	// resistance to slow or unanswered peer requests.
@@ -157,9 +161,10 @@ type SelfNodeRemediationConfigSpec struct {
 
 	// Minimum number of peer workers/control nodes to attempt to contact before deciding if node is unhealthy or not
 	//	if set to zero, no other peers will be required to be present for remediation action to occur when this
-	//	node has lost API server access.  If an insufficient number of peers are found, we will not attempt to ask
-	//	any peer nodes (if present) whether they see that the current node has been marked unhealthy with a
-	//	SelfNodeRemediation CR
+	//	node has lost API server access: with no peer at all, the node is then considered isolated once
+	//	MaxTimeForNoPeersResponse elapsed since it lost the API server.  If an insufficient number of peers are
+	//	found, we will not attempt to ask any peer nodes (if present) whether they see that the current node has
+	//	been marked unhealthy with a SelfNodeRemediation CR
 	// +kubebuilder:default:=1
 	// +kubebuilder:validation:Minimum=0
 	MinPeersForRemediation int `json:"minPeersForRemediation,omitempty"`

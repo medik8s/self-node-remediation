@@ -46,8 +46,12 @@ type PeersProvider interface {
 
 type ApiConnectivityCheck struct {
 	client.Reader
-	config                 *ApiConnectivityCheckConfig
-	errorCount             int
+	config     *ApiConnectivityCheckConfig
+	errorCount int
+	// outageStart is when the current API server outage began: the first failed check after a successful one.
+	// It is zero while the API server is reachable.
+	outageStart time.Time
+	// timeOfLastPeerResponse is when a peer last answered, whatever its answer was. Initialized to the agent start.
 	timeOfLastPeerResponse time.Time
 	clientCreds            credentials.TransportCredentials
 	mutex                  sync.Mutex
@@ -55,6 +59,8 @@ type ApiConnectivityCheck struct {
 	// healthStatusGetter collects the answers of a batch of peers, defaults to getHealthStatusFromPeers (overridable in tests).
 	// inMyDomain tells, per peer IP, whether the peer is in our own failure domain; it is used to classify its answer.
 	healthStatusGetter func(addresses []corev1.PodIP, inMyDomain map[string]bool) peersResponses
+	// now returns the current time, defaults to time.Now (overridable in tests)
+	now func() time.Time
 }
 
 type ApiConnectivityCheckConfig struct {
@@ -76,15 +82,27 @@ type ApiConnectivityCheckConfig struct {
 	Recorder                  record.EventRecorder
 }
 
+// New returns an API connectivity check for this node. controlPlaneManager is nil on worker nodes.
 func New(config *ApiConnectivityCheckConfig, controlPlaneManager *controlplane.Manager) *ApiConnectivityCheck {
 	return &ApiConnectivityCheck{
 		config:                 config,
 		mutex:                  sync.Mutex{},
 		controlPlaneManager:    controlPlaneManager,
 		timeOfLastPeerResponse: time.Now(),
+		now:                    time.Now,
 	}
 }
 
+// currentTime returns the current time through the injectable clock
+func (c *ApiConnectivityCheck) currentTime() time.Time {
+	if c.now != nil {
+		return c.now()
+	}
+	return time.Now()
+}
+
+// Start runs the check loop until ctx is done: every CheckInterval it calls the API server's readyz endpoint and
+// hands the result to handleApiCheckFailure or handleApiCheckSuccess.
 func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 
 	cs, err := clientset.NewForConfig(c.config.Cfg)
@@ -111,61 +129,80 @@ func (c *ApiConnectivityCheck) Start(ctx context.Context) error {
 		}
 		if failure != "" {
 			c.config.Log.Info(fmt.Sprintf("failed to check api server: %s", failure))
-			if isHealthy := c.isConsideredHealthy(ctx); !isHealthy {
-				// we have a problem on this node
-				c.config.Log.Error(err, "we are unhealthy, triggering a reboot")
-				if err := c.config.Rebooter.Reboot(); err != nil {
-					c.config.Log.Error(err, "failed to trigger reboot")
-				}
-			} else {
-				c.config.Log.Info("peers did not confirm that we are unhealthy, ignoring error")
-			}
+			c.handleApiCheckFailure(ctx)
 			return
 		}
 
-		// On control plane nodes, a passing readyz check may be a false positive:
-		// the local API server responds 200 even when network-isolated because
-		// /readyz does not check etcd connectivity. Verify CP peer health before
-		// concluding the node is healthy.
-		if c.isControlPlane() {
-			// Directly check peer reachability to detect isolation.
-			// Skip errorCount threshold since readyz succeeded (not an API error).
-			canBeReached, cpUnhealthy := c.getControlPlanePeersStatus(ctx)
-
-			// If CP peers say we're unhealthy, trigger remediation immediately
-			if cpUnhealthy {
-				c.config.Log.Info("CP peers report this node as unhealthy, triggering reboot")
-				if err := c.config.Rebooter.Reboot(); err != nil {
-					c.config.Log.Error(err, "failed to trigger reboot")
-				}
-				return
-			}
-
-			// If no CP peers are reachable, readyz was a false positive
-			// BUT: only treat as isolation if peers actually exist
-			peersExist := len(c.config.Peers.GetPeersAddresses(peers.ControlPlane)) > 0
-			if !canBeReached && peersExist {
-				// Note: If 2/3 CPs are dead (not isolated), this remediates the survivor.
-				// Acceptable since cluster already lacks quorum and is non-functional.
-				c.config.Log.Info("CP node: readyz passed but no CP peers reachable, treating as failure")
-				if isHealthy := c.isConsideredHealthy(ctx); !isHealthy {
-					c.config.Log.Info("CP isolation detected despite passing readyz, triggering reboot")
-					if err := c.config.Rebooter.Reboot(); err != nil {
-						c.config.Log.Error(err, "failed to trigger reboot")
-					}
-				} else {
-					c.config.Log.Info("not all peers confirmed isolation, waiting for threshold")
-				}
-				return
-			}
-		}
-
-		// reset error count after a fully successful check
-		c.errorCount = 0
+		c.handleApiCheckSuccess(ctx)
 
 	}, c.config.CheckInterval)
 
 	return nil
+}
+
+// handleApiCheckFailure runs when the API server check failed: it asks the peers whether this node is healthy, and
+// reboots it when they, or the lack of them, say it is not.
+func (c *ApiConnectivityCheck) handleApiCheckFailure(ctx context.Context) {
+	if isHealthy := c.isConsideredHealthy(ctx); !isHealthy {
+		// we have a problem on this node
+		c.config.Log.Error(nil, "we are unhealthy, triggering a reboot")
+		c.reboot()
+	} else {
+		c.config.Log.Info("peers did not confirm that we are unhealthy, ignoring error")
+	}
+}
+
+// handleApiCheckSuccess runs when the API server check passed. On control plane nodes it first rules out a false
+// positive, then it closes the current outage, if any.
+func (c *ApiConnectivityCheck) handleApiCheckSuccess(ctx context.Context) {
+	// On control plane nodes, a passing readyz check may be a false positive:
+	// the local API server responds 200 even when network-isolated because
+	// /readyz does not check etcd connectivity. Verify CP peer health before
+	// concluding the node is healthy.
+	if c.isControlPlane() {
+		// Directly check peer reachability to detect isolation.
+		// Skip errorCount threshold since readyz succeeded (not an API error).
+		canBeReached, cpUnhealthy := c.getControlPlanePeersStatus(ctx)
+
+		// If CP peers say we're unhealthy, trigger remediation immediately
+		if cpUnhealthy {
+			c.config.Log.Info("CP peers report this node as unhealthy, triggering reboot")
+			c.reboot()
+			return
+		}
+
+		// If no CP peers are reachable, readyz was a false positive
+		// BUT: only treat as isolation if peers actually exist
+		peersExist := len(c.config.Peers.GetPeersAddresses(peers.ControlPlane)) > 0
+		if !canBeReached && peersExist {
+			// Note: If 2/3 CPs are dead (not isolated), this remediates the survivor.
+			// Acceptable since cluster already lacks quorum and is non-functional.
+			c.config.Log.Info("CP node: readyz passed but no CP peers reachable, treating as failure")
+			if isHealthy := c.isConsideredHealthy(ctx); !isHealthy {
+				c.config.Log.Info("CP isolation detected despite passing readyz, triggering reboot")
+				c.reboot()
+			} else {
+				c.config.Log.Info("not all peers confirmed isolation, waiting for threshold")
+			}
+			return
+		}
+	}
+
+	// the outage, if any, is over after a fully successful check
+	c.resetOutage()
+}
+
+// reboot triggers the node reboot through the configured Rebooter
+func (c *ApiConnectivityCheck) reboot() {
+	if err := c.config.Rebooter.Reboot(); err != nil {
+		c.config.Log.Error(err, "failed to trigger reboot")
+	}
+}
+
+// resetOutage forgets the current API server outage: the error count and the time it started
+func (c *ApiConnectivityCheck) resetOutage() {
+	c.errorCount = 0
+	c.outageStart = time.Time{}
 }
 
 // isControlPlane returns true if this node is a control plane node.
@@ -193,6 +230,10 @@ func (c *ApiConnectivityCheck) isConsideredHealthy(ctx context.Context) bool {
 // reached, and turns their answers into a health verdict. See peers.Response for the possible reasons.
 func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 	c.errorCount++
+	if c.errorCount == 1 {
+		// first failed check after a successful one: the outage starts now
+		c.outageStart = c.currentTime()
+	}
 	if c.errorCount < c.config.MaxErrorsThreshold {
 		c.config.Log.Info("Ignoring api-server error, error count below threshold", "current count", c.errorCount, "threshold", c.config.MaxErrorsThreshold)
 		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseErrorsThresholdNotReached}
@@ -218,13 +259,14 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseNoPeersWereFound}
 	}
 
-	// If we make it here and there are no peers, we can't proceed because we need at least one peer
-	//  to check.  So it doesn't make sense to continue on - we'll mark as unhealthy and exit fast
+	// If we make it here and there are no peers (so MinPeersForRemediation is zero), nobody can tell us whether we
+	//  are healthy. That is what isolation looks like, but also what a short outage of the peer discovery looks like,
+	//  so the node is considered isolated only once MaxTimeForNoPeersResponse has elapsed, like when peers exist but
+	//  none of them answers.
 	if len(peersToAsk) == 0 {
-		c.config.Log.Info("Marking node as unhealthy due to being isolated.  We don't have any peers to ask "+
-			"and MinPeersForRemediation must be greater than zero", "minPeersRequired",
-			c.config.MinPeersForRemediation, "actualNumPeersFound", len(peersToAsk))
-		return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecauseNodeIsIsolated}
+		c.config.Log.Info("We don't have any peers to ask whether we are healthy, so we may be isolated",
+			"minPeersRequired", c.config.MinPeersForRemediation, "actualNumPeersFound", len(peersToAsk))
+		return c.isolationVerdict()
 	}
 
 	apiErrorsResponsesSum := 0
@@ -272,7 +314,7 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 			apiErrorsResponses -= responses.sameDomainApiErrors
 		}
 		if healthyResponses+unhealthyResponses+apiErrorsResponses > 0 {
-			c.timeOfLastPeerResponse = time.Now()
+			c.timeOfLastPeerResponse = c.currentTime()
 		}
 		c.config.Log.Info("Aggregate peer health responses", "healthyResponses", healthyResponses,
 			"unhealthyResponses", unhealthyResponses, "apiErrorsResponses", apiErrorsResponses)
@@ -281,7 +323,7 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 			c.config.Log.Info("There is at least one peer who thinks this node healthy, so we'll respond "+
 				"with a healthy status", "healthyResponses", healthyResponses, "reason",
 				"peers.HealthyBecauseCRNotFound")
-			c.errorCount = 0
+			c.resetOutage()
 			return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseCRNotFound}
 		}
 
@@ -316,20 +358,34 @@ func (c *ApiConnectivityCheck) getWorkerPeersResponse() peers.Response {
 		"there is a control plane failure")
 
 	//we asked all peers
-	now := time.Now()
+	return c.isolationVerdict()
+}
+
+// isolationVerdict decides whether this node is isolated, once no peer gave a verdict.
+//
+// The node is considered isolated only when MaxTimeForNoPeersResponse has elapsed since the later of the start of the
+// current API server outage and the last answer of a peer. Counting from the outage start makes every outage wait the
+// full window: peers are only asked during an outage, so on a long-running agent the last answer dates from the
+// previous outage, or from the agent start, and that time alone would declare the node isolated at the first round
+// without answers. Counting from the last peer answer keeps the window open while peers still answer that they cannot
+// access the API server either, so that a node whose peers go silent late in a long outage still waits for them.
+func (c *ApiConnectivityCheck) isolationVerdict() peers.Response {
+	now := c.currentTime()
+	silentSince := c.timeOfLastPeerResponse
+	if c.outageStart.After(silentSince) {
+		silentSince = c.outageStart
+	}
 	// MaxTimeForNoPeersResponse check prevents the node from being considered unhealthy in case of short network outages
-	if now.After(c.timeOfLastPeerResponse.Add(c.config.MaxTimeForNoPeersResponse)) {
+	if now.After(silentSince.Add(c.config.MaxTimeForNoPeersResponse)) {
 		c.config.Log.Error(fmt.Errorf("failed health check"), "Failed to get health status peers. "+
 			"Assuming unhealthy", "reason", "UnHealthyBecauseNodeIsIsolated")
 		return peers.Response{IsHealthy: false, Reason: peers.UnHealthyBecauseNodeIsIsolated}
-	} else {
-		c.config.Log.Info("Ignoring no peers response error, time is below threshold for no peers response",
-			"time without peers response (seconds)", now.Sub(c.timeOfLastPeerResponse).Seconds(),
-			"threshold (seconds)", c.config.MaxTimeForNoPeersResponse.Seconds(),
-			"reason", "HealthyBecauseNoPeersResponseNotReachedTimeout")
-		return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseNoPeersResponseNotReachedTimeout}
 	}
-
+	c.config.Log.Info("Ignoring no peers response error, time is below threshold for no peers response",
+		"time without peers response (seconds)", now.Sub(silentSince).Seconds(),
+		"threshold (seconds)", c.config.MaxTimeForNoPeersResponse.Seconds(),
+		"reason", "HealthyBecauseNoPeersResponseNotReachedTimeout")
+	return peers.Response{IsHealthy: true, Reason: peers.HealthyBecauseNoPeersResponseNotReachedTimeout}
 }
 
 // controlPlaneMajorityOutsideMyDomain tells whether a strict majority of the control plane nodes is known to be
