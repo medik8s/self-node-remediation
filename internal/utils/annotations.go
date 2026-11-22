@@ -43,7 +43,9 @@ func NewAnnotationUpdater(wd watchdog.Watchdog, nodeName string, reader client.R
 				}
 			case <-wd.Started():
 			}
-			return UpdateNodeAnnotations(ctx, wd.Status() == watchdog.Armed, wd.GetTimeout(), nodeName, reader, writer)
+			// a watchdog on standby is closed but ready to be armed for a reboot, so the node is reboot capable
+			status := wd.Status()
+			return UpdateNodeAnnotations(ctx, status == watchdog.Armed || status == watchdog.Standby, wd.GetTimeout(), nodeName, reader, writer)
 		})
 	} else {
 		// We weren't able to create a watchdog, label the node appropriately.

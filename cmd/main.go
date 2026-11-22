@@ -423,7 +423,13 @@ func initSelfNodeRemediationAgent(mgr manager.Manager) {
 		os.Exit(1)
 	}
 
-	wd, watchdogErr := watchdog.NewLinux(ctrl.Log.WithName("watchdog"))
+	armWatchdogOnlyForReboot, err := watchdog.IsArmOnlyForRebootEnabled()
+	if err != nil {
+		setupLog.Error(err, "failed to determine whether the watchdog is armed only for reboots")
+		os.Exit(1)
+	}
+
+	wd, watchdogErr := watchdog.NewLinux(ctrl.Log.WithName("watchdog"), armWatchdogOnlyForReboot)
 	if watchdogErr != nil {
 		setupLog.Error(watchdogErr, "failed to init watchdog")
 	}

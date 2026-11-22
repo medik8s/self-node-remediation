@@ -63,6 +63,37 @@ type SelfNodeRemediationStatus struct {
 	//+operator-sdk:csv:customresourcedefinitions:type=status
 	TimeAssumedRebooted *metav1.Time `json:"timeAssumedRebooted,omitempty"`
 
+	// NodeBootID is the boot ID the node reported (status.nodeInfo.bootID) when the reboot was prepared.
+	// A different boot ID later proves that the node rebooted.
+	// +optional
+	//+operator-sdk:csv:customresourcedefinitions:type=status
+	NodeBootID string `json:"nodeBootID,omitempty"`
+
+	// NodeUID is the UID of the Node object (metadata.uid) when the reboot was prepared. A Node object with the same
+	// name but a different UID is another node: its boot ID and its agent's uptime say nothing about the reboot of
+	// the node this remediation was prepared for, so neither releases its workloads.
+	// +optional
+	//+operator-sdk:csv:customresourcedefinitions:type=status
+	NodeUID string `json:"nodeUID,omitempty"`
+
+	// NodeRebootConfirmedAt is set by the node's own agent when it finds that the node booted after this remediation
+	// was created (the node's uptime is shorter than the remediation's age), so no further reboot is needed.
+	// With requireBootIDChange it proves the reboot when a boot ID change cannot, for example when the node rebooted
+	// before its boot ID was recorded.
+	// +optional
+	//+operator-sdk:csv:customresourcedefinitions:type=status
+	NodeRebootConfirmedAt *metav1.Time `json:"nodeRebootConfirmedAt,omitempty"`
+
+	// RebootProofRequired records whether armWatchdogOnlyForReboot was on when the reboot was prepared. The agent
+	// DaemonSet is rendered from the configuration, so it tells whether the node's agent kept the watchdog closed,
+	// which means that a node whose agent died was not reset: this remediation then waits for proof of the reboot
+	// (a boot ID different from nodeBootID, or nodeRebootConfirmedAt when none was recorded) whatever the
+	// configuration says later, so that turning the option off does not release a node that may still be running.
+	// Unset on a remediation prepared by an older manager, which follows the current configuration.
+	// +optional
+	//+operator-sdk:csv:customresourcedefinitions:type=status
+	RebootProofRequired *bool `json:"rebootProofRequired,omitempty"`
+
 	// Phase represents the current phase of remediation,
 	// One of: TBD
 	// +optional

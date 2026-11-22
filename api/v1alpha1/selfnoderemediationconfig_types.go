@@ -125,6 +125,24 @@ type SelfNodeRemediationConfigSpec struct {
 	// +optional
 	IsSoftwareRebootEnabled bool `json:"isSoftwareRebootEnabled,omitempty"`
 
+	// ArmWatchdogOnlyForReboot makes the agent keep the node's watchdog device closed until a reboot is decided or
+	// requested. At start the agent still looks for the device (loading softdog when there is none), publishes its
+	// timeout and marks the node as reboot capable; it opens the device, without feeding it, only when it has to
+	// reboot the node. A killed or crashed agent then never resets its node.
+	// Mind that this accidental reset is also what fences a node whose agent died after the manager prepared its
+	// reboot: with the device closed, such a node may still be running when the safe time to assume it rebooted
+	// has passed. This is why the option requires RequireBootIDChange, which releases the node's workloads only
+	// once the node proves that it rebooted; the webhook refuses armWatchdogOnlyForReboot without it. Together they
+	// are one option: the watchdog is armed only for the reboot, and the workloads are released only on proof of
+	// the reboot. To turn the option off, turn this field off first and let the agent DaemonSet roll out, so that
+	// every agent arms the watchdog again, before turning RequireBootIDChange off; the webhook refuses both in one
+	// update. A remediation prepared while this field is on records that (status.rebootProofRequired) and keeps
+	// waiting for proof of the reboot whatever this field says later; the rollout wait is for the remediations
+	// prepared after this field is turned off on nodes whose agent still runs the old template, which keeps the
+	// watchdog closed.
+	// +optional
+	ArmWatchdogOnlyForReboot bool `json:"armWatchdogOnlyForReboot,omitempty"`
+
 	// EndpointHealthCheckUrl is an url that self node remediation agents which run on control-plane node will try to access when they can't contact their peers.
 	// This is a part of self diagnostics which will decide whether the node should be remediated or not.
 	// It will be ignored when empty (which is the default).
@@ -180,6 +198,19 @@ type SelfNodeRemediationConfigSpec struct {
 	// single-domain clusters): only their answers would be counted, so MinPeersForRemediation applies to them.
 	// +optional
 	PeerTopologyKey string `json:"peerTopologyKey,omitempty"`
+
+	// RequireBootIDChange makes the manager release an unhealthy node's workloads only once the node proves that it
+	// rebooted: its status.nodeInfo.bootID must differ from the one recorded when the reboot was prepared, in addition
+	// to the safe time to assume the node rebooted having passed. Without it, the workloads are released on the safe
+	// time alone, so a node that is still running at that time (a reboot that failed, an agent that died after the
+	// reboot was prepared) can end up running the same workload twice. With it, a node that never comes back keeps
+	// its workloads until NodeHealthCheck times the remediation out, so someone has to act on it.
+	// ArmWatchdogOnlyForReboot requires this setting: with the watchdog device closed until a reboot is decided, this
+	// gate is what holds the workloads of a node whose agent died after its reboot was prepared and that never
+	// rebooted. A node that reports no boot ID is released only by its agent's confirmation
+	// (status.nodeRebootConfirmedAt), never by the safe time alone.
+	// +optional
+	RequireBootIDChange bool `json:"requireBootIDChange,omitempty"`
 }
 
 // SelfNodeRemediationConfigStatus defines the observed state of SelfNodeRemediationConfig

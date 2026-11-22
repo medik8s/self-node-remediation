@@ -93,13 +93,14 @@ func (v *SNRConfigValidator) ValidateCreate(_ context.Context, snrConfig *remedi
 		validateCustomTolerations(snrConfig),
 		validateCustomDsNodeSelectors(snrConfig),
 		validatePeerTopologyKey(snrConfig),
+		validateWatchdogArming(snrConfig),
 		validateSingleton(snrConfig),
 	})
 
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
-func (v *SNRConfigValidator) ValidateUpdate(_ context.Context, _, snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) (admission.Warnings, error) {
+func (v *SNRConfigValidator) ValidateUpdate(_ context.Context, oldSnrConfig, snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) (admission.Warnings, error) {
 	selfNodeRemediationConfigLog.Info("validate update", "name", snrConfig.Name)
 
 	warnings := validatePeerTimeoutSafety(snrConfig)
@@ -109,6 +110,8 @@ func (v *SNRConfigValidator) ValidateUpdate(_ context.Context, _, snrConfig *rem
 		validateCustomTolerations(snrConfig),
 		validateCustomDsNodeSelectors(snrConfig),
 		validatePeerTopologyKey(snrConfig),
+		validateWatchdogArming(snrConfig),
+		validateWatchdogArmingTransition(oldSnrConfig, snrConfig),
 	})
 }
 
@@ -220,6 +223,41 @@ func validatePeerTopologyKey(snrConfig *remediationv1alpha1.SelfNodeRemediationC
 	if errs := validation.IsQualifiedName(key); len(errs) > 0 {
 		err := fmt.Errorf("invalid peerTopologyKey %q: must be a valid label key: %v", key, errs)
 		selfNodeRemediationConfigLog.Error(err, "invalid peerTopologyKey")
+		return err
+	}
+	return nil
+}
+
+// validateWatchdogArming refuses armWatchdogOnlyForReboot without requireBootIDChange. With the watchdog device kept
+// closed until a reboot is decided, a node whose agent died after the manager prepared its reboot is not reset by the
+// watchdog, so the release of its workloads must wait for proof of the reboot instead of the safe time alone
+func validateWatchdogArming(snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) error {
+	spec := snrConfig.Spec
+	if spec.ArmWatchdogOnlyForReboot && !spec.RequireBootIDChange {
+		err := fmt.Errorf("armWatchdogOnlyForReboot requires requireBootIDChange: with the watchdog armed only for the reboot, " +
+			"a node whose agent died after its reboot was prepared is not reset, so its workloads may only be released " +
+			"once the node proves that it rebooted")
+		selfNodeRemediationConfigLog.Error(err, "invalid armWatchdogOnlyForReboot")
+		return err
+	}
+	return nil
+}
+
+// validateWatchdogArmingTransition refuses turning armWatchdogOnlyForReboot and requireBootIDChange off in the same
+// update. The agent DaemonSet rolls on the change, and until the rollout is done the agents still running with the old
+// template keep the watchdog closed. The remediations prepared under the arming option record that they need proof of
+// the reboot (status.rebootProofRequired) and keep waiting for it whatever the configuration says; the remediations
+// prepared after the option is turned off do not, so the gate must stay until every agent arms the watchdog again.
+// The arming option has to go first; once the DaemonSet has rolled, the gate can be dropped
+func validateWatchdogArmingTransition(oldSnrConfig, snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) error {
+	if oldSnrConfig == nil || !oldSnrConfig.Spec.ArmWatchdogOnlyForReboot {
+		return nil
+	}
+	if !snrConfig.Spec.ArmWatchdogOnlyForReboot && !snrConfig.Spec.RequireBootIDChange {
+		err := fmt.Errorf("requireBootIDChange cannot be turned off in the same update as armWatchdogOnlyForReboot: " +
+			"turn armWatchdogOnlyForReboot off first, wait for the agent DaemonSet to roll out so that every agent " +
+			"arms the watchdog again, then turn requireBootIDChange off")
+		selfNodeRemediationConfigLog.Error(err, "invalid armWatchdogOnlyForReboot transition")
 		return err
 	}
 	return nil
