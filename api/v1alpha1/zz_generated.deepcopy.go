@@ -21,6 +21,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
@@ -173,6 +174,11 @@ func (in *SelfNodeRemediationConfigSpec) DeepCopyInto(out *SelfNodeRemediationCo
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
+	}
+	if in.CustomDsUpdateStrategy != nil {
+		in, out := &in.CustomDsUpdateStrategy, &out.CustomDsUpdateStrategy
+		*out = new(appsv1.DaemonSetUpdateStrategy)
+		(*in).DeepCopyInto(*out)
 	}
 }
 

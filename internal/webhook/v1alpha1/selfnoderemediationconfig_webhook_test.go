@@ -9,8 +9,10 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/pointer"
 
 	remediationv1alpha1 "github.com/medik8s/self-node-remediation/v5/api/v1alpha1"
@@ -276,6 +278,132 @@ func testSingleInvalidField(validator *SNRConfigValidator, validationType valida
 			err := validate(snrc)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("invalid peerTopologyKey"))
+		})
+	})
+
+	Context(fmt.Sprintf("%s validation of customized update strategy", validationType.getName()), func() {
+		// the singleton check of the create path needs the CR name and the deployment namespace to match
+		newConfig := func() *remediationv1alpha1.SelfNodeRemediationConfig {
+			snrc := createTestSelfNodeRemediationConfigCR()
+			snrc.Name = remediationv1alpha1.ConfigCRName
+			Expect(os.Setenv("DEPLOYMENT_NAMESPACE", snrc.Namespace)).To(Succeed())
+			return snrc
+		}
+		validate := func(snrc *remediationv1alpha1.SelfNodeRemediationConfig) error {
+			var err error
+			if validationType == update {
+				_, err = validator.ValidateUpdate(context.Background(), newConfig(), snrc)
+			} else {
+				_, err = validator.ValidateCreate(context.Background(), snrc)
+			}
+			return err
+		}
+		It("should be accepted - unset (default behavior)", func() {
+			snrc := newConfig()
+			snrc.Spec.CustomDsUpdateStrategy = nil
+			Expect(validate(snrc)).To(Succeed())
+		})
+		It("should be accepted - RollingUpdate with a percentage maxUnavailable", func() {
+			snrc := newConfig()
+			maxUnavailable := intstr.FromString("10%")
+			snrc.Spec.CustomDsUpdateStrategy = &appsv1.DaemonSetUpdateStrategy{
+				Type:          appsv1.RollingUpdateDaemonSetStrategyType,
+				RollingUpdate: &appsv1.RollingUpdateDaemonSet{MaxUnavailable: &maxUnavailable},
+			}
+			Expect(validate(snrc)).To(Succeed())
+		})
+		It("should be accepted - OnDelete", func() {
+			snrc := newConfig()
+			snrc.Spec.CustomDsUpdateStrategy = &appsv1.DaemonSetUpdateStrategy{
+				Type: appsv1.OnDeleteDaemonSetStrategyType,
+			}
+			Expect(validate(snrc)).To(Succeed())
+		})
+		It("should be rejected - invalid strategy type", func() {
+			snrc := newConfig()
+			snrc.Spec.CustomDsUpdateStrategy = &appsv1.DaemonSetUpdateStrategy{
+				Type: "dummyInvalidStrategyType",
+			}
+			err := validate(snrc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid type for customDsUpdateStrategy"))
+		})
+		It("should be rejected - rollingUpdate set with OnDelete type", func() {
+			snrc := newConfig()
+			maxUnavailable := intstr.FromInt32(2)
+			snrc.Spec.CustomDsUpdateStrategy = &appsv1.DaemonSetUpdateStrategy{
+				Type:          appsv1.OnDeleteDaemonSetStrategyType,
+				RollingUpdate: &appsv1.RollingUpdateDaemonSet{MaxUnavailable: &maxUnavailable},
+			}
+			err := validate(snrc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("rollingUpdate must be empty when type is OnDelete"))
+		})
+		It("should be rejected - non-zero maxSurge", func() {
+			snrc := newConfig()
+			maxSurge := intstr.FromInt32(1)
+			snrc.Spec.CustomDsUpdateStrategy = &appsv1.DaemonSetUpdateStrategy{
+				Type:          appsv1.RollingUpdateDaemonSetStrategyType,
+				RollingUpdate: &appsv1.RollingUpdateDaemonSet{MaxSurge: &maxSurge},
+			}
+			err := validate(snrc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid maxSurge for customDsUpdateStrategy"))
+		})
+		It("should be rejected - zero maxUnavailable", func() {
+			snrc := newConfig()
+			maxUnavailable := intstr.FromInt32(0)
+			snrc.Spec.CustomDsUpdateStrategy = &appsv1.DaemonSetUpdateStrategy{
+				Type:          appsv1.RollingUpdateDaemonSetStrategyType,
+				RollingUpdate: &appsv1.RollingUpdateDaemonSet{MaxUnavailable: &maxUnavailable},
+			}
+			err := validate(snrc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid maxUnavailable for customDsUpdateStrategy: must be greater than 0"))
+		})
+		It("should be rejected - negative maxUnavailable", func() {
+			snrc := newConfig()
+			maxUnavailable := intstr.FromInt32(-1)
+			snrc.Spec.CustomDsUpdateStrategy = &appsv1.DaemonSetUpdateStrategy{
+				Type:          appsv1.RollingUpdateDaemonSetStrategyType,
+				RollingUpdate: &appsv1.RollingUpdateDaemonSet{MaxUnavailable: &maxUnavailable},
+			}
+			err := validate(snrc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid maxUnavailable for customDsUpdateStrategy: must be greater than 0"))
+		})
+		It("should be rejected - negative percentage maxUnavailable", func() {
+			snrc := newConfig()
+			maxUnavailable := intstr.FromString("-5%")
+			snrc.Spec.CustomDsUpdateStrategy = &appsv1.DaemonSetUpdateStrategy{
+				Type:          appsv1.RollingUpdateDaemonSetStrategyType,
+				RollingUpdate: &appsv1.RollingUpdateDaemonSet{MaxUnavailable: &maxUnavailable},
+			}
+			err := validate(snrc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid maxUnavailable for customDsUpdateStrategy: must be greater than 0"))
+		})
+		It("should be rejected - percentage maxUnavailable above 100", func() {
+			snrc := newConfig()
+			maxUnavailable := intstr.FromString("150%")
+			snrc.Spec.CustomDsUpdateStrategy = &appsv1.DaemonSetUpdateStrategy{
+				Type:          appsv1.RollingUpdateDaemonSetStrategyType,
+				RollingUpdate: &appsv1.RollingUpdateDaemonSet{MaxUnavailable: &maxUnavailable},
+			}
+			err := validate(snrc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("a percentage must not exceed 100%"))
+		})
+		It("should be rejected - maxUnavailable is not an integer or a percentage", func() {
+			snrc := newConfig()
+			maxUnavailable := intstr.FromString("many")
+			snrc.Spec.CustomDsUpdateStrategy = &appsv1.DaemonSetUpdateStrategy{
+				Type:          appsv1.RollingUpdateDaemonSetStrategyType,
+				RollingUpdate: &appsv1.RollingUpdateDaemonSet{MaxUnavailable: &maxUnavailable},
+			}
+			err := validate(snrc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid maxUnavailable for customDsUpdateStrategy"))
 		})
 	})
 
