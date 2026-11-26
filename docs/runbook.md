@@ -53,6 +53,7 @@ Inspect **Conditions** (**Processing**, **Succeeded**, **Disabled**), **`status.
 | **`peerTopologyKey`** | Node label naming the failure domain (e.g. **`topology.kubernetes.io/zone`**); empty by default (unchanged evaluation). ApiError answers from peers of the node's own domain are ignored when a strict majority of the control plane and at least **`minPeersForRemediation`** peers are outside of it, so a partitioned domain self-reboots. The agent reads its own node's label at start. |
 | **`isSoftwareRebootEnabled`** | Allow **software reboot** when watchdog unusable. |
 | **`customDsTolerations`** | Schedule agents on tainted nodes (e.g. infra). |
+| **`customDsResources`** | Override the agent container's **requests/limits** (default: requests **20m** CPU / **60Mi** memory, no limits). Replaces the defaults as a whole; unset or empty keeps them. The webhook rejects requests above limits, negative quantities and resource claims, and **warns** on limits: an OOM-killed agent can't disarm the watchdog (node may reboot), CPU throttling delays checks and feeding. |
 | **`endpointHealthCheckUrl`** | Control-plane diagnostic **ping** (ICMP, not HTTP) check when workers cannot be used as peers. |
 
 Environment variables on the DaemonSet mirror many of these (see **`cmd/main.go`** **`getDurEnvVarOrDie`** / config reconciliation).

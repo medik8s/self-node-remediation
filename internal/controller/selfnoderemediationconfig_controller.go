@@ -52,6 +52,8 @@ import (
 
 const (
 	lastChangedAnnotationKey = "snr.medik8s.io/force-deletion-revision"
+	// agentContainerName is the name of the agent container in the DS template
+	agentContainerName = "manager"
 )
 
 // SelfNodeRemediationConfigReconciler reconciles a SelfNodeRemediationConfig object
@@ -220,6 +222,11 @@ func (r *SelfNodeRemediationConfigReconciler) syncConfigDaemonSet(ctx context.Co
 
 	if err := r.updateDsNodeSelectors(objs, snrConfig.Spec.CustomDsNodeSelectorRequirements); err != nil {
 		logger.Error(err, "Failed to update daemonset node selector match expression")
+		return err
+	}
+
+	if err := r.updateDsResources(objs, snrConfig.Spec.CustomDsResources); err != nil {
+		logger.Error(err, "Failed to update daemonset resources")
 		return err
 	}
 
@@ -444,6 +451,56 @@ func (r *SelfNodeRemediationConfigReconciler) convertNodeSelectorsToUnstructed(n
 		convertedNodeSelectors = append(convertedNodeSelectors, convertedNodeSelector)
 	}
 	return convertedNodeSelectors, nil
+}
+
+// updateDsResources replaces the resources of the agent container with the given ones.
+// Nothing is changed when no requests or limits are given, so the defaults of the DS template are kept.
+func (r *SelfNodeRemediationConfigReconciler) updateDsResources(objs []*unstructured.Unstructured, resources *corev1.ResourceRequirements) error {
+	if resources == nil || (len(resources.Requests) == 0 && len(resources.Limits) == 0) {
+		return nil
+	}
+	r.Log.Info("Updating DS resources")
+
+	ds, err := r.findDaemonSetObject(objs)
+	if err != nil {
+		return err
+	}
+	containers, _, err := unstructured.NestedSlice(ds.Object, "spec", "template", "spec", "containers")
+	if err != nil {
+		r.Log.Error(err, "error fetching containers from ds")
+		return err
+	}
+
+	convertedResources, err := runtime.DefaultUnstructuredConverter.ToUnstructured(resources)
+	if err != nil {
+		r.Log.Error(err, "couldn't convert resources to unstructured")
+		return err
+	}
+
+	found := false
+	for i, c := range containers {
+		container, ok := c.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("unexpected container type: %T", c)
+		}
+		if container["name"] != agentContainerName {
+			continue
+		}
+		container["resources"] = convertedResources
+		containers[i] = container
+		found = true
+	}
+	if !found {
+		err := fmt.Errorf("daemonset is missing the %q container", agentContainerName)
+		r.Log.Error(err, "error updating ds resources")
+		return err
+	}
+
+	if err := unstructured.SetNestedSlice(ds.Object, containers, "spec", "template", "spec", "containers"); err != nil {
+		r.Log.Error(err, "failed to set containers")
+		return err
+	}
+	return nil
 }
 
 func (r *SelfNodeRemediationConfigReconciler) removeOldDsOnOperatorUpdate(ctx context.Context, dsName string, lastVersion string) error {

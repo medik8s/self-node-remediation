@@ -89,7 +89,7 @@ Implemented on **`SelfNodeRemediation.spec.remediationStrategy`**:
 | CRD | Purpose |
 |-----|---------|
 | **`SelfNodeRemediation`** (`snr`) | Per-node remediation instance; **Processing/Succeeded/Disabled** conditions; **phase**, **timeAssumedRebooted**, **lastError**. |
-| **`SelfNodeRemediationConfig`** (`snrconfig`) | Operator namespace singleton **`self-node-remediation-config`**: watchdog path, intervals, thresholds, **hostPort**, tolerations, **minPeersForRemediation**, **peerTopologyKey**, etc. |
+| **`SelfNodeRemediationConfig`** (`snrconfig`) | Operator namespace singleton **`self-node-remediation-config`**: watchdog path, intervals, thresholds, **hostPort**, tolerations, agent resources, **minPeersForRemediation**, **peerTopologyKey**, etc. |
 | **`SelfNodeRemediationTemplate`** (`snrt`) | Template for NHC — default **`self-node-remediation-automatic-strategy-template`** with **`Automatic`** strategy. |
 
 ---

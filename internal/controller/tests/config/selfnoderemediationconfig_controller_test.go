@@ -15,6 +15,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/pointer"
@@ -291,6 +292,8 @@ var _ = Describe("SNR Config Test", func() {
 
 			Expect(container.ImagePullPolicy).To(Equal(corev1.PullIfNotPresent))
 
+			Expect(container.Resources).To(BeComparableTo(defaultDsResources()))
+
 			Expect(container.LivenessProbe).ToNot(BeNil())
 			Expect(container.LivenessProbe.HTTPGet.Path).To(Equal("/healthz"))
 			Expect(container.LivenessProbe.HTTPGet.Port.IntValue()).To(Equal(8081))
@@ -554,6 +557,54 @@ var _ = Describe("SNR Config Test", func() {
 
 					//Verify customized toleration found
 					g.Expect(ds.Spec.Template.Spec.Tolerations).To(ContainElement(expectedToleration))
+				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+			})
+		})
+		When("Configuration has customized resources", func() {
+			var expectedResources corev1.ResourceRequirements
+			BeforeEach(func() {
+				expectedResources = corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("50m"),
+						corev1.ResourceMemory: resource.MustParse("100Mi"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceMemory: resource.MustParse("200Mi"),
+					},
+				}
+				config.Spec.CustomDsResources = expectedResources.DeepCopy()
+			})
+			It("Daemonset should have customized resources, and the defaults once they are removed", func() {
+				Eventually(func(g Gomega) {
+					ds = &appsv1.DaemonSet{}
+					g.Expect(k8sClient.Get(context.Background(), dsKey, ds)).Should(BeNil())
+
+					// custom resources replace the defaults as a whole
+					g.Expect(ds.Spec.Template.Spec.Containers[0].Resources).To(BeComparableTo(expectedResources))
+				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+
+				//remove the custom resources
+				config.Spec.CustomDsResources = nil
+				Expect(k8sClient.Update(context.Background(), config)).To(Succeed())
+
+				Eventually(func(g Gomega) {
+					ds = &appsv1.DaemonSet{}
+					g.Expect(k8sClient.Get(context.Background(), dsKey, ds)).Should(BeNil())
+
+					g.Expect(ds.Spec.Template.Spec.Containers[0].Resources).To(BeComparableTo(defaultDsResources()))
+				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+			})
+		})
+		When("Configuration has empty customized resources", func() {
+			BeforeEach(func() {
+				config.Spec.CustomDsResources = &corev1.ResourceRequirements{}
+			})
+			It("Daemonset should have the default resources", func() {
+				Eventually(func(g Gomega) {
+					ds = &appsv1.DaemonSet{}
+					g.Expect(k8sClient.Get(context.Background(), dsKey, ds)).Should(BeNil())
+
+					g.Expect(ds.Spec.Template.Spec.Containers[0].Resources).To(BeComparableTo(defaultDsResources()))
 				}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
 			})
 		})
@@ -828,4 +879,16 @@ func setSNRStatusDisabled(snr *selfnoderemediationv1alpha1.SelfNodeRemediation) 
 		}}
 		g.Expect(k8sClient.Status().Update(context.Background(), snrTmp)).To(Succeed())
 	}, 10*time.Second, 250*time.Millisecond).Should(Succeed())
+}
+
+// defaultDsResources returns the resources of the agent container defined in the DS template.
+// Compare them with BeComparableTo, which uses Quantity.Equal, since quantities read from the API server
+// may differ in their internal representation from parsed ones.
+func defaultDsResources() corev1.ResourceRequirements {
+	return corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("20m"),
+			corev1.ResourceMemory: resource.MustParse("60Mi"),
+		},
+	}
 }

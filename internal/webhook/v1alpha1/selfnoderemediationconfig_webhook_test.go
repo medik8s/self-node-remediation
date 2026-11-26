@@ -10,8 +10,10 @@ import (
 	. "github.com/onsi/gomega"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	remediationv1alpha1 "github.com/medik8s/self-node-remediation/v5/api/v1alpha1"
 )
@@ -279,6 +281,69 @@ func testSingleInvalidField(validator *SNRConfigValidator, validationType valida
 		})
 	})
 
+	Context(fmt.Sprintf("%s validation of customized resources", validationType.getName()), func() {
+		// the singleton check of the create path needs the CR name and the deployment namespace to match
+		newConfig := func() *remediationv1alpha1.SelfNodeRemediationConfig {
+			snrc := createTestSelfNodeRemediationConfigCR()
+			snrc.Name = remediationv1alpha1.ConfigCRName
+			Expect(os.Setenv("DEPLOYMENT_NAMESPACE", snrc.Namespace)).To(Succeed())
+			return snrc
+		}
+		validate := func(snrc *remediationv1alpha1.SelfNodeRemediationConfig) (admission.Warnings, error) {
+			if validationType == update {
+				return validator.ValidateUpdate(context.Background(), newConfig(), snrc)
+			}
+			return validator.ValidateCreate(context.Background(), snrc)
+		}
+		It("should be accepted without warnings - requests only", func() {
+			snrc := newConfig()
+			snrc.Spec.CustomDsResources = &v1.ResourceRequirements{
+				Requests: v1.ResourceList{v1.ResourceCPU: resource.MustParse("50m"), v1.ResourceMemory: resource.MustParse("100Mi")},
+			}
+			warnings, err := validate(snrc)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(BeEmpty())
+		})
+		It("should be accepted with warnings - cpu and memory limits", func() {
+			snrc := newConfig()
+			snrc.Spec.CustomDsResources = &v1.ResourceRequirements{
+				Requests: v1.ResourceList{v1.ResourceCPU: resource.MustParse("50m"), v1.ResourceMemory: resource.MustParse("100Mi")},
+				Limits:   v1.ResourceList{v1.ResourceCPU: resource.MustParse("1"), v1.ResourceMemory: resource.MustParse("100Mi")},
+			}
+			warnings, err := validate(snrc)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(warnings).To(ConsistOf(ContainSubstring("memory limit"), ContainSubstring("CPU limit")))
+		})
+		It("should be rejected - request greater than limit", func() {
+			snrc := newConfig()
+			snrc.Spec.CustomDsResources = &v1.ResourceRequirements{
+				Requests: v1.ResourceList{v1.ResourceMemory: resource.MustParse("200Mi")},
+				Limits:   v1.ResourceList{v1.ResourceMemory: resource.MustParse("100Mi")},
+			}
+			_, err := validate(snrc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid customDsResources: request of memory (200Mi) must be less than or equal to its limit (100Mi)"))
+		})
+		It("should be rejected - negative quantity", func() {
+			snrc := newConfig()
+			snrc.Spec.CustomDsResources = &v1.ResourceRequirements{
+				Requests: v1.ResourceList{v1.ResourceCPU: resource.MustParse("-1")},
+			}
+			_, err := validate(snrc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid customDsResources: request of cpu must not be negative"))
+		})
+		It("should be rejected - resource claims", func() {
+			snrc := newConfig()
+			snrc.Spec.CustomDsResources = &v1.ResourceRequirements{
+				Claims: []v1.ResourceClaim{{Name: "someClaim"}},
+			}
+			_, err := validate(snrc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid customDsResources: resource claims are not supported"))
+		})
+	})
+
 	Context(fmt.Sprintf("%s validation of customized nodeAffinity node selector", validationType.getName()), func() {
 		It("should be rejected - key must be non-empty", func() {
 			snrc := createTestSelfNodeRemediationConfigCR()
@@ -494,6 +559,10 @@ func testValidCR(validator *SNRConfigValidator, validationType validationType) {
 	snrc.Spec.PeerUpdateInterval = &metav1.Duration{Duration: 10 * time.Second}
 	snrc.Spec.CustomDsTolerations = []v1.Toleration{{Key: "validValue", Effect: v1.TaintEffectNoSchedule}, {}, {Operator: v1.TolerationOpEqual, TolerationSeconds: pointer.Int64(-5)}, {Value: "SomeValidValue"}}
 	snrc.Spec.CustomDsNodeSelectorRequirements = []v1.NodeSelectorRequirement{{Key: "labelValue", Operator: v1.NodeSelectorOpExists}, {Key: "labelValue1", Operator: v1.NodeSelectorOpIn, Values: []string{"true"}}}
+	snrc.Spec.CustomDsResources = &v1.ResourceRequirements{
+		Requests: v1.ResourceList{v1.ResourceCPU: resource.MustParse("50m"), v1.ResourceMemory: resource.MustParse("100Mi")},
+		Limits:   v1.ResourceList{v1.ResourceMemory: resource.MustParse("100Mi")},
+	}
 
 	Context("for valid CR", func() {
 		BeforeEach(func() {

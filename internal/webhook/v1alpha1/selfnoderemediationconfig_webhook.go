@@ -87,11 +87,13 @@ func (v *SNRConfigValidator) ValidateCreate(_ context.Context, snrConfig *remedi
 	selfNodeRemediationConfigLog.Info("validate create", "name", snrConfig.Name)
 
 	warnings := validatePeerTimeoutSafety(snrConfig)
+	warnings = append(warnings, customDsResourcesWarnings(snrConfig)...)
 
 	return warnings, errors.NewAggregate([]error{
 		validateTimes(snrConfig),
 		validateCustomTolerations(snrConfig),
 		validateCustomDsNodeSelectors(snrConfig),
+		validateCustomDsResources(snrConfig),
 		validatePeerTopologyKey(snrConfig),
 		validateSingleton(snrConfig),
 	})
@@ -103,11 +105,13 @@ func (v *SNRConfigValidator) ValidateUpdate(_ context.Context, _, snrConfig *rem
 	selfNodeRemediationConfigLog.Info("validate update", "name", snrConfig.Name)
 
 	warnings := validatePeerTimeoutSafety(snrConfig)
+	warnings = append(warnings, customDsResourcesWarnings(snrConfig)...)
 
 	return warnings, errors.NewAggregate([]error{
 		validateTimes(snrConfig),
 		validateCustomTolerations(snrConfig),
 		validateCustomDsNodeSelectors(snrConfig),
+		validateCustomDsResources(snrConfig),
 		validatePeerTopologyKey(snrConfig),
 	})
 }
@@ -280,6 +284,57 @@ func validateNodeSelector(nodeSelector v1.NodeSelectorRequirement) error {
 		return err
 	}
 	return nil
+}
+
+// validateCustomDsResources validates that CustomDsResources, when set, can be applied to the agent container:
+// quantities must not be negative, requests must not exceed limits, and resource claims are not supported since
+// the agent pod doesn't declare any
+func validateCustomDsResources(snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) error {
+	resources := snrConfig.Spec.CustomDsResources
+	if resources == nil {
+		return nil
+	}
+	var errs []error
+	if len(resources.Claims) > 0 {
+		errs = append(errs, fmt.Errorf("invalid customDsResources: resource claims are not supported"))
+	}
+	for name, quantity := range resources.Requests {
+		if quantity.Sign() < 0 {
+			errs = append(errs, fmt.Errorf("invalid customDsResources: request of %s must not be negative, got %s", name, quantity.String()))
+		}
+	}
+	for name, limit := range resources.Limits {
+		if limit.Sign() < 0 {
+			errs = append(errs, fmt.Errorf("invalid customDsResources: limit of %s must not be negative, got %s", name, limit.String()))
+		}
+		if request, ok := resources.Requests[name]; ok && request.Cmp(limit) > 0 {
+			errs = append(errs, fmt.Errorf("invalid customDsResources: request of %s (%s) must be less than or equal to its limit (%s)", name, request.String(), limit.String()))
+		}
+	}
+	if err := errors.NewAggregate(errs); err != nil {
+		selfNodeRemediationConfigLog.Error(err, "invalid customDsResources")
+		return err
+	}
+	return nil
+}
+
+// customDsResourcesWarnings warns about limits on the agent container: when the agent is OOM-killed it can't disarm
+// the watchdog, and when it is CPU throttled it might not feed it in time, both of which can reboot the node
+func customDsResourcesWarnings(snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) admission.Warnings {
+	resources := snrConfig.Spec.CustomDsResources
+	if resources == nil {
+		return nil
+	}
+	var warnings admission.Warnings
+	if _, ok := resources.Limits[v1.ResourceMemory]; ok {
+		warnings = append(warnings, "customDsResources sets a memory limit for the self node remediation agents. "+
+			"An agent that is OOM-killed can't disarm the watchdog, which may reboot the node, so make sure the limit is generous.")
+	}
+	if _, ok := resources.Limits[v1.ResourceCPU]; ok {
+		warnings = append(warnings, "customDsResources sets a CPU limit for the self node remediation agents. "+
+			"CPU throttling can delay API checks, peer requests and watchdog feeding, so make sure the limit is generous.")
+	}
+	return warnings
 }
 
 // validatePeerTimeoutSafety checks if PeerRequestTimeout is safe relative to ApiServerTimeout
