@@ -155,6 +155,16 @@ type SelfNodeRemediationConfigSpec struct {
 	// +optional
 	CustomDsNodeSelectorRequirements []v1.NodeSelectorRequirement `json:"customDsNodeSelectorRequirements,omitempty"`
 
+	// CustomDsResources allows to override the compute resources (requests and limits) of the snr agents
+	// that are running on the ds. When set with at least one request or limit, it replaces the default resources
+	// of the agent container as a whole (requests and limits are not merged with the defaults).
+	// When unset or empty, the default resources are used (requests of 20m cpu and 60Mi memory, no limits).
+	// Be careful with limits: an agent that is OOM-killed or heavily CPU throttled can fail to feed the
+	// watchdog in time, which can reboot the node.
+	// Only cpu, memory and ephemeral-storage can be set, and resource claims are not supported.
+	// +optional
+	CustomDsResources *v1.ResourceRequirements `json:"customDsResources,omitempty"`
+
 	// Minimum number of peer workers/control nodes to attempt to contact before deciding if node is unhealthy or not
 	//	if set to zero, no other peers will be required to be present for remediation action to occur when this
 	//	node has lost API server access.  If an insufficient number of peers are found, we will not attempt to ask
