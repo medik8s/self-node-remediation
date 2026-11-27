@@ -24,6 +24,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -286,9 +287,12 @@ func validateNodeSelector(nodeSelector v1.NodeSelectorRequirement) error {
 	return nil
 }
 
+// supportedDsResourceNames are the resources that can be set on the agent container with CustomDsResources
+var supportedDsResourceNames = sets.New(v1.ResourceCPU, v1.ResourceMemory, v1.ResourceEphemeralStorage)
+
 // validateCustomDsResources validates that CustomDsResources, when set, can be applied to the agent container:
-// quantities must not be negative, requests must not exceed limits, and resource claims are not supported since
-// the agent pod doesn't declare any
+// only cpu, memory and ephemeral-storage can be set, quantities must not be negative, requests must not exceed
+// limits, and resource claims are not supported since the agent pod doesn't declare any
 func validateCustomDsResources(snrConfig *remediationv1alpha1.SelfNodeRemediationConfig) error {
 	resources := snrConfig.Spec.CustomDsResources
 	if resources == nil {
@@ -299,11 +303,17 @@ func validateCustomDsResources(snrConfig *remediationv1alpha1.SelfNodeRemediatio
 		errs = append(errs, fmt.Errorf("invalid customDsResources: resource claims are not supported"))
 	}
 	for name, quantity := range resources.Requests {
+		if !supportedDsResourceNames.Has(name) {
+			errs = append(errs, fmt.Errorf("invalid customDsResources: unsupported request %s, supported resources are %v", name, sets.List(supportedDsResourceNames)))
+		}
 		if quantity.Sign() < 0 {
 			errs = append(errs, fmt.Errorf("invalid customDsResources: request of %s must not be negative, got %s", name, quantity.String()))
 		}
 	}
 	for name, limit := range resources.Limits {
+		if !supportedDsResourceNames.Has(name) {
+			errs = append(errs, fmt.Errorf("invalid customDsResources: unsupported limit %s, supported resources are %v", name, sets.List(supportedDsResourceNames)))
+		}
 		if limit.Sign() < 0 {
 			errs = append(errs, fmt.Errorf("invalid customDsResources: limit of %s must not be negative, got %s", name, limit.String()))
 		}

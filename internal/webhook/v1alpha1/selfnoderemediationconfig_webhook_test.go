@@ -333,6 +333,18 @@ func testSingleInvalidField(validator *SNRConfigValidator, validationType valida
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("invalid customDsResources: request of cpu must not be negative"))
 		})
+		It("should be rejected - unsupported resource name", func() {
+			snrc := newConfig()
+			snrc.Spec.CustomDsResources = &v1.ResourceRequirements{
+				Requests: v1.ResourceList{"cpus": resource.MustParse("50m"), v1.ResourceMemory: resource.MustParse("100Mi")},
+				Limits:   v1.ResourceList{"nvidia.com/gpu": resource.MustParse("1")},
+			}
+			_, err := validate(snrc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("invalid customDsResources: unsupported request cpus"))
+			Expect(err.Error()).To(ContainSubstring("invalid customDsResources: unsupported limit nvidia.com/gpu"))
+			Expect(err.Error()).NotTo(ContainSubstring("unsupported request memory"))
+		})
 		It("should be rejected - resource claims", func() {
 			snrc := newConfig()
 			snrc.Spec.CustomDsResources = &v1.ResourceRequirements{

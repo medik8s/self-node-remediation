@@ -161,7 +161,7 @@ type SelfNodeRemediationConfigSpec struct {
 	// When unset or empty, the default resources are used (requests of 20m cpu and 60Mi memory, no limits).
 	// Be careful with limits: an agent that is OOM-killed or heavily CPU throttled can fail to feed the
 	// watchdog in time, which can reboot the node.
-	// Resource claims are not supported.
+	// Only cpu, memory and ephemeral-storage can be set, and resource claims are not supported.
 	// +optional
 	CustomDsResources *v1.ResourceRequirements `json:"customDsResources,omitempty"`
 
